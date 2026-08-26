@@ -94,19 +94,19 @@ const ErosionPipelines* pipelinesFor(VulkanDevice& device) {
     return &pipelines;
 }
 
-void uploadFloats(VulkanBuffer& buffer, const float* source, std::size_t count) {
-    std::memcpy(buffer.mapped(), source, count * sizeof(float));
-    buffer.flush();
+bool uploadFloats(VulkanDevice& device, VulkanBuffer& buffer, const float* source,
+                  std::size_t count) {
+    return device.upload(buffer, source, count * sizeof(float));
 }
 
-void downloadFloats(VulkanBuffer& buffer, float* destination, std::size_t count) {
-    buffer.invalidate();
-    std::memcpy(destination, buffer.mapped(), count * sizeof(float));
+bool downloadFloats(VulkanDevice& device, VulkanBuffer& buffer, float* destination,
+                    std::size_t count) {
+    return device.download(buffer, destination, count * sizeof(float));
 }
 
-void downloadIntegers(VulkanBuffer& buffer, std::int32_t* destination, std::size_t count) {
-    buffer.invalidate();
-    std::memcpy(destination, buffer.mapped(), count * sizeof(std::int32_t));
+bool downloadIntegers(VulkanDevice& device, VulkanBuffer& buffer, std::int32_t* destination,
+                      std::size_t count) {
+    return device.download(buffer, destination, count * sizeof(std::int32_t));
 }
 
 bool wasInterrupted(const EvaluationHooks& hooks) {
@@ -157,9 +157,11 @@ bool ThermalRun::prepare(const ThermalJob& job) {
         return false;
     }
 
-    uploadFloats(surface_, job.surface, job.count);
-    if (job.sediment != nullptr) {
-        uploadFloats(sediment_, job.sediment, job.count);
+    if (!uploadFloats(device_, surface_, job.surface, job.count)) {
+        return false;
+    }
+    if (job.sediment != nullptr && !uploadFloats(device_, sediment_, job.sediment, job.count)) {
+        return false;
     }
 
     scatterBinding_ = device_.createBinding(pipelines_.thermalScatter,
@@ -220,11 +222,13 @@ bool ThermalRun::execute(const ThermalJob& job, const EvaluationHooks& hooks) {
         reportProgress(hooks, static_cast<float>(done + span) / job.iterations);
     }
 
-    downloadFloats(surface_, job.surface, job.count);
-    if (job.sediment != nullptr) {
-        downloadFloats(sediment_, job.sediment, job.count);
+    if (!downloadFloats(device_, surface_, job.surface, job.count)) {
+        return false;
     }
-    return true;
+    if (job.sediment == nullptr) {
+        return true;
+    }
+    return downloadFloats(device_, sediment_, job.sediment, job.count);
 }
 
 /* ============================================================= hydraulic == */
@@ -265,15 +269,16 @@ bool HydraulicRun::prepare(const HydraulicJob& job) {
         return false;
     }
 
-    uploadFloats(surface_, job.surface, job.count);
-    std::memcpy(brush_.mapped(), job.brush, job.brushSampleCount * sizeof(BrushSample));
-    brush_.flush();
-    std::memset(wear_.mapped(), 0, cellBytes);
-    std::memset(deposit_.mapped(), 0, cellBytes);
-    std::memset(flow_.mapped(), 0, cellBytes);
-    wear_.flush();
-    deposit_.flush();
-    flow_.flush();
+    if (!uploadFloats(device_, surface_, job.surface, job.count)) {
+        return false;
+    }
+    if (!device_.upload(brush_, job.brush, job.brushSampleCount * sizeof(BrushSample))) {
+        return false;
+    }
+    if (!device_.fillWithZero(wear_) || !device_.fillWithZero(deposit_)
+        || !device_.fillWithZero(flow_)) {
+        return false;
+    }
 
     dropletBinding_ = device_.createBinding(
         pipelines_.hydraulicDroplet, {&surface_, &delta_, &wear_, &deposit_, &flow_, &brush_});
@@ -332,10 +337,13 @@ bool HydraulicRun::execute(const HydraulicJob& job, const EvaluationHooks& hooks
         reportProgress(hooks, static_cast<float>(done + span) / perBatch.size());
     }
 
-    downloadIntegers(wear_, job.wear, job.count);
-    downloadIntegers(deposit_, job.deposit, job.count);
-    downloadIntegers(flow_, job.flow, job.count);
-    return true;
+    if (!downloadIntegers(device_, wear_, job.wear, job.count)) {
+        return false;
+    }
+    if (!downloadIntegers(device_, deposit_, job.deposit, job.count)) {
+        return false;
+    }
+    return downloadIntegers(device_, flow_, job.flow, job.count);
 }
 
 }  // namespace

@@ -374,12 +374,28 @@ std::uint32_t VulkanDevice::findMemoryType(std::uint32_t allowedTypes,
     return UINT32_MAX;
 }
 
-VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize sizeBytes) {
+std::uint32_t VulkanDevice::memoryTypeFor(std::uint32_t allowedTypes, bool isHostVisible,
+                                          bool& isCoherent) const {
+    if (!isHostVisible) {
+        return findMemoryType(allowedTypes, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, isCoherent);
+    }
+    const std::uint32_t cached =
+        findMemoryType(allowedTypes,
+                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                       isCoherent);
+    if (cached != UINT32_MAX) {
+        return cached;
+    }
+    return findMemoryType(allowedTypes, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, isCoherent);
+}
+
+VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize sizeBytes, bool isHostVisible) {
     VulkanBuffer buffer;
     VkBufferCreateInfo creation{};
     creation.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     creation.size = std::max<VkDeviceSize>(sizeBytes, 4);
-    creation.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    creation.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                     | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     creation.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (!isSuccess(deviceApi_.vkCreateBuffer(device_, &creation, nullptr, &buffer.handle_))) {
         return buffer;
@@ -388,15 +404,10 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize sizeBytes) {
     VkMemoryRequirements requirements{};
     deviceApi_.vkGetBufferMemoryRequirements(device_, buffer.handle_, &requirements);
     bool isCoherent = false;
-    std::uint32_t memoryType = findMemoryType(requirements.memoryTypeBits,
-                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                                                  | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
-                                              isCoherent);
-    if (memoryType == UINT32_MAX) {
-        memoryType = findMemoryType(requirements.memoryTypeBits,
-                                    VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, isCoherent);
-    }
-    if (!allocateAndMap(buffer, requirements, memoryType, isCoherent, creation.size)) {
+    const std::uint32_t memoryType =
+        memoryTypeFor(requirements.memoryTypeBits, isHostVisible, isCoherent);
+    if (!allocateAndMap(buffer, requirements, memoryType, isCoherent, creation.size,
+                        isHostVisible)) {
         deviceApi_.vkDestroyBuffer(device_, buffer.handle_, nullptr);
         buffer.handle_ = VK_NULL_HANDLE;
     }
@@ -405,7 +416,7 @@ VulkanBuffer VulkanDevice::createBuffer(VkDeviceSize sizeBytes) {
 
 bool VulkanDevice::allocateAndMap(VulkanBuffer& buffer, const VkMemoryRequirements& requirements,
                                   std::uint32_t memoryType, bool isCoherent,
-                                  VkDeviceSize sizeBytes) {
+                                  VkDeviceSize sizeBytes, bool isHostVisible) {
     if (memoryType == UINT32_MAX) {
         return false;
     }
@@ -419,14 +430,87 @@ bool VulkanDevice::allocateAndMap(VulkanBuffer& buffer, const VkMemoryRequiremen
     if (!isSuccess(deviceApi_.vkBindBufferMemory(device_, buffer.handle_, buffer.memory_, 0))) {
         return false;
     }
-    if (!isSuccess(deviceApi_.vkMapMemory(device_, buffer.memory_, 0, VK_WHOLE_SIZE, 0,
-                                          &buffer.mapped_))) {
-        return false;
-    }
     buffer.device_ = this;
     buffer.sizeBytes_ = sizeBytes;
     buffer.isCoherent_ = isCoherent;
+    if (!isHostVisible) {
+        return true;
+    }
+    return isSuccess(
+        deviceApi_.vkMapMemory(device_, buffer.memory_, 0, VK_WHOLE_SIZE, 0, &buffer.mapped_));
+}
+
+VkCommandBuffer VulkanDevice::beginOneShot() {
+    VkCommandBufferAllocateInfo allocation{};
+    allocation.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocation.commandPool = commandPool_;
+    allocation.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocation.commandBufferCount = 1;
+    VkCommandBuffer commands = VK_NULL_HANDLE;
+    if (!isSuccess(deviceApi_.vkAllocateCommandBuffers(device_, &allocation, &commands))) {
+        return VK_NULL_HANDLE;
+    }
+
+    VkCommandBufferBeginInfo begin{};
+    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    deviceApi_.vkBeginCommandBuffer(commands, &begin);
+    return commands;
+}
+
+bool VulkanDevice::copyBuffer(VulkanBuffer& source, VulkanBuffer& target, VkDeviceSize sizeBytes) {
+    VkCommandBuffer commands = beginOneShot();
+    if (commands == VK_NULL_HANDLE) {
+        return false;
+    }
+    VkBufferCopy region{};
+    region.size = sizeBytes;
+    deviceApi_.vkCmdCopyBuffer(commands, source.handle(), target.handle(), 1, &region);
+    deviceApi_.vkEndCommandBuffer(commands);
+    return submitAndWait(commands);
+}
+
+bool VulkanDevice::upload(VulkanBuffer& target, const void* source, std::size_t sizeBytes) {
+    if (target.mapped() != nullptr) {
+        std::memcpy(target.mapped(), source, sizeBytes);
+        target.flush();
+        return true;
+    }
+    VulkanBuffer staging = createBuffer(sizeBytes, true);
+    if (!staging.isValid()) {
+        return false;
+    }
+    std::memcpy(staging.mapped(), source, sizeBytes);
+    staging.flush();
+    return copyBuffer(staging, target, sizeBytes);
+}
+
+bool VulkanDevice::download(VulkanBuffer& source, void* destination, std::size_t sizeBytes) {
+    if (source.mapped() != nullptr) {
+        source.invalidate();
+        std::memcpy(destination, source.mapped(), sizeBytes);
+        return true;
+    }
+    VulkanBuffer staging = createBuffer(sizeBytes, true);
+    if (!staging.isValid()) {
+        return false;
+    }
+    if (!copyBuffer(source, staging, sizeBytes)) {
+        return false;
+    }
+    staging.invalidate();
+    std::memcpy(destination, staging.mapped(), sizeBytes);
     return true;
+}
+
+bool VulkanDevice::fillWithZero(VulkanBuffer& target) {
+    VkCommandBuffer commands = beginOneShot();
+    if (commands == VK_NULL_HANDLE) {
+        return false;
+    }
+    deviceApi_.vkCmdFillBuffer(commands, target.handle(), 0, VK_WHOLE_SIZE, 0);
+    deviceApi_.vkEndCommandBuffer(commands);
+    return submitAndWait(commands);
 }
 
 bool VulkanDevice::finishPipeline(VulkanComputePipeline& pipeline, const std::uint32_t* spirv,

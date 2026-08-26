@@ -112,9 +112,9 @@ bool ParityRunner::prepare() {
         return false;
     }
     const VkDeviceSize bytes = static_cast<VkDeviceSize>(chunkSize) * sizeof(std::uint32_t);
-    firstBuffer_ = device_.createBuffer(bytes);
-    secondBuffer_ = device_.createBuffer(bytes);
-    resultBuffer_ = device_.createBuffer(bytes);
+    firstBuffer_ = device_.createBuffer(bytes, true);
+    secondBuffer_ = device_.createBuffer(bytes, true);
+    resultBuffer_ = device_.createBuffer(bytes, true);
     if (!firstBuffer_.isValid() || !secondBuffer_.isValid() || !resultBuffer_.isValid()) {
         return false;
     }

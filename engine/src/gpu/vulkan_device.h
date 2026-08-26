@@ -161,7 +161,21 @@ public:
     std::mutex& mutex() { return mutex_; }
     std::uint32_t maxWorkgroupSize() const { return maxWorkgroupSize_; }
 
-    VulkanBuffer createBuffer(VkDeviceSize sizeBytes);
+    /**
+     * Storage for a shader.
+     *
+     * Device-local by default, and that default matters: a droplet run scatters
+     * hundreds of millions of atomic additions across these, and on a discrete
+     * card a host-visible buffer puts every one of them across the bus. Ask for
+     * a host-visible one only where the host is the thing doing the reading.
+     */
+    VulkanBuffer createBuffer(VkDeviceSize sizeBytes, bool isHostVisible = false);
+
+    /// Copies through a staging buffer when the target is device-local, and
+    /// straight into the mapping when it is not.
+    bool upload(VulkanBuffer& target, const void* source, std::size_t sizeBytes);
+    bool download(VulkanBuffer& source, void* destination, std::size_t sizeBytes);
+    bool fillWithZero(VulkanBuffer& target);
     VulkanComputePipeline createPipeline(const std::uint32_t* spirv, std::size_t spirvBytes,
                                          std::uint32_t bufferCount,
                                          std::uint32_t pushConstantBytes);
@@ -187,8 +201,13 @@ private:
     bool createDescriptorPool();
     std::uint32_t findMemoryType(std::uint32_t allowedTypes, VkMemoryPropertyFlags wanted,
                                  bool& isCoherent) const;
+    std::uint32_t memoryTypeFor(std::uint32_t allowedTypes, bool isHostVisible,
+                                bool& isCoherent) const;
     bool allocateAndMap(VulkanBuffer& buffer, const VkMemoryRequirements& requirements,
-                        std::uint32_t memoryType, bool isCoherent, VkDeviceSize sizeBytes);
+                        std::uint32_t memoryType, bool isCoherent, VkDeviceSize sizeBytes,
+                        bool isHostVisible);
+    bool copyBuffer(VulkanBuffer& source, VulkanBuffer& target, VkDeviceSize sizeBytes);
+    VkCommandBuffer beginOneShot();
     bool finishPipeline(VulkanComputePipeline& pipeline, const std::uint32_t* spirv,
                         std::size_t spirvBytes);
     bool submitAndWait(VkCommandBuffer commands);

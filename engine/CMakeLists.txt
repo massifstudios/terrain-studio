@@ -95,6 +95,11 @@ if(TERRAIN_ENGINE_ENABLE_VULKAN)
         src/gpu/shaders/hydraulic_droplet.comp
     )
 
+    add_executable(terrain_erosion_benchmark tools/erosion_benchmark.cpp)
+    target_link_libraries(terrain_erosion_benchmark PRIVATE terrain_engine)
+    target_include_directories(terrain_erosion_benchmark PRIVATE src/gpu)
+    target_compile_features(terrain_erosion_benchmark PRIVATE cxx_std_20)
+
     add_executable(terrain_gpu_probe tools/gpu_probe.cpp)
     target_link_libraries(terrain_gpu_probe PRIVATE terrain_engine Vulkan::Headers ${CMAKE_DL_LIBS})
     target_include_directories(terrain_gpu_probe PRIVATE src/gpu)
