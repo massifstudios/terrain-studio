@@ -5,6 +5,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { delimiter } from 'node:path';
 import type { MessagePortMain } from 'electron';
 import type {
 	EngineRequest,
@@ -14,6 +15,7 @@ import type {
 	EvaluateResult,
 	ColorResult,
 	FieldResult,
+	PluginReport,
 	PointsResult
 } from '../shared/engine-protocol';
 import type { GraphDocument } from '../shared/graph-document';
@@ -38,6 +40,7 @@ interface AddonEvaluateResult {
 interface EngineAddon {
 	engineVersion(): string;
 	nodeRegistryJson(): string;
+	loadPlugins(directories: string[]): PluginReport[];
 	evaluate(
 		graph: GraphDocument,
 		nodeId: string,
@@ -58,6 +61,37 @@ function loadAddon(): EngineAddon {
 }
 
 const addon = loadAddon();
+
+/// Which directories hold plugins is the main process's decision, not this
+/// one's: only it knows where the user's data lives and where a packaged app
+/// keeps its resources.
+function pluginDirectories(): string[] {
+	const configured = process.env.TERRAIN_PLUGIN_PATH;
+	if (!configured) {
+		return [];
+	}
+	return configured.split(delimiter).filter((entry) => entry.length > 0);
+}
+
+let pluginReports: PluginReport[] = [];
+
+/// Also written to the log, not only to the UI: a refused plugin is exactly
+/// the kind of thing someone will go looking for in a terminal.
+function reportPlugins(reports: PluginReport[]): void {
+	for (const plugin of reports) {
+		if (plugin.message) {
+			console.warn(`Plugin ${plugin.path} ${plugin.message}`);
+			continue;
+		}
+		console.log(`Plugin ${plugin.name} loaded ${plugin.nodeCount} nodes`);
+	}
+}
+
+function rescanPlugins(): PluginReport[] {
+	pluginReports = addon.loadPlugins(pluginDirectories());
+	reportPlugins(pluginReports);
+	return pluginReports;
+}
 
 /// The addon leaves out whichever kinds of result the evaluated port did not
 /// produce, and the renderer would rather see an explicit absence.
@@ -104,6 +138,12 @@ async function runCommand(port: MessagePortMain, request: EngineRequest): Promis
 	if (request.command === 'nodeRegistry') {
 		return JSON.parse(addon.nodeRegistryJson());
 	}
+	if (request.command === 'pluginReports') {
+		return pluginReports;
+	}
+	if (request.command === 'rescanPlugins') {
+		return rescanPlugins();
+	}
 	if (request.command === 'cancelEvaluation') {
 		addon.cancelEvaluation();
 		return null;
@@ -147,5 +187,9 @@ function attachPort(port: MessagePortMain): void {
 process.parentPort.on('message', (event) => {
 	event.ports.forEach(attachPort);
 });
+
+// Plugins register before anything asks for the registry, so a plugin's node
+// is in the palette from the first frame.
+rescanPlugins();
 
 process.parentPort.postMessage({ status: 'ready' });

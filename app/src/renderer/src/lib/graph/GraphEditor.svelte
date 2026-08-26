@@ -1,5 +1,6 @@
 <script lang="ts">
-	import type { NodeSchema } from '$shared/graph-document';
+	import type { GraphNodeDocument, NodeSchema } from '$shared/graph-document';
+	import { placeholderSchema } from '$shared/graph-operations';
 	import { engineClient } from '$lib/engine-client.svelte';
 	import {
 		edgePath,
@@ -39,6 +40,16 @@
 
 	function schemaOf(typeName: string): NodeSchema | null {
 		return findNodeSchema(engineClient.registry, typeName);
+	}
+
+	/// A node whose type is not installed still draws, with ports read back off
+	/// the edges it already has.
+	function displayedSchema(node: GraphNodeDocument): NodeSchema {
+		const known = schemaOf(node.typeName);
+		if (known) {
+			return known;
+		}
+		return placeholderSchema(node, graphStore.edges);
 	}
 
 	function toGraphSpace(event: { clientX: number; clientY: number }): Point {
@@ -318,7 +329,8 @@
 		{#each graphStore.nodes as node (node.id)}
 			<GraphNodeView
 				{node}
-				schema={schemaOf(node.typeName)}
+				schema={displayedSchema(node)}
+				isPlaceholder={schemaOf(node.typeName) === null}
 				isSelected={graphStore.selectedNodeIds.includes(node.id)}
 				isPreviewed={graphStore.previewNodeId === node.id}
 				onPointerDown={(event) => beginNodeDrag(event, node.id)}

@@ -22,6 +22,7 @@ add_library(terrain_engine STATIC
     src/resample.cpp
     src/thumbnail.cpp
     src/registry.cpp
+    src/plugin_host.cpp
     src/graph.cpp
     src/evaluator.cpp
     src/evaluation_context.cpp
@@ -52,7 +53,7 @@ target_include_directories(terrain_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sdk>
 )
 
-target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB)
+target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB ${CMAKE_DL_LIBS})
 
 target_compile_features(terrain_engine PUBLIC cxx_std_20)
 target_compile_definitions(terrain_engine PRIVATE

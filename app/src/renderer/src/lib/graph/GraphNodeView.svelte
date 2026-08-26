@@ -15,6 +15,8 @@
 		schema: NodeSchema | null;
 		isSelected: boolean;
 		isPreviewed: boolean;
+		/// The registry does not know this type: a plugin is missing.
+		isPlaceholder: boolean;
 		onPointerDown: (event: PointerEvent) => void;
 		onPortPointerDown: (event: PointerEvent, side: 'input' | 'output', index: number) => void;
 		onPortPointerUp: (event: PointerEvent, side: 'input' | 'output', index: number) => void;
@@ -27,6 +29,7 @@
 		schema,
 		isSelected,
 		isPreviewed,
+		isPlaceholder,
 		onPointerDown,
 		onPortPointerDown,
 		onPortPointerUp,
@@ -63,7 +66,17 @@
 		failed: 'bg-red'
 	};
 
+	function dotColour(): string {
+		if (isPlaceholder) {
+			return 'bg-red';
+		}
+		return stateColour[status.state];
+	}
+
 	function timingLabel(): string {
+		if (isPlaceholder) {
+			return 'not installed';
+		}
 		if (status.state === 'cached') {
 			return 'cached';
 		}
@@ -89,7 +102,7 @@
 		class="flex items-center gap-1 truncate rounded-t-md border-b border-line px-2 text-2xs"
 		style="height: {nodeHeaderHeight}px"
 	>
-		<span class="h-1.5 w-1.5 shrink-0 rounded-full {stateColour[status.state]}"></span>
+		<span class="h-1.5 w-1.5 shrink-0 rounded-full {dotColour()}"></span>
 		<span class="truncate font-medium">{node.id}</span>
 		{#if isPreviewed}
 			<span class="ml-auto shrink-0 text-2xs text-dim">preview</span>

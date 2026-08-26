@@ -7,7 +7,9 @@
 import type {
 	GraphEdgeDocument,
 	GraphNodeDocument,
+	NodeSchema,
 	ParameterValue,
+	PortSchema,
 	RegistrySchema
 } from './graph-document';
 import { findNodeSchema } from './registry-schema';
@@ -59,6 +61,51 @@ export function reachesDownstream(
 		}
 	}
 	return false;
+}
+
+function unknownPorts(count: number): PortSchema[] {
+	const ports: PortSchema[] = [];
+	for (let index = 0; index < count; index += 1) {
+		ports.push({
+			name: '?',
+			description: 'This node type is not installed, so its ports are unknown',
+			type: 'field',
+			fieldSemantics: 'mask',
+			optional: true
+		});
+	}
+	return ports;
+}
+
+function portCount(edges: GraphEdgeDocument[], ports: number[]): number {
+	if (edges.length === 0) {
+		return 0;
+	}
+	return 1 + Math.max(...ports);
+}
+
+/**
+ * A stand-in for a node whose type the registry does not know — a project
+ * saved against a plugin that is not loaded. Its ports are read back off the
+ * edges that already exist, so the connections stay visible and the node keeps
+ * its shape; it declares no parameters, because the ones the file carried are
+ * shown exactly as they were stored rather than interpreted.
+ */
+export function placeholderSchema(
+	node: GraphNodeDocument,
+	edges: GraphEdgeDocument[]
+): NodeSchema {
+	const incoming = edges.filter((edge) => edge.toNodeId === node.id);
+	const outgoing = edges.filter((edge) => edge.fromNodeId === node.id);
+	return {
+		typeName: node.typeName,
+		category: 'Not installed',
+		description: `No loaded plugin provides ${node.typeName}. The node keeps its settings and its connections, and will not evaluate.`,
+		version: 0,
+		inputs: unknownPorts(portCount(incoming, incoming.map((edge) => edge.toPort))),
+		outputs: unknownPorts(portCount(outgoing, outgoing.map((edge) => edge.fromPort))),
+		parameters: []
+	};
 }
 
 export interface ConnectionRequest {

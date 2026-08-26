@@ -3,7 +3,7 @@
  * straight to it, so result buffers never round-trip through the main process.
  */
 
-import { join } from 'node:path';
+import { delimiter, join } from 'node:path';
 import { app, MessageChannelMain, utilityProcess, type UtilityProcess, type WebContents } from 'electron';
 import type { EngineStatus } from '../shared/engine-protocol';
 
@@ -23,6 +23,17 @@ function resolveAddonPath(): string {
 	return join(app.getAppPath(), '..', 'bridge', 'build', 'Release', 'engine.node');
 }
 
+/// Two plugin directories: one belonging to the user, one shipped beside the
+/// app. The engine host is told where they are rather than working it out —
+/// only the main process knows either path.
+function resolvePluginPath(): string {
+	const userDirectory = join(app.getPath('userData'), 'plugins');
+	if (app.isPackaged) {
+		return [userDirectory, join(process.resourcesPath, 'plugins')].join(delimiter);
+	}
+	return [userDirectory, join(app.getAppPath(), '..', 'plugins')].join(delimiter);
+}
+
 function setStatus(status: EngineStatus): void {
 	engineStatus = status;
 	for (const contents of statusListeners) {
@@ -39,7 +50,11 @@ export function startEngine(): void {
 	engineProcess = utilityProcess.fork(hostPath, [], {
 		serviceName: 'terrain-engine',
 		stdio: 'inherit',
-		env: { ...process.env, TERRAIN_ENGINE_ADDON: resolveAddonPath() }
+		env: {
+			...process.env,
+			TERRAIN_ENGINE_ADDON: resolveAddonPath(),
+			TERRAIN_PLUGIN_PATH: resolvePluginPath()
+		}
 	});
 
 	engineProcess.on('message', (message: { status?: string }) => {

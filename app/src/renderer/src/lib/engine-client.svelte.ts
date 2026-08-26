@@ -6,7 +6,8 @@ import {
 	type EngineProgressEvent,
 	type EngineStatus,
 	type EvaluateRequest,
-	type EvaluateResult
+	type EvaluateResult,
+	type PluginReport
 } from '$shared/engine-protocol';
 import type { RegistrySchema } from '$shared/graph-document';
 import { RequestLedger } from '$shared/request-ledger';
@@ -19,6 +20,7 @@ class EngineClient {
 	status = $state<EngineStatus>('starting');
 	version = $state<string | null>(null);
 	registry = $state<RegistrySchema | null>(null);
+	plugins = $state<PluginReport[]>([]);
 	progress = $state<EngineProgressEvent | null>(null);
 
 	#port: MessagePort | null = null;
@@ -52,6 +54,13 @@ class EngineClient {
 		return result;
 	}
 
+	/// Looks for plugin libraries again. Anything already loaded stays loaded —
+	/// the registry holds function pointers into it.
+	async rescanPlugins(): Promise<void> {
+		this.plugins = (await this.send('rescanPlugins')) as PluginReport[];
+		this.registry = (await this.send('nodeRegistry')) as RegistrySchema;
+	}
+
 	#handleStatus(status: EngineStatus): void {
 		this.status = status;
 		if (status === 'crashed') {
@@ -63,6 +72,7 @@ class EngineClient {
 		this.#port = null;
 		this.version = null;
 		this.registry = null;
+		this.plugins = [];
 		this.progress = null;
 		this.#ledger.failAll(new Error('Engine process exited'));
 	}
@@ -94,6 +104,7 @@ class EngineClient {
 
 	async #loadDescription(): Promise<void> {
 		this.version = String(await this.send('engineVersion'));
+		this.plugins = (await this.send('pluginReports')) as PluginReport[];
 		this.registry = (await this.send('nodeRegistry')) as RegistrySchema;
 	}
 }

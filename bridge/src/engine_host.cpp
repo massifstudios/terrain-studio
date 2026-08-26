@@ -11,6 +11,16 @@ EngineHost& EngineHost::instance() {
     return host;
 }
 
+std::vector<terrain::PluginReport> EngineHost::loadPlugins(
+    const std::vector<std::string>& directories) {
+    const std::lock_guard<std::mutex> evaluationLock(evaluationMutex_);
+
+    for (const std::string& directory : directories) {
+        plugins_.loadDirectory(directory, registry_);
+    }
+    return plugins_.reports();
+}
+
 void EngineHost::cancelCurrent() {
     const std::lock_guard<std::mutex> lock(tokenMutex_);
     if (currentToken_ != nullptr) {

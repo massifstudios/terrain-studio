@@ -1,8 +1,11 @@
 #pragma once
 
 #include <mutex>
+#include <string>
+#include <vector>
 
 #include "terrain/evaluator.h"
+#include "terrain/plugin_host.h"
 #include "terrain/registry.h"
 
 namespace bridge {
@@ -25,10 +28,18 @@ public:
     /// Cancels whatever is running, so a new preview can take its place.
     void cancelCurrent();
 
+    /// Scans each directory in turn and returns what became of every library
+    /// seen so far, not just the ones this call found — a rescan is additive,
+    /// and the UI wants the whole picture. Nodes may only arrive between
+    /// evaluations, so this waits for one to finish rather than registering
+    /// underneath it.
+    std::vector<terrain::PluginReport> loadPlugins(const std::vector<std::string>& directories);
+
 private:
     EngineHost();
 
     terrain::NodeRegistry registry_;
+    terrain::PluginHost plugins_;
     terrain::Evaluator evaluator_;
     std::mutex evaluationMutex_;
     std::mutex tokenMutex_;

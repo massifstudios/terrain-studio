@@ -406,11 +406,43 @@ out    = ExportPoints(forest, format: json)
 - **Node positions are not in the text.** A node the editor already knows keeps
   its position; new nodes are laid out by dependency depth into columns.
 
-## 12. Pending decisions
+## 12. Plugins
 
-Recorded here when they land, not before:
+`PLUGINS.md` is the author-facing page. What is locked:
 
-- Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
+- **ABI version 1 is frozen.** Nothing in `engine/sdk/terrain_node_sdk.h`
+  moves: no field is reordered or removed, no signature altered, no enum value
+  reused. A later revision may only append, and it arrives as version 2, which
+  the engine will accept alongside version 1. A plugin compiled against
+  version 1 keeps working without being rebuilt.
+- **The engine reads a plugin's ABI version before anything else** and refuses
+  outright any it does not know, with a message naming both numbers. Never a
+  crash, never a silent skip. The message reaches the UI and the log.
+- **A loaded library is never unloaded.** The registry holds function pointers
+  into it for as long as the process lives, and there is no moment at which
+  closing one would be safe. A rescan is therefore additive: it picks up
+  libraries that have appeared and leaves everything already loaded alone.
+  Replacing a plugin means restarting the engine process.
+- **Only libraries directly in a plugin directory are loaded**, never ones in
+  subdirectories, which is what lets a plugin's source live beside its built
+  form.
+- **The main process decides where the plugin directories are** — a per-user
+  one and one beside the app — and passes them to the engine host in
+  `TERRAIN_PLUGIN_PATH`. Neither the engine nor the host knows Electron's path
+  conventions, and the renderer has no say in it at all.
+- **Plugins register between evaluations**, under the same lock, so no node
+  can appear in the registry while a graph is being walked.
+- **A missing plugin becomes a placeholder node, never a lost one.** The node
+  keeps its parameters and its edges, takes as many ports as its existing
+  edges use, shows as *not installed*, and refuses to evaluate. Saving the
+  project writes everything back untouched. The code view is deliberately
+  stricter: it refuses an unknown type outright, because text is typed by hand
+  and a typo must not quietly become a placeholder.
+- **The example plugin is the ABI's regression test.** `plugins/example` is
+  built by the engine's own test build, exactly as an author would build it —
+  from the SDK header alone, in C, linking nothing — and the suite loads it,
+  evaluates it, and checks it is deterministic across thread counts. A second
+  throwaway plugin declaring a future ABI version pins the refusal path.
 
 ## 13. Code style
 

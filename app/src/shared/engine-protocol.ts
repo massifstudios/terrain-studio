@@ -9,9 +9,25 @@ import type { GraphDocument, GraphGeoReference } from './graph-document';
 export type EngineCommandName =
 	| 'engineVersion'
 	| 'nodeRegistry'
+	| 'pluginReports'
+	| 'rescanPlugins'
 	| 'evaluate'
 	| 'cancelEvaluation'
 	| 'describeElevationModel';
+
+/**
+ * What became of one plugin library the engine looked at. `message` is empty
+ * only when it loaded cleanly and brought at least one node; a refusal always
+ * carries a reason, because a plugin must never fail silently.
+ */
+export interface PluginReport {
+	path: string;
+	name: string;
+	loaded: boolean;
+	abiVersion: number;
+	nodeCount: number;
+	message: string;
+}
 
 export interface EvaluateRequest {
 	graph: GraphDocument;

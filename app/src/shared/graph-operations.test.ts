@@ -8,7 +8,9 @@ import type {
 } from './graph-document';
 import {
 	canConnect,
+	inDependencyOrder,
 	nextNodeId,
+	placeholderSchema,
 	reachesDownstream,
 	withConnection,
 	withMovedNodes,
@@ -152,6 +154,56 @@ describe('deletion', () => {
 
 		expect(remaining.nodes.map((entry) => entry.id)).toEqual(['constant1', 'blur2']);
 		expect(remaining.edges).toHaveLength(0);
+	});
+});
+
+describe('dependency order', () => {
+	test('every node follows the ones feeding it', () => {
+		const contents = chain();
+		const reversed = { nodes: [...contents.nodes].reverse(), edges: contents.edges };
+
+		expect(inDependencyOrder(reversed).map((entry) => entry.id)).toEqual([
+			'constant1',
+			'blur1',
+			'blur2'
+		]);
+	});
+
+	test('a cycle still comes back whole rather than hanging', () => {
+		const contents = chain();
+		const looped = {
+			nodes: contents.nodes,
+			edges: [...contents.edges, { fromNodeId: 'blur2', fromPort: 0, toNodeId: 'blur1', toPort: 0 }]
+		};
+
+		expect(inDependencyOrder(looped)).toHaveLength(3);
+	});
+});
+
+describe('a node whose type is not installed', () => {
+	const missing = node('speckle1', 'Speckle');
+	const edges: GraphEdgeDocument[] = [
+		{ fromNodeId: 'constant1', fromPort: 0, toNodeId: 'speckle1', toPort: 1 },
+		{ fromNodeId: 'speckle1', fromPort: 0, toNodeId: 'blur1', toPort: 0 }
+	];
+
+	test('gets as many ports as its edges use, so nothing dangles', () => {
+		const stand = placeholderSchema(missing, edges);
+
+		expect(stand.inputs).toHaveLength(2);
+		expect(stand.outputs).toHaveLength(1);
+		expect(stand.typeName).toBe('Speckle');
+	});
+
+	test('has no ports at all when nothing is wired to it', () => {
+		const stand = placeholderSchema(missing, []);
+
+		expect(stand.inputs).toHaveLength(0);
+		expect(stand.outputs).toHaveLength(0);
+	});
+
+	test('declares no parameters, so the ones the file carried are shown as stored', () => {
+		expect(placeholderSchema(missing, edges).parameters).toHaveLength(0);
 	});
 });
 

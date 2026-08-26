@@ -1,5 +1,48 @@
 # Done
 
+## T9 — Plugins
+
+Terrain Studio can now be extended without touching it. Someone else's node
+appears in the palette, the properties panel and the code view exactly like
+one of ours.
+
+**What works**
+
+- Shared libraries dropped into a plugin folder are loaded when the engine
+  starts, and again whenever you press **Plugins** in the top bar. The bar
+  says how many loaded, and shows in red anything that was turned away and
+  why.
+- A plugin built for a different version of the interface is refused with a
+  message naming both versions. It never crashes the app and is never quietly
+  ignored.
+- Opening a project that uses a node you do not have no longer costs you
+  anything: the node stays in the graph marked *not installed*, keeps every
+  setting and every connection, and simply refuses to run. Save the project
+  and it all comes back out untouched.
+- The repo carries a working example plugin, `Speckle`, in about a hundred
+  lines of C. It builds from one header, links nothing, and the test suite
+  builds and runs it on every test run — so the interface cannot quietly rot.
+
+**Where things are**
+
+- `PLUGINS.md` — how to write one, start to finish.
+- `plugins/example/` — the example, which is also the template.
+- `engine/sdk/terrain_node_sdk.h` — the interface itself.
+
+**Useful to know**
+
+- Two folders are looked at: your own, under the app's user data, and
+  `plugins/` beside the application. Libraries sitting directly in either are
+  loaded; anything in a subfolder is ignored, so a plugin's source can live
+  next to its built form.
+- Rescanning only adds. A plugin already loaded stays as it is — replacing one
+  means restarting the app.
+- The interface is now fixed. Anything built against it today keeps working;
+  future additions arrive as a new version and the old one keeps being
+  accepted.
+- Plugins are bound by the same reproducibility rules as everything else, and
+  the rules are written where an author will read them.
+
 ## T8 — The graph as code
 
 The bottom panel's second tab is no longer a placeholder. The same graph is

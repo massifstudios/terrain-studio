@@ -7,6 +7,7 @@
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { parseGraph, serializeGraph } from '$shared/massifgraph';
 	import EngineStatusIndicator from './EngineStatusIndicator.svelte';
+	import PluginIndicator from './PluginIndicator.svelte';
 
 	const previewResolutions = ['256', '512', '1024', '2048'];
 	const buildResolutions = ['2048', '4096', '8192', '10240'];
@@ -102,6 +103,7 @@
 		</label>
 
 		<Button size="sm" variant="primary" icon={Play} disabled>Build</Button>
+		<PluginIndicator />
 		<EngineStatusIndicator />
 	</div>
 </header>

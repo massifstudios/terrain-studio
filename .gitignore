@@ -11,3 +11,9 @@ engine/build/
 bridge/build/
 compile_commands.json
 .task/
+
+# Installed plugins. Their sources live in plugins/<name>/ and are tracked;
+# the libraries dropped beside them for the engine to load are not.
+plugins/*.so
+plugins/*.dylib
+plugins/*.dll

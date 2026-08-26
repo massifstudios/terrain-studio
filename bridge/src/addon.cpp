@@ -9,6 +9,7 @@
 #include "graph_conversion.h"
 #include "terrain/color_field.h"
 #include "terrain/formats/massifdem.h"
+#include "terrain/plugin_host.h"
 #include "terrain/point_set.h"
 #include "terrain/version.h"
 
@@ -33,6 +34,43 @@ Napi::Value EngineVersion(const Napi::CallbackInfo& info) {
 
 Napi::Value NodeRegistryJson(const Napi::CallbackInfo& info) {
     return Napi::String::New(info.Env(), bridge::EngineHost::instance().registry().toJson());
+}
+
+Napi::Object pluginReportToJs(const Napi::Env& env, const terrain::PluginReport& report) {
+    Napi::Object entry = Napi::Object::New(env);
+    entry.Set("path", Napi::String::New(env, report.path));
+    entry.Set("name", Napi::String::New(env, report.name));
+    entry.Set("loaded", Napi::Boolean::New(env, report.loaded));
+    entry.Set("abiVersion", Napi::Number::New(env, report.abiVersion));
+    entry.Set("nodeCount", Napi::Number::New(env, report.nodeCount));
+    entry.Set("message", Napi::String::New(env, report.message));
+    return entry;
+}
+
+std::vector<std::string> stringsFromJs(const Napi::Array& source) {
+    std::vector<std::string> values;
+    for (std::uint32_t index = 0; index < source.Length(); ++index) {
+        values.push_back(source.Get(index).ToString().Utf8Value());
+    }
+    return values;
+}
+
+/// Loads plugin nodes from the directories the app chose. Calling it again
+/// picks up libraries that have appeared since; already-loaded ones stay put.
+Napi::Value LoadPlugins(const Napi::CallbackInfo& info) {
+    const Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsArray()) {
+        throw Napi::TypeError::New(env, "loadPlugins(directories) expects an array of paths");
+    }
+
+    const std::vector<terrain::PluginReport> reports =
+        bridge::EngineHost::instance().loadPlugins(stringsFromJs(info[0].As<Napi::Array>()));
+
+    Napi::Array result = Napi::Array::New(env, reports.size());
+    for (std::size_t index = 0; index < reports.size(); ++index) {
+        result.Set(static_cast<std::uint32_t>(index), pluginReportToJs(env, reports[index]));
+    }
+    return result;
 }
 
 /// Header-only description of a DEM on disk, for the import dialog.
@@ -283,6 +321,7 @@ Napi::Value Evaluate(const Napi::CallbackInfo& info) {
 Napi::Object Initialize(Napi::Env env, Napi::Object exports) {
     exports.Set("engineVersion", Napi::Function::New(env, EngineVersion));
     exports.Set("nodeRegistryJson", Napi::Function::New(env, NodeRegistryJson));
+    exports.Set("loadPlugins", Napi::Function::New(env, LoadPlugins));
     exports.Set("evaluate", Napi::Function::New(env, Evaluate));
     exports.Set("cancelEvaluation", Napi::Function::New(env, CancelEvaluation));
     exports.Set("describeElevationModel", Napi::Function::New(env, DescribeElevationModel));

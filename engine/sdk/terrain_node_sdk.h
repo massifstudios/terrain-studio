@@ -6,11 +6,16 @@
  * structures the engine's own built-in nodes use, so this ABI cannot rot:
  * the engine is its own first plugin client.
  *
- * The header is C, deliberately. Version 1 is still a draft: it grows, but
- * only by appending — new enum values, new fields at the end of a struct —
- * so anything already compiled against it keeps working. It freezes when
- * dynamic plugin loading ships, and from then on a change means a new
- * version, never a silent signature change.
+ * The header is C, deliberately, and version 1 is frozen. Nothing below moves:
+ * no field is reordered or removed, no signature is altered, no enum value is
+ * reused. A later revision may only append — new enum values, new function
+ * pointers at the end of TerrainContextApi — and it arrives as version 2,
+ * which the engine will accept alongside version 1. A plugin compiled against
+ * version 1 therefore keeps working without being rebuilt.
+ *
+ * The engine refuses any version it does not know, with a message naming both
+ * numbers. It never loads a plugin it cannot vouch for and never skips one
+ * silently.
  *
  * ---------------------------------------------------------------------------
  * THE DETERMINISM CONTRACT BINDS PLUGINS
@@ -225,9 +230,27 @@ typedef struct TerrainRegistryApi {
     TerrainRegisterNodeFn registerNode;
 } TerrainRegistryApi;
 
-/* Every plugin exports exactly these two symbols. */
+/*
+ * Every plugin exports exactly these two symbols, with C linkage and default
+ * visibility.
+ *
+ * `terrainPluginAbiVersion` returns TERRAIN_SDK_ABI_VERSION as the plugin saw
+ * it at compile time. The engine reads it before anything else and refuses the
+ * plugin outright if it does not know that version.
+ *
+ * `terrainRegisterPlugin` declares the plugin's nodes through
+ * `api->registerNode` and returns 1 when it is willing to be loaded, 0 to
+ * refuse itself. Refusing is not a failure — a plugin that finds its own
+ * prerequisites missing should say so here rather than register a node that
+ * cannot evaluate. A node whose type name is already taken is rejected by
+ * `registerNode`, which returns 0 for that node alone.
+ */
 uint32_t terrainPluginAbiVersion(void);
 int32_t terrainRegisterPlugin(const TerrainRegistryApi* api, TerrainRegistry* registry);
+
+typedef uint32_t (*TerrainPluginAbiVersionFn)(void);
+typedef int32_t (*TerrainRegisterPluginFn)(const TerrainRegistryApi* api,
+                                           TerrainRegistry* registry);
 
 /* ----------------------------------------------------------- randomness -- */
 
