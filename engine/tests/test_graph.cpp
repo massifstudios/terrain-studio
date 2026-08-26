@@ -75,7 +75,8 @@ TEST_CASE("an unknown node type is a validation error", "[graph]") {
 
     const terrain::GraphValidation result = validateGraph(graph, builtinRegistry());
     REQUIRE_FALSE(result.isValid);
-    REQUIRE(result.errors.front().find("Unknown node type") != std::string::npos);
+    REQUIRE(result.errors.front().nodeId == "mystery");
+    REQUIRE(result.errors.front().message.find("Unknown node type") != std::string::npos);
 }
 
 TEST_CASE("a required input left unconnected is a validation error", "[graph]") {
@@ -84,7 +85,9 @@ TEST_CASE("a required input left unconnected is a validation error", "[graph]") 
 
     const terrain::GraphValidation result = validateGraph(graph, builtinRegistry());
     REQUIRE_FALSE(result.isValid);
-    REQUIRE(result.errors.front().find("required port") != std::string::npos);
+    REQUIRE(result.errors.front().nodeId == "soft");
+    REQUIRE(result.errors.front().portName == "In");
+    REQUIRE(result.errors.front().message.find("required port") != std::string::npos);
 }
 
 TEST_CASE("an optional mask input may stay unconnected", "[graph]") {

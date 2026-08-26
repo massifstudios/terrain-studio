@@ -209,7 +209,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
 
     const std::vector<const GraphNode*> order = dependencyOrder(graph, nodeId);
     if (order.empty()) {
-        outcome.errors.push_back("Node '" + std::string(nodeId) + "' is not in the graph");
+        outcome.errors.push_back({"", "", "Node '" + std::string(nodeId) + "' is not in the graph"});
         return outcome;
     }
 
@@ -265,7 +265,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
         std::mutex progressMutex;
         std::vector<std::shared_ptr<NodeResult>> waveResults(wave.size());
         std::vector<NodeTiming> waveTimings(wave.size());
-        std::vector<std::string> waveErrors(wave.size());
+        std::vector<GraphError> waveErrors(wave.size());
         std::vector<std::function<void()>> tasks;
         tasks.reserve(wave.size());
 
@@ -322,7 +322,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
                 const std::chrono::duration<double, std::milli> elapsed = finished - started;
                 waveTimings[index] = NodeTiming{plan->node->id, elapsed.count(), false};
                 if (state.hasError) {
-                    waveErrors[index] = plan->node->id + ": " + state.error;
+                    waveErrors[index] = GraphError{plan->node->id, "", state.error};
                     return;
                 }
                 // Emission order is whatever the node's lanes happened to be;
@@ -340,7 +340,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
 
         for (std::size_t index = 0; index < wave.size(); ++index) {
             outcome.timings.push_back(waveTimings[index]);
-            if (!waveErrors[index].empty()) {
+            if (!waveErrors[index].message.empty()) {
                 outcome.errors.push_back(waveErrors[index]);
                 continue;
             }
@@ -358,7 +358,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
 
     const std::shared_ptr<NodeResult>& target = results.at(std::string(nodeId));
     if (outputPort < 0 || outputPort >= static_cast<int>(target->outputs.size())) {
-        outcome.errors.push_back("Output port is out of range");
+        outcome.errors.push_back({std::string(nodeId), "", "Output port is out of range"});
         return outcome;
     }
     const NodeOutput& requested = target->outputs[static_cast<std::size_t>(outputPort)];

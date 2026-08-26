@@ -89,7 +89,7 @@ struct EvaluationOutcome {
     std::vector<NodeThumbnail> thumbnails;
     /// One per node in the whole graph, not only the part that was evaluated.
     std::vector<NodeSignature> signatures;
-    std::vector<std::string> errors;
+    std::vector<GraphError> errors;
     bool wasCancelled = false;
 
     bool hasResult() const { return field != nullptr || color != nullptr || points != nullptr; }

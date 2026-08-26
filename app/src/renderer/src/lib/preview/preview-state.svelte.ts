@@ -24,7 +24,6 @@ class PreviewState {
 	sunAltitudeDegrees = $state(45);
 	showTopDownView = $state(true);
 	cursor = $state<CursorCell | null>(null);
-	errors = $state<string[]>([]);
 
 	get worldSizeMeters(): number {
 		if (!this.field) {

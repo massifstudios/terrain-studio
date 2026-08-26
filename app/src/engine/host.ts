@@ -34,7 +34,7 @@ interface AddonEvaluateResult {
 	signatures: EvaluateResult['signatures'];
 	evaluatedNodeIds: string[];
 	timings: EvaluateResult['timings'];
-	errors: string[];
+	errors: EvaluateResult['errors'];
 	cancelled: boolean;
 }
 

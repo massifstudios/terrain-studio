@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Warning from 'phosphor-svelte/lib/Warning';
 	import type { GraphNodeDocument, NodeSchema } from '$shared/graph-document';
 	import { placeholderSchema } from '$shared/graph-operations';
 	import { engineClient } from '$lib/engine-client.svelte';
@@ -6,7 +7,9 @@
 		edgePath,
 		inputPortPosition,
 		nearestInputPort,
+		nodeHeight,
 		nodeIntersects,
+		nodeWidth,
 		outputPortPosition,
 		portSnapRadius,
 		rectangleFromCorners,
@@ -130,6 +133,33 @@
 		}
 		return `${nodeId} · ${timingText(nodeStatusStore.statusOf(nodeId))}`;
 	});
+
+	/* ------------------------------------------------------------ errors -- */
+
+	const shownErrorLimit = 3;
+
+	const shownErrors = $derived(nodeStatusStore.errors.slice(0, shownErrorLimit));
+	const hiddenErrorCount = $derived(
+		Math.max(nodeStatusStore.errors.length - shownErrorLimit, 0)
+	);
+
+	/// Puts the node the error belongs to in the middle of the editor and selects
+	/// it, so its parameters are the ones the properties panel is showing.
+	function focusNode(nodeId: string): void {
+		const node = graphStore.findNode(nodeId);
+		if (!node || !surface) {
+			return;
+		}
+		const bounds = surface.getBoundingClientRect();
+		const centreX = node.positionX + nodeWidth / 2;
+		const centreY = node.positionY + nodeHeight(displayedSchema(node)) / 2;
+		view = {
+			...view,
+			offsetX: bounds.width / 2 - centreX * view.scale,
+			offsetY: bounds.height / 2 - centreY * view.scale
+		};
+		graphStore.select([nodeId]);
+	}
 
 	function timingText(status: NodeStatus): string {
 		if (status.state === 'evaluating') {
@@ -501,13 +531,35 @@
 		{/if}
 	</div>
 
-	{#if timingReadout}
-		<div
-			class="pointer-events-none absolute bottom-2 left-2 rounded-sm border border-line bg-elevated px-2 py-1 font-mono text-2xs text-dim"
-		>
-			{timingReadout}
-		</div>
-	{/if}
+	<div
+		class="pointer-events-none absolute bottom-2 left-2 flex max-w-[28rem] flex-col items-start gap-1"
+	>
+		{#each shownErrors as failure (failure.nodeId + failure.message)}
+			<button
+				class="pointer-events-auto flex max-w-full items-center gap-1.5 rounded-sm border border-red bg-red-soft px-2 py-1 text-left text-2xs text-red"
+				disabled={failure.nodeId === ''}
+				onpointerdown={(event) => event.stopPropagation()}
+				onclick={() => focusNode(failure.nodeId)}
+			>
+				<Warning class="shrink-0" size={12} weight="fill" />
+				{#if failure.nodeId}
+					<span class="shrink-0 font-mono">{failure.nodeId}</span>
+				{/if}
+				<span class="truncate">{failure.message}</span>
+			</button>
+		{/each}
+		{#if hiddenErrorCount > 0}
+			<span class="px-2 text-2xs text-red">and {hiddenErrorCount} more</span>
+		{/if}
+
+		{#if timingReadout}
+			<div
+				class="pointer-events-none rounded-sm border border-line bg-elevated px-2 py-1 font-mono text-2xs text-dim"
+			>
+				{timingReadout}
+			</div>
+		{/if}
+	</div>
 
 	{#if graphStore.nodes.length === 0 && !palette}
 		<div

@@ -14,6 +14,7 @@
 		portSpacing,
 		type Point
 	} from './graph-geometry';
+	import Warning from 'phosphor-svelte/lib/Warning';
 	import { nodeStatusStore, type NodeState } from './node-status.svelte';
 	import NodeThumbnailView from './NodeThumbnailView.svelte';
 
@@ -51,6 +52,7 @@
 
 	const status = $derived(nodeStatusStore.statusOf(node.id));
 	const thumbnail = $derived(nodeStatusStore.thumbnailOf(node.id));
+	const failure = $derived(nodeStatusStore.errorOf(node.id));
 
 	const inputs = $derived.by((): PortSchema[] => {
 		if (!schema) {
@@ -83,6 +85,34 @@
 			return 'bg-red';
 		}
 		return stateColour[status.state];
+	}
+
+	function borderColour(): string {
+		if (failure) {
+			return 'border-red';
+		}
+		if (isSelected) {
+			return 'border-action';
+		}
+		return 'border-line';
+	}
+
+	/// The node carries its own failure: hovering it says what the engine
+	/// refused, so nothing has to be read off a banner somewhere else.
+	function failureMessage(): string | undefined {
+		if (!failure) {
+			return undefined;
+		}
+		return failure.message;
+	}
+
+	/// An error the engine blamed on one input port marks that port, so a node
+	/// with four inputs does not leave the reader guessing which is empty.
+	function portBorderColour(portName: string): string {
+		if (failure && failure.portName === portName) {
+			return 'border-red';
+		}
+		return 'border-line-strong';
 	}
 
 	/// How far a port's hit area reaches past its row, so a pointer a few pixels
@@ -130,14 +160,13 @@
 </script>
 
 <div
-	class="absolute select-none rounded-md border bg-elevated shadow-sm"
-	class:border-line={!isSelected}
-	class:border-action={isSelected}
+	class="absolute select-none rounded-md border bg-elevated shadow-sm {borderColour()}"
 	style="left: {node.positionX}px; top: {node.positionY}px; width: {nodeWidth}px; height: {nodeHeight(
 		schema
 	)}px"
 	role="button"
 	tabindex="0"
+	title={failureMessage()}
 	onpointerdown={onPointerDown}
 >
 	<div
@@ -146,9 +175,14 @@
 	>
 		<span class="h-1.5 w-1.5 shrink-0 rounded-full {dotColour()}"></span>
 		<span class="truncate font-medium">{node.id}</span>
-		{#if isPreviewed}
-			<span class="ml-auto shrink-0 text-2xs text-dim">preview</span>
-		{/if}
+		<span class="ml-auto flex shrink-0 items-center gap-1">
+			{#if failure}
+				<Warning class="text-red" size={11} weight="fill" />
+			{/if}
+			{#if isPreviewed}
+				<span class="text-2xs text-dim">preview</span>
+			{/if}
+		</span>
 	</div>
 
 	<div class="relative" style="height: {nodeThumbnailHeight}px">
@@ -176,7 +210,9 @@
 				onpointerleave={onPortLeave}
 			>
 				<span
-					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform group-hover:bg-default"
+					class="h-2.5 w-2.5 shrink-0 rounded-full border transition-transform group-hover:bg-default {portBorderColour(
+						port.name
+					)}"
 					class:bg-default={isPortLit('input', index)}
 					class:bg-canvas={port.optional && !isPortLit('input', index)}
 					class:bg-line-strong={!port.optional && !isPortLit('input', index)}

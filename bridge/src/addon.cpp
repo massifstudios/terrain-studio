@@ -118,6 +118,18 @@ Napi::Array toStringArray(Napi::Env env, const std::vector<std::string>& values)
     return array;
 }
 
+Napi::Array toErrorArray(Napi::Env env, const std::vector<terrain::GraphError>& errors) {
+    Napi::Array array = Napi::Array::New(env, errors.size());
+    for (std::size_t index = 0; index < errors.size(); ++index) {
+        Napi::Object entry = Napi::Object::New(env);
+        entry.Set("nodeId", Napi::String::New(env, errors[index].nodeId));
+        entry.Set("portName", Napi::String::New(env, errors[index].portName));
+        entry.Set("message", Napi::String::New(env, errors[index].message));
+        array.Set(static_cast<std::uint32_t>(index), entry);
+    }
+    return array;
+}
+
 Napi::Array toTimingArray(Napi::Env env, const std::vector<terrain::NodeTiming>& timings) {
     Napi::Array array = Napi::Array::New(env, timings.size());
     for (std::size_t index = 0; index < timings.size(); ++index) {
@@ -279,7 +291,7 @@ private:
     Napi::Value buildResult(Napi::Env env) {
         Napi::Object result = Napi::Object::New(env);
         result.Set("cancelled", Napi::Boolean::New(env, outcome_.wasCancelled));
-        result.Set("errors", toStringArray(env, outcome_.errors));
+        result.Set("errors", toErrorArray(env, outcome_.errors));
         result.Set("evaluatedNodeIds", toStringArray(env, outcome_.evaluatedNodeIds));
         result.Set("timings", toTimingArray(env, outcome_.timings));
         result.Set("thumbnails", toThumbnailArray(env, outcome_.thumbnails));

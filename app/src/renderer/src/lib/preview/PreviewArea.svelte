@@ -101,10 +101,4 @@
 			</div>
 		{/if}
 	</div>
-
-	{#if previewState.errors.length > 0}
-		<div class="shrink-0 border-t border-line bg-red-soft px-3 py-2 text-2xs text-red">
-			{previewState.errors.join(' · ')}
-		</div>
-	{/if}
 </section>

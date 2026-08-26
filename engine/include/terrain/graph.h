@@ -66,9 +66,17 @@ private:
     std::vector<GraphEdge> edges_;
 };
 
+/// A failure addressed to whatever is at fault. `nodeId` is empty when nothing
+/// in the graph owns the failure, `portName` only when one input port does.
+struct GraphError {
+    std::string nodeId;
+    std::string portName;
+    std::string message;
+};
+
 struct GraphValidation {
     bool isValid = true;
-    std::vector<std::string> errors;
+    std::vector<GraphError> errors;
 };
 
 GraphValidation validateGraph(const Graph& graph, const NodeRegistry& registry);

@@ -107,6 +107,17 @@ export interface NodeSignature {
 	key: string;
 }
 
+/**
+ * A failure addressed to whatever is at fault, so the editor can put it on the
+ * node instead of in a banner. `nodeId` is empty when nothing in the graph owns
+ * the failure, `portName` only when one input port does.
+ */
+export interface EngineError {
+	nodeId: string;
+	portName: string;
+	message: string;
+}
+
 export interface EvaluateResult {
 	field: FieldResult | null;
 	color: ColorResult | null;
@@ -116,7 +127,7 @@ export interface EvaluateResult {
 	signatures: NodeSignature[];
 	evaluatedNodeIds: string[];
 	timings: NodeTiming[];
-	errors: string[];
+	errors: EngineError[];
 	cancelled: boolean;
 }
 

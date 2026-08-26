@@ -1,4 +1,4 @@
-import type { EvaluateResult } from '$shared/engine-protocol';
+import type { EngineError, EvaluateResult } from '$shared/engine-protocol';
 import type { GraphDocument } from '$shared/graph-document';
 import { outputNodeIds } from '$shared/graph-operations';
 import { engineClient } from './engine-client.svelte';
@@ -6,6 +6,15 @@ import { graphStore } from './graph/graph-store.svelte';
 import { previewRunner } from './preview/preview-runner.svelte';
 
 export type BuildState = 'idle' | 'running' | 'finished' | 'failed' | 'cancelled';
+
+/// The build badge is nowhere near the graph, so its errors carry the node they
+/// belong to in the text.
+function describeError(error: EngineError): string {
+	if (!error.nodeId) {
+		return error.message;
+	}
+	return `${error.nodeId}: ${error.message}`;
+}
 
 /**
  * A full-resolution run of every output node in the graph.
@@ -112,7 +121,7 @@ class BuildRunner {
 		}
 		if (outcome.errors.length > 0) {
 			this.state = 'failed';
-			this.errors = outcome.errors;
+			this.errors = outcome.errors.map(describeError);
 			return false;
 		}
 		return true;

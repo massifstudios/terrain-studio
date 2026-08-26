@@ -38,11 +38,10 @@ void checkNodeTypes(const Graph& graph, const NodeRegistry& registry, GraphValid
     std::set<std::string> seenIds;
     for (const GraphNode& node : graph.nodes()) {
         if (!seenIds.insert(node.id).second) {
-            result.errors.push_back("Duplicate node id: " + node.id);
+            result.errors.push_back({node.id, "", "Duplicate node id"});
         }
         if (registry.find(node.typeName) == nullptr) {
-            result.errors.push_back("Unknown node type '" + node.typeName + "' on node "
-                                    + node.id);
+            result.errors.push_back({node.id, "", "Unknown node type '" + node.typeName + "'"});
         }
     }
 }
@@ -59,7 +58,7 @@ void checkEdge(const Graph& graph, const NodeRegistry& registry, const GraphEdge
     const GraphNode* source = graph.find(edge.fromNodeId);
     const GraphNode* target = graph.find(edge.toNodeId);
     if (source == nullptr || target == nullptr) {
-        result.errors.push_back("Edge refers to a node that is not in the graph");
+        result.errors.push_back({"", "", "An edge refers to a node that is not in the graph"});
         return;
     }
 
@@ -72,14 +71,14 @@ void checkEdge(const Graph& graph, const NodeRegistry& registry, const GraphEdge
     const PortDescriptor* outputPort = portAt(sourceType->outputs, edge.fromPort);
     const PortDescriptor* inputPort = portAt(targetType->inputs, edge.toPort);
     if (outputPort == nullptr || inputPort == nullptr) {
-        result.errors.push_back("Edge " + source->id + " -> " + target->id
-                                + " uses a port index that does not exist");
+        result.errors.push_back(
+            {target->id, "", "An edge from " + source->id + " uses a port index that does not exist"});
         return;
     }
     if (outputPort->type != inputPort->type) {
-        result.errors.push_back("Edge " + source->id + "." + outputPort->name + " -> "
-                                + target->id + "." + inputPort->name + " connects "
-                                "incompatible port types");
+        result.errors.push_back({target->id, inputPort->name,
+                                 "Port '" + inputPort->name + "' cannot take what " + source->id
+                                     + "." + outputPort->name + " produces"});
     }
 }
 
@@ -92,8 +91,9 @@ void checkInputs(const Graph& graph, const NodeRegistry& registry, GraphValidati
         for (std::size_t port = 0; port < type->inputs.size(); ++port) {
             const bool connected = graph.incoming(node.id, static_cast<int>(port)) != nullptr;
             if (!connected && !type->inputs[port].isOptional) {
-                result.errors.push_back("Node " + node.id + " has no input on required port '"
-                                        + type->inputs[port].name + "'");
+                const std::string& portName = type->inputs[port].name;
+                result.errors.push_back(
+                    {node.id, portName, "No input on required port '" + portName + "'"});
             }
         }
     }
@@ -103,8 +103,8 @@ void checkSingleEdgePerInput(const Graph& graph, GraphValidation& result) {
     std::set<std::pair<std::string, int>> occupied;
     for (const GraphEdge& edge : graph.edges()) {
         if (!occupied.insert({edge.toNodeId, edge.toPort}).second) {
-            result.errors.push_back("Node " + edge.toNodeId
-                                    + " has more than one edge into the same input port");
+            result.errors.push_back(
+                {edge.toNodeId, "", "More than one edge lands on the same input port"});
         }
     }
 }
@@ -115,7 +115,7 @@ void checkAcyclic(const Graph& graph, GraphValidation& result) {
     std::vector<const GraphNode*> order;
     for (const GraphNode& node : graph.nodes()) {
         if (!visit(graph, node, onStack, finished, order)) {
-            result.errors.push_back("The graph contains a cycle through node " + node.id);
+            result.errors.push_back({node.id, "", "The graph contains a cycle through this node"});
             return;
         }
     }

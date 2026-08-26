@@ -114,7 +114,6 @@ class PreviewRunner {
 		}
 
 		nodeStatusStore.applyOutcome(outcome);
-		previewState.errors = outcome.errors;
 		await this.#show(graph, nodeId, outcome, generation);
 
 		if (generation === this.#generation) {

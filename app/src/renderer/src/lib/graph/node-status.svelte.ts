@@ -1,4 +1,4 @@
-import type { EvaluateResult, NodeThumbnail } from '$shared/engine-protocol';
+import type { EngineError, EvaluateResult, NodeThumbnail } from '$shared/engine-protocol';
 import {
 	isThumbnailCurrent,
 	retainedThumbnails,
@@ -23,13 +23,16 @@ export interface NodeStatus {
 }
 
 /// What the node editor draws on each node body: how fresh its result is, how
-/// long it took, and the thumbnail the engine shaded for it. A node the last
-/// evaluation had no reason to visit keeps the thumbnail it already had, for as
-/// long as the engine's signature for it stands.
+/// long it took, why it failed, and the thumbnail the engine shaded for it. A
+/// node the last evaluation had no reason to visit keeps the thumbnail it
+/// already had, for as long as the engine's signature for it stands.
 class NodeStatusStore {
 	statuses = $state<Record<string, NodeStatus>>({});
 	thumbnails = $state<Record<string, CachedThumbnail>>({});
 	signatures = $state<Record<string, string>>({});
+	/// Everything the last evaluation refused, in the order the engine reported
+	/// it. Errors no node owns are here too, with an empty `nodeId`.
+	errors = $state<EngineError[]>([]);
 
 	statusOf(nodeId: string): NodeStatus {
 		const found = this.statuses[nodeId];
@@ -50,6 +53,14 @@ class NodeStatusStore {
 		return cached.image;
 	}
 
+	errorOf(nodeId: string): EngineError | null {
+		const found = this.errors.find((error) => error.nodeId === nodeId);
+		if (!found) {
+			return null;
+		}
+		return found;
+	}
+
 	isCurrent(nodeId: string): boolean {
 		return isThumbnailCurrent(this.thumbnails[nodeId], this.signatures[nodeId]);
 	}
@@ -64,6 +75,7 @@ class NodeStatusStore {
 	markAllDirty(): void {
 		this.statuses = {};
 		this.signatures = {};
+		this.errors = [];
 	}
 
 	applyOutcome(outcome: EvaluateResult): void {
@@ -75,13 +87,13 @@ class NodeStatusStore {
 				fraction: 1
 			};
 		}
-		for (const message of outcome.errors) {
-			const nodeId = message.slice(0, message.indexOf(':'));
-			if (nodeId) {
-				statuses[nodeId] = { state: 'failed', milliseconds: 0, fraction: 0 };
+		for (const error of outcome.errors) {
+			if (error.nodeId) {
+				statuses[error.nodeId] = { state: 'failed', milliseconds: 0, fraction: 0 };
 			}
 		}
 		this.statuses = statuses;
+		this.errors = outcome.errors;
 
 		const signatures = signaturesById(outcome.signatures);
 		this.thumbnails = retainedThumbnails(this.thumbnails, outcome.thumbnails, signatures);

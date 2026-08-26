@@ -223,7 +223,8 @@ TEST_CASE("a node that fails reports the failure instead of a result", "[evaluat
         evaluator.evaluate(graph, "source", 0, EvaluationOptions{});
     REQUIRE_FALSE(outcome.succeeded());
     REQUIRE(outcome.errors.size() == 1);
-    REQUIRE(outcome.errors.front().starts_with("source: "));
+    REQUIRE(outcome.errors.front().nodeId == "source");
+    REQUIRE_FALSE(outcome.errors.front().message.empty());
 }
 
 TEST_CASE("a cancelled evaluation returns without a result", "[evaluator]") {
