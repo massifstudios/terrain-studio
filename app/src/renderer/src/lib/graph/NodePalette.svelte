@@ -3,6 +3,7 @@
 	import type { NodeSchema } from '$shared/graph-document';
 	import { engineClient } from '$lib/engine-client.svelte';
 	import { groupByCategory } from '$shared/registry-schema';
+	import { iconForCategory } from './category-icons';
 
 	interface Props {
 		screenX: number;
@@ -107,12 +108,16 @@
 						{category.name}
 					</div>
 					{#each category.nodes as node}
+						{@const Icon = iconForCategory(node.category)}
 						<button
-							class="flex w-full flex-col rounded-sm px-2 py-1 text-left hover:bg-hover"
+							class="flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left hover:bg-hover"
 							onclick={() => onPick(node)}
 						>
-							<span class="text-xs text-default">{node.typeName}</span>
-							<span class="truncate text-2xs text-faint">{node.description}</span>
+							<Icon size={16} class="shrink-0 text-dim" />
+							<span class="flex min-w-0 flex-col">
+								<span class="text-xs text-default">{node.typeName}</span>
+								<span class="truncate text-2xs text-faint">{node.description}</span>
+							</span>
 						</button>
 					{/each}
 				</div>
