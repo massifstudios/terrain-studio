@@ -31,6 +31,7 @@ interface AddonEvaluateResult {
 	color?: ColorResult;
 	points?: PointsResult;
 	thumbnails: EvaluateResult['thumbnails'];
+	signatures: EvaluateResult['signatures'];
 	evaluatedNodeIds: string[];
 	timings: EvaluateResult['timings'];
 	errors: string[];
@@ -124,6 +125,7 @@ async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Pro
 		color: orNull(result.color),
 		points: orNull(result.points),
 		thumbnails: result.thumbnails,
+		signatures: result.signatures,
 		evaluatedNodeIds: result.evaluatedNodeIds,
 		timings: result.timings,
 		errors: result.errors,

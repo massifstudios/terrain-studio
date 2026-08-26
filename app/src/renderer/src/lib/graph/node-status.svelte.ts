@@ -1,4 +1,10 @@
 import type { EvaluateResult, NodeThumbnail } from '$shared/engine-protocol';
+import {
+	isThumbnailCurrent,
+	retainedThumbnails,
+	signaturesById,
+	type CachedThumbnail
+} from './thumbnail-cache';
 
 export type NodeState = 'dirty' | 'evaluating' | 'cached' | 'evaluated' | 'failed';
 
@@ -17,17 +23,35 @@ export interface NodeStatus {
 }
 
 /// What the node editor draws on each node body: how fresh its result is, how
-/// long it took, and the thumbnail the engine shaded for it.
+/// long it took, and the thumbnail the engine shaded for it. A node the last
+/// evaluation had no reason to visit keeps the thumbnail it already had, for as
+/// long as the engine's signature for it stands.
 class NodeStatusStore {
 	statuses = $state<Record<string, NodeStatus>>({});
-	thumbnails = $state<Record<string, NodeThumbnail>>({});
+	thumbnails = $state<Record<string, CachedThumbnail>>({});
+	signatures = $state<Record<string, string>>({});
 
 	statusOf(nodeId: string): NodeStatus {
 		const found = this.statuses[nodeId];
-		if (!found) {
-			return { state: 'dirty', milliseconds: 0, fraction: 0 };
+		if (found) {
+			return found;
 		}
-		return found;
+		if (this.isCurrent(nodeId)) {
+			return { state: 'cached', milliseconds: 0, fraction: 1 };
+		}
+		return { state: 'dirty', milliseconds: 0, fraction: 0 };
+	}
+
+	thumbnailOf(nodeId: string): NodeThumbnail | null {
+		const cached = this.thumbnails[nodeId];
+		if (!cached) {
+			return null;
+		}
+		return cached.image;
+	}
+
+	isCurrent(nodeId: string): boolean {
+		return isThumbnailCurrent(this.thumbnails[nodeId], this.signatures[nodeId]);
 	}
 
 	markEvaluating(nodeId: string, fraction: number): void {
@@ -39,6 +63,7 @@ class NodeStatusStore {
 
 	markAllDirty(): void {
 		this.statuses = {};
+		this.signatures = {};
 	}
 
 	applyOutcome(outcome: EvaluateResult): void {
@@ -58,11 +83,9 @@ class NodeStatusStore {
 		}
 		this.statuses = statuses;
 
-		const thumbnails: Record<string, NodeThumbnail> = {};
-		for (const thumbnail of outcome.thumbnails) {
-			thumbnails[thumbnail.nodeId] = thumbnail;
-		}
-		this.thumbnails = thumbnails;
+		const signatures = signaturesById(outcome.signatures);
+		this.thumbnails = retainedThumbnails(this.thumbnails, outcome.thumbnails, signatures);
+		this.signatures = signatures;
 	}
 }
 

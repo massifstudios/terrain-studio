@@ -69,6 +69,15 @@ struct NodeThumbnail {
     ThumbnailImage image;
 };
 
+/// What a node's result depends on, hashed: its type, its parameters, the
+/// settings, and the same for everything upstream of it. Two evaluations that
+/// report the same key for a node would produce the same result for it, which
+/// is how the editor knows whose picture is still good.
+struct NodeSignature {
+    std::string nodeId;
+    std::uint64_t key = 0;
+};
+
 struct EvaluationOutcome {
     /// The requested output. Which of the three is set follows the port type.
     std::shared_ptr<const Heightfield> field;
@@ -78,6 +87,8 @@ struct EvaluationOutcome {
     std::vector<std::string> evaluatedNodeIds;
     std::vector<NodeTiming> timings;
     std::vector<NodeThumbnail> thumbnails;
+    /// One per node in the whole graph, not only the part that was evaluated.
+    std::vector<NodeSignature> signatures;
     std::vector<std::string> errors;
     bool wasCancelled = false;
 
@@ -101,6 +112,10 @@ public:
 
     void clearCache();
     std::size_t cachedResultCount() const { return cache_.size(); }
+
+    /// One signature per node in the graph, whether or not it would be
+    /// evaluated. A node whose type is not registered has none.
+    std::vector<NodeSignature> signaturesOf(const Graph& graph, bool isFinalBuild) const;
 
 private:
     struct NodeResult {

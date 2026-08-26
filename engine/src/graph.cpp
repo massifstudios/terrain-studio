@@ -186,4 +186,16 @@ std::vector<const GraphNode*> dependencyOrder(const Graph& graph, std::string_vi
     return order;
 }
 
+std::vector<const GraphNode*> topologicalOrder(const Graph& graph) {
+    std::unordered_set<std::string> onStack;
+    std::unordered_set<std::string> finished;
+    std::vector<const GraphNode*> order;
+    for (const GraphNode& node : graph.nodes()) {
+        if (!visit(graph, node, onStack, finished, order)) {
+            return {};
+        }
+    }
+    return order;
+}
+
 }  // namespace terrain

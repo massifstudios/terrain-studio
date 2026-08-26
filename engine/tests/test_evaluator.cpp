@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <map>
 #include <numeric>
 #include <string>
 #include <vector>
@@ -158,6 +159,55 @@ TEST_CASE("editing a parameter re-evaluates only that node and its dependents",
     const Graph edited = refinementGraph(128, 240.0);
     const EvaluationOutcome outcome = evaluator.evaluate(edited, "sum", 0, EvaluationOptions{});
     REQUIRE(outcome.evaluatedNodeIds == std::vector<std::string>{"soft", "sum"});
+}
+
+namespace {
+
+std::map<std::string, std::uint64_t> keysOf(const std::vector<terrain::NodeSignature>& signatures) {
+    std::map<std::string, std::uint64_t> keys;
+    for (const terrain::NodeSignature& signature : signatures) {
+        keys.emplace(signature.nodeId, signature.key);
+    }
+    return keys;
+}
+
+}  // namespace
+
+TEST_CASE("signatures cover every node, not only the evaluated ones", "[evaluator][cache]") {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+
+    Graph graph = refinementGraph(64);
+    // On no path to "sum", so evaluating "sum" never touches it.
+    graph.addNode("aside", "Constant");
+
+    const EvaluationOutcome outcome = evaluator.evaluate(graph, "sum", 0, EvaluationOptions{});
+    const auto keys = keysOf(outcome.signatures);
+    REQUIRE(keys.size() == 5);
+    REQUIRE(keys.count("aside") == 1);
+}
+
+TEST_CASE("a signature changes for the edited node and everything below it",
+          "[evaluator][cache]") {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+
+    const auto before = keysOf(evaluator.signaturesOf(refinementGraph(64), false));
+    const auto after = keysOf(evaluator.signaturesOf(refinementGraph(64, 240.0), false));
+
+    REQUIRE(before.at("source") == after.at("source"));
+    REQUIRE(before.at("lift") == after.at("lift"));
+    REQUIRE(before.at("soft") != after.at("soft"));
+    REQUIRE(before.at("sum") != after.at("sum"));
+}
+
+TEST_CASE("the same graph signs the same way twice", "[evaluator][cache][determinism]") {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+
+    const auto first = keysOf(evaluator.signaturesOf(refinementGraph(64), false));
+    const auto second = keysOf(evaluator.signaturesOf(refinementGraph(64), false));
+    REQUIRE(first == second);
 }
 
 TEST_CASE("a node that fails reports the failure instead of a result", "[evaluator]") {

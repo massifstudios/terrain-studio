@@ -47,6 +47,33 @@ void hashSettings(Hasher& hasher, const GraphSettings& settings) {
     hasher.combine(settings.georeference.northingMaxMeters);
 }
 
+/// Everything a node's result depends on, in one number: its type and version,
+/// the settings, its own parameters, and the key of whatever feeds each input.
+/// A build hashes differently from a preview producing identical numbers,
+/// because a build is the evaluation allowed to write files — without that,
+/// building straight after a preview would serve the exporters from cache and
+/// put nothing on disk.
+std::uint64_t nodeCacheKey(const Graph& graph, const GraphNode& node, const NodeType& type,
+                           bool isFinalBuild,
+                           const std::map<std::string, std::uint64_t>& upstreamKeys) {
+    Hasher hasher;
+    hasher.combine(type.typeName);
+    hasher.combine(static_cast<std::uint64_t>(type.version));
+    hasher.combine(static_cast<std::uint64_t>(isFinalBuild));
+    hashSettings(hasher, graph.settings);
+    hashParameters(hasher, node, type);
+    for (std::size_t port = 0; port < type.inputs.size(); ++port) {
+        const GraphEdge* edge = graph.incoming(node.id, static_cast<int>(port));
+        if (edge == nullptr) {
+            hasher.combine(std::uint64_t{0});
+            continue;
+        }
+        hasher.combine(upstreamKeys.at(edge->fromNodeId));
+        hasher.combine(static_cast<std::uint64_t>(edge->fromPort));
+    }
+    return hasher.digest();
+}
+
 /// 0 means "as many as the machine has". Nothing about the result may depend
 /// on this number; it only decides how fast the same work happens.
 int resolvedThreadCount(int requested) {
@@ -148,6 +175,24 @@ void Evaluator::collectThumbnails(
 
 Evaluator::Evaluator(const NodeRegistry& registry) : registry_(&registry) {}
 
+/// A key for every node in the graph, including the branches this evaluation
+/// has no reason to visit: the editor draws all of them, and needs to know
+/// which of its pictures a change has just invalidated.
+std::vector<NodeSignature> Evaluator::signaturesOf(const Graph& graph, bool isFinalBuild) const {
+    std::map<std::string, std::uint64_t> keys;
+    std::vector<NodeSignature> signatures;
+    for (const GraphNode* node : topologicalOrder(graph)) {
+        const NodeType* type = registry_->find(node->typeName);
+        if (type == nullptr) {
+            continue;
+        }
+        const std::uint64_t key = nodeCacheKey(graph, *node, *type, isFinalBuild, keys);
+        keys.emplace(node->id, key);
+        signatures.push_back(NodeSignature{node->id, key});
+    }
+    return signatures;
+}
+
 void Evaluator::clearCache() {
     cache_.clear();
 }
@@ -168,37 +213,26 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
         return outcome;
     }
 
+    outcome.signatures = signaturesOf(graph, options.isFinalBuild);
+
     // Cache keys and wave depths, both of which only need the dependency order.
     std::map<std::string, NodePlan> plans;
+    std::map<std::string, std::uint64_t> keys;
     std::vector<NodePlan*> planOrder;
     int deepest = 0;
     for (const GraphNode* node : order) {
         NodePlan plan;
         plan.node = node;
         plan.type = registry_->find(node->typeName);
+        plan.cacheKey = nodeCacheKey(graph, *node, *plan.type, options.isFinalBuild, keys);
+        keys.emplace(node->id, plan.cacheKey);
 
-        Hasher hasher;
-        hasher.combine(plan.type->typeName);
-        hasher.combine(static_cast<std::uint64_t>(plan.type->version));
-        // A build is a different evaluation from a preview even when it would
-        // produce the same numbers, because it is the one allowed to write
-        // files. Without this, building straight after a preview would serve
-        // the exporters from cache and put nothing on disk.
-        hasher.combine(static_cast<std::uint64_t>(options.isFinalBuild));
-        hashSettings(hasher, graph.settings);
-        hashParameters(hasher, *node, *plan.type);
         for (std::size_t port = 0; port < plan.type->inputs.size(); ++port) {
             const GraphEdge* edge = graph.incoming(node->id, static_cast<int>(port));
-            if (edge == nullptr) {
-                hasher.combine(std::uint64_t{0});
-                continue;
+            if (edge != nullptr) {
+                plan.depth = std::max(plan.depth, plans.at(edge->fromNodeId).depth + 1);
             }
-            const NodePlan& upstream = plans.at(edge->fromNodeId);
-            hasher.combine(upstream.cacheKey);
-            hasher.combine(static_cast<std::uint64_t>(edge->fromPort));
-            plan.depth = std::max(plan.depth, upstream.depth + 1);
         }
-        plan.cacheKey = hasher.digest();
         deepest = std::max(deepest, plan.depth);
         planOrder.push_back(&plans.emplace(node->id, plan).first->second);
     }

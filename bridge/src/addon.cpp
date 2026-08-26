@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -124,6 +125,22 @@ Napi::Array toTimingArray(Napi::Env env, const std::vector<terrain::NodeTiming>&
         entry.Set("nodeId", Napi::String::New(env, timings[index].nodeId));
         entry.Set("milliseconds", Napi::Number::New(env, timings[index].milliseconds));
         entry.Set("servedFromCache", Napi::Boolean::New(env, timings[index].servedFromCache));
+        array.Set(static_cast<std::uint32_t>(index), entry);
+    }
+    return array;
+}
+
+/// Keys are 64-bit and JavaScript numbers are not, so each crosses as hex. The
+/// UI only ever compares them.
+Napi::Array toSignatureArray(Napi::Env env,
+                             const std::vector<terrain::NodeSignature>& signatures) {
+    Napi::Array array = Napi::Array::New(env, signatures.size());
+    for (std::size_t index = 0; index < signatures.size(); ++index) {
+        Napi::Object entry = Napi::Object::New(env);
+        entry.Set("nodeId", Napi::String::New(env, signatures[index].nodeId));
+        std::ostringstream key;
+        key << std::hex << signatures[index].key;
+        entry.Set("key", Napi::String::New(env, key.str()));
         array.Set(static_cast<std::uint32_t>(index), entry);
     }
     return array;
@@ -266,6 +283,7 @@ private:
         result.Set("evaluatedNodeIds", toStringArray(env, outcome_.evaluatedNodeIds));
         result.Set("timings", toTimingArray(env, outcome_.timings));
         result.Set("thumbnails", toThumbnailArray(env, outcome_.thumbnails));
+        result.Set("signatures", toSignatureArray(env, outcome_.signatures));
         if (outcome_.field != nullptr) {
             result.Set("field", fieldToJs(env, *outcome_.field));
         }

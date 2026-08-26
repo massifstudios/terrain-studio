@@ -50,7 +50,7 @@
 	}: Props = $props();
 
 	const status = $derived(nodeStatusStore.statusOf(node.id));
-	const thumbnail = $derived(nodeStatusStore.thumbnails[node.id]);
+	const thumbnail = $derived(nodeStatusStore.thumbnailOf(node.id));
 
 	const inputs = $derived.by((): PortSchema[] => {
 		if (!schema) {

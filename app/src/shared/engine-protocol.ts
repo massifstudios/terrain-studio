@@ -95,11 +95,25 @@ export interface NodeThumbnail {
 	rgba: Uint8Array;
 }
 
+/**
+ * What a node's result depends on, hashed by the engine: its type, its
+ * parameters, the settings, and the same for everything upstream. Two
+ * evaluations reporting the same key for a node would draw the same picture of
+ * it. Hex, because the key is 64 bits and a JavaScript number is not; the UI
+ * only compares them.
+ */
+export interface NodeSignature {
+	nodeId: string;
+	key: string;
+}
+
 export interface EvaluateResult {
 	field: FieldResult | null;
 	color: ColorResult | null;
 	points: PointsResult | null;
 	thumbnails: NodeThumbnail[];
+	/// One per node in the whole graph, not only the evaluated part.
+	signatures: NodeSignature[];
 	evaluatedNodeIds: string[];
 	timings: NodeTiming[];
 	errors: string[];

@@ -77,4 +77,8 @@ GraphValidation validateGraph(const Graph& graph, const NodeRegistry& registry);
 /// Empty when the target is missing or the graph has a cycle through it.
 std::vector<const GraphNode*> dependencyOrder(const Graph& graph, std::string_view targetNodeId);
 
+/// Every node in the graph, each after the nodes it depends on. Empty when the
+/// graph has a cycle.
+std::vector<const GraphNode*> topologicalOrder(const Graph& graph);
+
 }  // namespace terrain
