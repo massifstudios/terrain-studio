@@ -13,7 +13,8 @@
 	},
 	"dependencies": {
 		"@neoworks-dev/ui": "link:@neoworks-dev/ui",
-		"three": "^0.185.0"
+		"three": "^0.185.0",
+		"zod": "^4.4.3"
 	},
 	"devDependencies": {
 		"@fontsource/geist-mono": "^5.2.5",

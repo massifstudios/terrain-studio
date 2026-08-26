@@ -1,11 +1,17 @@
 /**
  * The `.massifgraph` project file: JSON, human-diffable, stable key order.
  *
+ * Every key in the file is snake_case, including the parameter names a node
+ * carries. The names the registry reports are camelCase, so this module is the
+ * one place the two spellings meet — everything upstream of it, in memory and
+ * across the engine protocol, stays camelCase.
+ *
  * Node types are not enumerated here. A file records whatever type name the
  * registry offered, so a graph saved with a plugin's node still loads — the
  * placeholder handling for a missing plugin lives with the registry, not here.
  */
 
+import { z } from 'zod';
 import type {
 	GraphDocument,
 	GraphEdgeDocument,
@@ -14,49 +20,110 @@ import type {
 	ParameterValue
 } from './graph-document';
 
-export const massifGraphFormatVersion = 1;
+export const massifGraphVersion = 1;
 
 export interface GraphProject {
 	graph: GraphDocument;
 	previewNodeId: string | null;
 }
 
-function orderedParameters(parameters: Record<string, ParameterValue>): Record<string, ParameterValue> {
-	const ordered: Record<string, ParameterValue> = {};
-	for (const name of Object.keys(parameters).sort()) {
-		ordered[name] = parameters[name];
-	}
-	return ordered;
+/* --------------------------------------------------------------- key case -- */
+
+/**
+ * A camelCase name and its snake_case spelling are the same name written two
+ * ways, and the conversion is its own inverse: `useGPU` writes as `use_g_p_u`
+ * and reads back as `useGPU`. That only holds for names the C++ style rules
+ * allow — a parameter name that already contains an underscore would come back
+ * camelCased and no longer match the registry.
+ */
+function toSnakeCase(name: string): string {
+	return name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 }
 
-function orderedNode(node: GraphNodeDocument): GraphNodeDocument {
+function toCamelCase(name: string): string {
+	return name.replace(/_(.)/g, (_match, letter: string) => letter.toUpperCase());
+}
+
+/* ------------------------------------------------------------ the document -- */
+
+const parameterValueSchema = z.union([z.number(), z.string(), z.boolean()]);
+
+const georeferenceSchema = z.object({
+	coordinate_system: z.string(),
+	easting_min_meters: z.number(),
+	northing_max_meters: z.number()
+});
+
+const settingsSchema = z.object({
+	resolution: z.number(),
+	world_size_meters: z.number(),
+	seed: z.number(),
+	georeference: georeferenceSchema
+});
+
+const nodeSchema = z.object({
+	id: z.string(),
+	type: z.string(),
+	x: z.number(),
+	y: z.number(),
+	parameters: z.record(z.string(), parameterValueSchema)
+});
+
+const edgeSchema = z.object({
+	from_node_id: z.string(),
+	from_port: z.number().int(),
+	to_node_id: z.string(),
+	to_port: z.number().int()
+});
+
+const documentSchema = z.object({
+	version: z.number(),
+	settings: settingsSchema,
+	preview_node_id: z.string().nullable(),
+	nodes: z.array(nodeSchema),
+	edges: z.array(edgeSchema)
+});
+
+type GraphFileDocument = z.infer<typeof documentSchema>;
+
+/* -------------------------------------------------------------- to a file -- */
+
+function writtenParameters(parameters: Record<string, ParameterValue>): Record<string, ParameterValue> {
+	const written: Record<string, ParameterValue> = {};
+	for (const name of Object.keys(parameters).map(toSnakeCase).sort()) {
+		written[name] = parameters[toCamelCase(name)];
+	}
+	return written;
+}
+
+function writtenNode(node: GraphNodeDocument): GraphFileDocument['nodes'][number] {
 	return {
 		id: node.id,
-		typeName: node.typeName,
-		positionX: node.positionX,
-		positionY: node.positionY,
-		parameters: orderedParameters(node.parameters)
+		type: node.typeName,
+		x: node.positionX,
+		y: node.positionY,
+		parameters: writtenParameters(node.parameters)
 	};
 }
 
-function orderedEdge(edge: GraphEdgeDocument): GraphEdgeDocument {
+function writtenEdge(edge: GraphEdgeDocument): GraphFileDocument['edges'][number] {
 	return {
-		fromNodeId: edge.fromNodeId,
-		fromPort: edge.fromPort,
-		toNodeId: edge.toNodeId,
-		toPort: edge.toPort
+		from_node_id: edge.fromNodeId,
+		from_port: edge.fromPort,
+		to_node_id: edge.toNodeId,
+		to_port: edge.toPort
 	};
 }
 
-function orderedSettings(settings: GraphSettings): GraphSettings {
+function writtenSettings(settings: GraphSettings): GraphFileDocument['settings'] {
 	return {
 		resolution: settings.resolution,
-		worldSizeMeters: settings.worldSizeMeters,
+		world_size_meters: settings.worldSizeMeters,
 		seed: settings.seed,
 		georeference: {
-			coordinateSystem: settings.georeference.coordinateSystem,
-			eastingMinMeters: settings.georeference.eastingMinMeters,
-			northingMaxMeters: settings.georeference.northingMaxMeters
+			coordinate_system: settings.georeference.coordinateSystem,
+			easting_min_meters: settings.georeference.eastingMinMeters,
+			northing_max_meters: settings.georeference.northingMaxMeters
 		}
 	};
 }
@@ -78,14 +145,14 @@ function compareEdges(left: GraphEdgeDocument, right: GraphEdgeDocument): number
 export function serializeGraph(project: GraphProject): string {
 	const nodes = [...project.graph.nodes]
 		.sort((left, right) => left.id.localeCompare(right.id))
-		.map(orderedNode);
-	const edges = [...project.graph.edges].sort(compareEdges).map(orderedEdge);
+		.map(writtenNode);
+	const edges = [...project.graph.edges].sort(compareEdges).map(writtenEdge);
 
 	return `${JSON.stringify(
 		{
-			formatVersion: massifGraphFormatVersion,
-			settings: orderedSettings(project.graph.settings),
-			previewNodeId: project.previewNodeId,
+			version: massifGraphVersion,
+			settings: writtenSettings(project.graph.settings),
+			preview_node_id: project.previewNodeId,
 			nodes,
 			edges
 		},
@@ -94,38 +161,84 @@ export function serializeGraph(project: GraphProject): string {
 	)}\n`;
 }
 
-function requireArray(value: unknown, what: string): unknown[] {
-	if (!Array.isArray(value)) {
-		throw new Error(`A .massifgraph needs an array of ${what}`);
+/* ------------------------------------------------------------ from a file -- */
+
+function readParameters(parameters: Record<string, ParameterValue>): Record<string, ParameterValue> {
+	const read: Record<string, ParameterValue> = {};
+	for (const name of Object.keys(parameters).sort()) {
+		read[toCamelCase(name)] = parameters[name];
 	}
-	return value;
+	return read;
+}
+
+function readNode(node: GraphFileDocument['nodes'][number]): GraphNodeDocument {
+	return {
+		id: node.id,
+		typeName: node.type,
+		positionX: node.x,
+		positionY: node.y,
+		parameters: readParameters(node.parameters)
+	};
+}
+
+function readEdge(edge: GraphFileDocument['edges'][number]): GraphEdgeDocument {
+	return {
+		fromNodeId: edge.from_node_id,
+		fromPort: edge.from_port,
+		toNodeId: edge.to_node_id,
+		toPort: edge.to_port
+	};
+}
+
+function readSettings(settings: GraphFileDocument['settings']): GraphSettings {
+	return {
+		resolution: settings.resolution,
+		worldSizeMeters: settings.world_size_meters,
+		seed: settings.seed,
+		georeference: {
+			coordinateSystem: settings.georeference.coordinate_system,
+			eastingMinMeters: settings.georeference.easting_min_meters,
+			northingMaxMeters: settings.georeference.northing_max_meters
+		}
+	};
+}
+
+/// The version is checked on its own so that an old or a future file says so,
+/// rather than failing as a pile of unmet field expectations.
+function requireSupportedVersion(parsed: unknown): void {
+	const found = z.object({ version: z.number() }).safeParse(parsed);
+	if (!found.success) {
+		throw new Error('A .massifgraph must state its version');
+	}
+	if (found.data.version !== massifGraphVersion) {
+		throw new Error(`Unsupported .massifgraph version ${found.data.version}`);
+	}
+}
+
+function describeFailure(error: z.ZodError): string {
+	const issue = error.issues[0];
+	const where = issue.path.join('.');
+	if (where.length === 0) {
+		return issue.message;
+	}
+	return `${where}: ${issue.message}`;
 }
 
 export function parseGraph(text: string): GraphProject {
-	const parsed = JSON.parse(text) as Record<string, unknown>;
-	const formatVersion = parsed.formatVersion;
-	if (formatVersion !== massifGraphFormatVersion) {
-		throw new Error(`Unsupported .massifgraph format version ${String(formatVersion)}`);
-	}
+	const parsed: unknown = JSON.parse(text);
+	requireSupportedVersion(parsed);
 
-	const nodes = requireArray(parsed.nodes, 'nodes').map((entry) =>
-		orderedNode(entry as GraphNodeDocument)
-	);
-	const edges = requireArray(parsed.edges, 'edges').map((entry) =>
-		orderedEdge(entry as GraphEdgeDocument)
-	);
-
-	let previewNodeId: string | null = null;
-	if (typeof parsed.previewNodeId === 'string') {
-		previewNodeId = parsed.previewNodeId;
+	const document = documentSchema.safeParse(parsed);
+	if (!document.success) {
+		throw new Error(`This is not a valid .massifgraph — ${describeFailure(document.error)}`);
 	}
 
 	return {
 		graph: {
-			settings: orderedSettings(parsed.settings as GraphSettings),
-			nodes,
-			edges
+			settings: readSettings(document.data.settings),
+			nodes: document.data.nodes.map(readNode),
+			edges: document.data.edges.map(readEdge)
 		},
-		previewNodeId
+		previewNodeId: document.data.preview_node_id
 	};
 }
