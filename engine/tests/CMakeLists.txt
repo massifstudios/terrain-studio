@@ -10,11 +10,19 @@ FetchContent_MakeAvailable(Catch2)
 
 add_executable(terrain_engine_tests
     test_version.cpp
+    test_heightfield.cpp
+    test_massifdem.cpp
+    test_png.cpp
+    test_hillshade.cpp
 )
 
 target_link_libraries(terrain_engine_tests PRIVATE
     terrain_engine
     Catch2::Catch2WithMain
+)
+
+target_compile_definitions(terrain_engine_tests PRIVATE
+    TERRAIN_TEST_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
 )
 
 list(APPEND CMAKE_MODULE_PATH ${catch2_SOURCE_DIR}/extras)

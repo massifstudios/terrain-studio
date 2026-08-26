@@ -7,13 +7,23 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(TERRAIN_ENGINE_BUILD_TESTS "Build the engine test binary" ON)
 
+find_package(ZLIB REQUIRED)
+
 add_library(terrain_engine STATIC
     src/version.cpp
+    src/heightfield.cpp
+    src/formats/massifdem.cpp
+    src/formats/png_image.cpp
+    src/formats/hillshade.cpp
+    src/formats/heightfield_png.cpp
+    src/formats/raw_float32.cpp
 )
 
 target_include_directories(terrain_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
 )
+
+target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB)
 
 target_compile_features(terrain_engine PUBLIC cxx_std_20)
 target_compile_definitions(terrain_engine PRIVATE

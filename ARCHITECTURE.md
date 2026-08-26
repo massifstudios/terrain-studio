@@ -90,9 +90,24 @@ at T9).
   row-major, row 0 north. Terrain Studio never changes it unilaterally; a
   round-trip test against a vendored fixture enforces compatibility, and the
   test does not depend on the game checkout.
+- **What round-tripping guarantees.** Read-then-write reproduces the sample
+  block byte for byte: every quantised level survives storage as float32.
+  The header's `minimum` and `altitudeStep` do not, and cannot — they are
+  recomputed from float32 samples, so they land within a float32 ULP of the
+  float64 values the source writer stored. Decoded altitudes therefore agree
+  to a ULP, not bit-exactly. Preserving the source band instead would lie
+  the moment a graph changed the terrain, so it is recomputed on every write.
+- The hillshade preview matches `massif_dem.py`'s `write_preview`: 315°
+  azimuth, 45° altitude, `np.gradient` semantics (central differences
+  inside, one-sided at the edges), the altitude ramp, and truncation rather
+  than rounding to 8 bits. The fixture reference is generated from the
+  *dequantised* heights, since that is what the engine actually holds.
 - Format readers and writers are the **only** place project-specific
   knowledge may live. The graph, the nodes, and the UI see the heightfield
   type and nothing else.
+- PNG support is a small in-tree codec (`formats/png_image`) over zlib:
+  non-interlaced grayscale, RGB and RGBA at 8 or 16 bits. Palette and
+  interlace are refused with a message rather than guessed at.
 
 ## 5. Pending decisions
 
