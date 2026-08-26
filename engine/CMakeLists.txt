@@ -15,6 +15,7 @@ add_library(terrain_engine STATIC
     src/hash.cpp
     src/json_writer.cpp
     src/resample.cpp
+    src/thumbnail.cpp
     src/registry.cpp
     src/graph.cpp
     src/evaluator.cpp

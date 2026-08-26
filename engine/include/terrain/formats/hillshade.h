@@ -1,6 +1,8 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
+#include <vector>
 
 #include "terrain/heightfield.h"
 
@@ -13,6 +15,16 @@ struct HillshadeOptions {
     double sunAzimuthDegrees = 315.0;
     double sunAltitudeDegrees = 45.0;
 };
+
+/// An 8-bit RGB image, row-major.
+struct ShadedImage {
+    int width = 0;
+    int height = 0;
+    std::vector<std::uint8_t> rgb;
+};
+
+/// The shaded image the preview writer puts on disk, without writing it.
+ShadedImage renderHillshade(const Heightfield& field, const HillshadeOptions& options = {});
 
 /// `foo.massifdem` -> `foo_preview.png`, the convention the game's tools use.
 std::filesystem::path previewPathFor(const std::filesystem::path& demPath);

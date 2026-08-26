@@ -8,6 +8,8 @@
 
 #include "evaluation_context.h"
 #include "terrain/hash.h"
+#include "terrain/resample.h"
+#include "terrain/thumbnail.h"
 
 namespace terrain {
 namespace {
@@ -94,6 +96,23 @@ std::shared_ptr<Heightfield> makeOutputField(const GraphSettings& settings,
 }
 
 }  // namespace
+
+/// One thumbnail per node in the evaluated subgraph, so the editor can show
+/// the whole graph at a glance without a second evaluation.
+void Evaluator::collectThumbnails(
+    const std::map<std::string, std::shared_ptr<NodeResult>>& results, int thumbnailResolution,
+    EvaluationOutcome& outcome) {
+    if (thumbnailResolution <= 0) {
+        return;
+    }
+    for (const auto& [nodeId, result] : results) {
+        if (result == nullptr || result->outputs.empty()) {
+            continue;
+        }
+        outcome.thumbnails.push_back(
+            NodeThumbnail{nodeId, renderThumbnail(*result->outputs.front(), thumbnailResolution)});
+    }
+}
 
 Evaluator::Evaluator(const NodeRegistry& registry) : registry_(&registry) {}
 
@@ -254,6 +273,8 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
             return outcome;
         }
     }
+
+    collectThumbnails(results, options.thumbnailResolution, outcome);
 
     const std::shared_ptr<NodeResult>& target = results.at(std::string(nodeId));
     if (outputPort < 0 || outputPort >= static_cast<int>(target->outputs.size())) {

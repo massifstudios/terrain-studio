@@ -23,13 +23,8 @@ interface AddonProgress {
 }
 
 interface AddonEvaluateResult {
-	samples?: Float32Array;
-	width?: number;
-	height?: number;
-	cellSizeMeters?: number;
-	minimum?: number;
-	maximum?: number;
-	semantics?: 'heightfield' | 'mask';
+	field?: FieldResult;
+	thumbnails: EvaluateResult['thumbnails'];
 	evaluatedNodeIds: string[];
 	timings: EvaluateResult['timings'];
 	errors: string[];
@@ -43,7 +38,7 @@ interface EngineAddon {
 		graph: GraphDocument,
 		nodeId: string,
 		outputPort: number,
-		options: { threadCount?: number; isFinalBuild?: boolean },
+		options: { threadCount?: number; isFinalBuild?: boolean; thumbnailResolution?: number },
 		onProgress: (update: AddonProgress) => void
 	): Promise<AddonEvaluateResult>;
 	cancelEvaluation(): void;
@@ -60,19 +55,11 @@ function loadAddon(): EngineAddon {
 
 const addon = loadAddon();
 
-function fieldFrom(result: AddonEvaluateResult): FieldResult | null {
-	if (!result.samples) {
+function fieldOrNull(result: AddonEvaluateResult): FieldResult | null {
+	if (!result.field) {
 		return null;
 	}
-	return {
-		samples: result.samples,
-		width: result.width!,
-		height: result.height!,
-		cellSizeMeters: result.cellSizeMeters!,
-		minimum: result.minimum!,
-		maximum: result.maximum!,
-		semantics: result.semantics!
-	};
+	return result.field;
 }
 
 async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Promise<EvaluateResult> {
@@ -84,12 +71,17 @@ async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Pro
 		payload.graph,
 		payload.nodeId,
 		payload.outputPort,
-		{ threadCount: payload.threadCount, isFinalBuild: payload.isFinalBuild },
+		{
+			threadCount: payload.threadCount,
+			isFinalBuild: payload.isFinalBuild,
+			thumbnailResolution: payload.thumbnailResolution
+		},
 		reportProgress
 	);
 
 	return {
-		field: fieldFrom(result),
+		field: fieldOrNull(result),
+		thumbnails: result.thumbnails,
 		evaluatedNodeIds: result.evaluatedNodeIds,
 		timings: result.timings,
 		errors: result.errors,

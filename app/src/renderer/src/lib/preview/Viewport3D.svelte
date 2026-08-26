@@ -1,11 +1,15 @@
 <script lang="ts">
 	import {
 		Color,
+		DataTexture,
+		FloatType,
 		Mesh,
 		MeshBasicMaterial,
 		SphereGeometry,
 		PerspectiveCamera,
+		NearestFilter,
 		Raycaster,
+		RedFormat,
 		Scene,
 		ShaderMaterial,
 		Vector2,
@@ -40,9 +44,13 @@
 			sunDirection: { value: sunDirection(315, 45) },
 			lowestAltitude: { value: 0 },
 			highestAltitude: { value: 1 },
-			ambient: { value: ambientShade }
+			ambient: { value: ambientShade },
+			overlay: { value: null },
+			overlayStrength: { value: 0 }
 		}
 	});
+
+	let overlayTexture: DataTexture | null = null;
 
 	let renderer: WebGLRenderer | null = null;
 	let controls: OrbitControls | null = null;
@@ -176,6 +184,30 @@
 
 	$effect(() => {
 		placeCursorMarker();
+	});
+
+
+	$effect(() => {
+		const overlay = previewState.overlay;
+		overlayTexture?.dispose();
+		if (!overlay) {
+			overlayTexture = null;
+			material.uniforms.overlay.value = null;
+			material.uniforms.overlayStrength.value = 0;
+			return;
+		}
+		overlayTexture = new DataTexture(
+			overlay.samples,
+			overlay.width,
+			overlay.height,
+			RedFormat,
+			FloatType
+		);
+		overlayTexture.minFilter = NearestFilter;
+		overlayTexture.magFilter = NearestFilter;
+		overlayTexture.needsUpdate = true;
+		material.uniforms.overlay.value = overlayTexture;
+		material.uniforms.overlayStrength.value = 1;
 	});
 
 	$effect(() => {

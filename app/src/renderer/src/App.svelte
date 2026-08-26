@@ -2,36 +2,25 @@
 	import TopBar from '$lib/TopBar.svelte';
 	import PreviewArea from '$lib/preview/PreviewArea.svelte';
 	import GraphPanel from '$lib/GraphPanel.svelte';
-	import PropertiesPanel from '$lib/PropertiesPanel.svelte';
+	import PropertiesPanel from '$lib/properties/PropertiesPanel.svelte';
 	import { engineClient } from '$lib/engine-client.svelte';
-	import { demoPreviewNodeId, demoRefinementGraph } from '$lib/demo-graph';
-	import { previewState } from '$lib/preview/preview-state.svelte';
-	import type { ElevationModelDescription } from '$shared/engine-protocol';
-
-	const previewResolution = 512;
+	import { nodeStatusStore } from '$lib/graph/node-status.svelte';
+	import { graphStore } from '$lib/graph/graph-store.svelte';
+	import { previewRunner } from '$lib/preview/preview-runner.svelte';
 
 	engineClient.connect();
 
-	async function loadDemoTerrain(): Promise<void> {
-		const path = await window.engineBridge.demoElevationModelPath();
-		const description = (await engineClient.send('describeElevationModel', {
-			path
-		})) as ElevationModelDescription;
-
-		const graph = demoRefinementGraph(path, description, previewResolution);
-		const outcome = await engineClient.evaluate({
-			graph,
-			nodeId: demoPreviewNodeId,
-			outputPort: 0
-		});
-
-		previewState.errors = outcome.errors;
-		previewState.field = outcome.field;
-	}
+	// Any edit to the graph, its settings, or the selected preview node asks for
+	// a fresh evaluation; the runner debounces and cancels what it replaces.
+	$effect(() => {
+		engineClient.registry;
+		previewRunner.request(graphStore.document(), graphStore.previewNodeId);
+	});
 
 	$effect(() => {
-		if (engineClient.registry) {
-			loadDemoTerrain();
+		const progress = engineClient.progress;
+		if (progress) {
+			nodeStatusStore.markEvaluating(progress.nodeId);
 		}
 	});
 </script>

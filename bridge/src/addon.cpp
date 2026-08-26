@@ -89,6 +89,39 @@ Napi::Array toTimingArray(Napi::Env env, const std::vector<terrain::NodeTiming>&
     return array;
 }
 
+Napi::Object fieldToJs(Napi::Env env, const terrain::Heightfield& field) {
+    Napi::Object description = Napi::Object::New(env);
+    const std::size_t byteLength = field.sampleCount() * sizeof(float);
+    Napi::ArrayBuffer buffer = Napi::ArrayBuffer::New(env, byteLength);
+    std::memcpy(buffer.Data(), field.data(), byteLength);
+
+    description.Set("samples", Napi::Float32Array::New(env, field.sampleCount(), buffer, 0));
+    description.Set("width", Napi::Number::New(env, field.width()));
+    description.Set("height", Napi::Number::New(env, field.height()));
+    description.Set("cellSizeMeters", Napi::Number::New(env, field.cellSizeMeters()));
+    description.Set("minimum", Napi::Number::New(env, field.minimum()));
+    description.Set("maximum", Napi::Number::New(env, field.maximum()));
+    description.Set("semantics", Napi::String::New(env, semanticsName(field.semantics())));
+    return description;
+}
+
+Napi::Array toThumbnailArray(Napi::Env env,
+                             const std::vector<terrain::NodeThumbnail>& thumbnails) {
+    Napi::Array array = Napi::Array::New(env, thumbnails.size());
+    for (std::size_t index = 0; index < thumbnails.size(); ++index) {
+        Napi::Object entry = Napi::Object::New(env);
+        const terrain::ThumbnailImage& image = thumbnails[index].image;
+        Napi::ArrayBuffer buffer = Napi::ArrayBuffer::New(env, image.rgba.size());
+        std::memcpy(buffer.Data(), image.rgba.data(), image.rgba.size());
+
+        entry.Set("nodeId", Napi::String::New(env, thumbnails[index].nodeId));
+        entry.Set("size", Napi::Number::New(env, image.size));
+        entry.Set("rgba", Napi::Uint8Array::New(env, image.rgba.size(), buffer, 0));
+        array.Set(static_cast<std::uint32_t>(index), entry);
+    }
+    return array;
+}
+
 /**
  * Runs one graph evaluation off the JavaScript thread, streaming per-node
  * progress back as it goes.
@@ -148,22 +181,10 @@ private:
         result.Set("errors", toStringArray(env, outcome_.errors));
         result.Set("evaluatedNodeIds", toStringArray(env, outcome_.evaluatedNodeIds));
         result.Set("timings", toTimingArray(env, outcome_.timings));
-        if (outcome_.field == nullptr) {
-            return result;
+        result.Set("thumbnails", toThumbnailArray(env, outcome_.thumbnails));
+        if (outcome_.field != nullptr) {
+            result.Set("field", fieldToJs(env, *outcome_.field));
         }
-
-        const terrain::Heightfield& field = *outcome_.field;
-        const std::size_t byteLength = field.sampleCount() * sizeof(float);
-        Napi::ArrayBuffer buffer = Napi::ArrayBuffer::New(env, byteLength);
-        std::memcpy(buffer.Data(), field.data(), byteLength);
-
-        result.Set("samples", Napi::Float32Array::New(env, field.sampleCount(), buffer, 0));
-        result.Set("width", Napi::Number::New(env, field.width()));
-        result.Set("height", Napi::Number::New(env, field.height()));
-        result.Set("cellSizeMeters", Napi::Number::New(env, field.cellSizeMeters()));
-        result.Set("minimum", Napi::Number::New(env, field.minimum()));
-        result.Set("maximum", Napi::Number::New(env, field.maximum()));
-        result.Set("semantics", Napi::String::New(env, semanticsName(field.semantics())));
         return result;
     }
 
@@ -184,6 +205,9 @@ terrain::EvaluationOptions optionsFromJs(const Napi::Object& source) {
     }
     if (source.Has("isFinalBuild")) {
         options.isFinalBuild = source.Get("isFinalBuild").ToBoolean().Value();
+    }
+    if (source.Has("thumbnailResolution")) {
+        options.thumbnailResolution = source.Get("thumbnailResolution").ToNumber().Int32Value();
     }
     return options;
 }

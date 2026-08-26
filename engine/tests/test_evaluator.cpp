@@ -12,6 +12,7 @@
 #include "terrain/graph.h"
 #include "terrain/hash.h"
 #include "terrain/registry.h"
+#include "terrain/resample.h"
 #include "test_support.h"
 
 using Catch::Approx;
@@ -218,4 +219,36 @@ TEST_CASE("a node seed depends on the graph seed and the node id", "[evaluator][
     REQUIRE(terrain::deriveNodeSeed(7, "erode") == terrain::deriveNodeSeed(7, "erode"));
     REQUIRE(terrain::deriveNodeSeed(7, "erode") != terrain::deriveNodeSeed(8, "erode"));
     REQUIRE(terrain::deriveNodeSeed(7, "erode") != terrain::deriveNodeSeed(7, "scatter"));
+}
+
+TEST_CASE("every node returns a thumbnail when one is asked for", "[evaluator]") {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+
+    EvaluationOptions options;
+    options.thumbnailResolution = 32;
+
+    const EvaluationOutcome outcome =
+        evaluator.evaluate(refinementGraph(128), "sum", 0, options);
+
+    REQUIRE(outcome.thumbnails.size() == 4);
+    for (const terrain::NodeThumbnail& thumbnail : outcome.thumbnails) {
+        REQUIRE(thumbnail.image.size == 32);
+        REQUIRE(thumbnail.image.rgba.size() == 32u * 32u * 4u);
+    }
+}
+
+TEST_CASE("a thumbnail averages rather than point-samples", "[evaluator]") {
+    Heightfield source(4, 4);
+    source.setCellSizeMeters(1.0);
+    for (int row = 0; row < 4; ++row) {
+        for (int column = 0; column < 4; ++column) {
+            source.at(row, column) = static_cast<float>(row * 4 + column);
+        }
+    }
+
+    const Heightfield small = terrain::downsampleAverage(source, 2);
+    REQUIRE(small.width() == 2);
+    REQUIRE(small.at(0, 0) == Approx(2.5));
+    REQUIRE(small.at(1, 1) == Approx(12.5));
 }

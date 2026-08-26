@@ -19,6 +19,8 @@ export interface EvaluateRequest {
 	outputPort: number;
 	isFinalBuild?: boolean;
 	threadCount?: number;
+	/// Square size of the per-node thumbnails the graph editor draws.
+	thumbnailResolution?: number;
 }
 
 /** Header-only description of an elevation model on disk. */
@@ -49,8 +51,16 @@ export interface FieldResult {
 	semantics: 'heightfield' | 'mask';
 }
 
+/** One node's thumbnail, shaded by the engine and ready to blit. */
+export interface NodeThumbnail {
+	nodeId: string;
+	size: number;
+	rgba: Uint8Array;
+}
+
 export interface EvaluateResult {
 	field: FieldResult | null;
+	thumbnails: NodeThumbnail[];
 	evaluatedNodeIds: string[];
 	timings: NodeTiming[];
 	errors: string[];

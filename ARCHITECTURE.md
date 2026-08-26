@@ -206,14 +206,42 @@ disk. Preview evaluation runs constantly while a parameter is being dragged.
 - Colours come from design tokens even inside WebGL: `readColorToken` resolves
   the CSS custom property for the canvas clear colour.
 
-## 7. Pending decisions
+## 7. The node editor
+
+- **The graph store is the only state.** `graph-store.svelte.ts` holds nodes,
+  edges, settings and selection; the editor components render it and emit
+  mutations, and none of them keeps graph state of its own.
+- **The rules are pure functions.** Legal connections, cycle refusal, id
+  allocation, deletion and parameter edits live in
+  `app/src/shared/graph-operations.ts` — plain TypeScript over plain arrays,
+  so they are unit-tested without a component tree. The store only makes them
+  reactive.
+- Nothing in the UI names a node type. The palette, the property panel and the
+  connection type-check all read the registry JSON the engine reports.
+- **Thumbnails are shaded by the engine**, not the UI: every evaluation
+  returns one small RGBA image per node in the subgraph, produced from the
+  cached result. The editor blits them. This keeps the "no terrain math in the
+  UI" invariant honest even for a 64-pixel picture, and makes a node body look
+  like the exported preview.
+- Editing debounces into an evaluation at preview resolution. A newer request
+  cancels the engine and drops any late answer by generation number, so
+  dragging a slider never shows a stale frame.
+- Perceptual ramp for masks (viridis, nine stops) is duplicated in
+  `engine/src/thumbnail.cpp` and in the viewport GLSL. Change one, change the
+  other; the comment in each says so.
+- `.massifgraph` is written by the TypeScript side and sorted — nodes by id,
+  edges by target, parameter keys alphabetically — so moving a node in the
+  editor does not reorder the file. The engine never parses it: the bridge
+  builds a `terrain::Graph` from the live object instead.
+
+## 8. Pending decisions
 
 Recorded here when they land, not before:
 
 - DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 8. Code style
+## 9. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

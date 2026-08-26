@@ -14,11 +14,25 @@ const engineBridge = {
 	onStatus(handler: (status: EngineStatus) => void): void {
 		ipcRenderer.on('engine:status', (_event, status: EngineStatus) => handler(status));
 	},
-	demoElevationModelPath(): Promise<string> {
-		return ipcRenderer.invoke('app:demo-dem-path');
+};
+
+const fileBridge = {
+	chooseOpenPath(kind: 'graph' | 'elevation'): Promise<string | null> {
+		return ipcRenderer.invoke('dialog:open-path', kind);
+	},
+	chooseSavePath(kind: 'graph' | 'dem', suggestedName: string): Promise<string | null> {
+		return ipcRenderer.invoke('dialog:save-path', kind, suggestedName);
+	},
+	readText(path: string): Promise<string> {
+		return ipcRenderer.invoke('file:read-text', path);
+	},
+	writeText(path: string, text: string): Promise<void> {
+		return ipcRenderer.invoke('file:write-text', path, text);
 	}
 };
 
 export type EngineBridge = typeof engineBridge;
+export type FileBridge = typeof fileBridge;
 
 contextBridge.exposeInMainWorld('engineBridge', engineBridge);
+contextBridge.exposeInMainWorld('fileBridge', fileBridge);

@@ -111,8 +111,7 @@ std::filesystem::path previewPathFor(const std::filesystem::path& demPath) {
     return preview;
 }
 
-void writeHillshadePreview(const std::filesystem::path& path, const Heightfield& field,
-                           const HillshadeOptions& options) {
+ShadedImage renderHillshade(const Heightfield& field, const HillshadeOptions& options) {
     const SampledGrid grid = subsample(field, strideFor(field.height(), options.previewSize));
     const auto [lowest, highest] = std::minmax_element(grid.values.begin(), grid.values.end());
     const double relief = std::max(*highest - *lowest, 1.0);
@@ -131,7 +130,13 @@ void writeHillshadePreview(const std::filesystem::path& path, const Heightfield&
         }
     }
 
-    writePngRgb8(path, grid.width, grid.height, pixels);
+    return ShadedImage{grid.width, grid.height, std::move(pixels)};
+}
+
+void writeHillshadePreview(const std::filesystem::path& path, const Heightfield& field,
+                           const HillshadeOptions& options) {
+    const ShadedImage image = renderHillshade(field, options);
+    writePngRgb8(path, image.width, image.height, image.rgb);
 }
 
 }  // namespace terrain::formats

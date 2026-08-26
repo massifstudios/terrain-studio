@@ -1,5 +1,47 @@
 # Done
 
+## T4 — Building graphs
+
+The tool is now usable: you can build a terrain graph by hand.
+
+**What works**
+
+- A node editor in the bottom panel. Right-click or press Tab for a searchable
+  palette of every node the engine offers; drag nodes around; drag from an
+  output to an input to connect them. A connection that would not work —
+  wrong kind of data, or one that would loop back on itself — is refused while
+  you drag, shown in red. Shift-click and box-drag select several nodes,
+  Delete removes them, and the surface pans with the middle button or the
+  space bar and zooms on the wheel.
+- Every node carries a small picture of its own result, lit the same way the
+  exported preview is, plus a dot for how fresh it is and how long it took.
+- The right-hand panel builds itself from whichever node is selected —
+  sliders, checkboxes, dropdowns, seed rolls and file pickers, with units. It
+  knows nothing about any node in particular.
+- Selecting a node shows its result in the preview. A mask is draped over the
+  nearest terrain above it rather than shown on its own.
+- Editing anything re-runs only what changed and updates the preview, with the
+  older run cancelled.
+- Projects save and open as `.massifgraph`. The file is sorted and readable,
+  so two versions of a project actually diff.
+- The top bar carries the project name, seed, world size, and the preview and
+  build resolutions. Build itself is still to come.
+
+**Where things are**
+
+- `app/src/renderer/src/lib/graph/` — the node editor.
+- `app/src/renderer/src/lib/properties/` — the generated property panel.
+- `app/src/shared/graph-operations.ts` — the editing rules, tested on their
+  own.
+- `app/src/shared/massifgraph.ts` — the project file.
+
+**Useful to know**
+
+- The app opens with an empty graph. Add an `ImportDEM`, point it at a file,
+  and go from there.
+- Colour maps and scattered points get their own previews when those kinds of
+  data exist, later on.
+
 ## T3 — The preview area
 
 You can now see the terrain.

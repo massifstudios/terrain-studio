@@ -14,6 +14,8 @@ export interface CursorCell {
 /// where the pointer is.
 class PreviewState {
 	field = $state<FieldResult | null>(null);
+	/// A mask draped over `field`, so it is always read in terrain context.
+	overlay = $state<FieldResult | null>(null);
 	sunAzimuthDegrees = $state(315);
 	sunAltitudeDegrees = $state(45);
 	showTopDownView = $state(true);
