@@ -1,0 +1,18 @@
+@import 'tailwindcss';
+@import '@neoworks-dev/ui/styles';
+
+@import '@fontsource/geist-sans/400.css';
+@import '@fontsource/geist-sans/500.css';
+@import '@fontsource/geist-sans/600.css';
+@import '@fontsource/geist-mono/400.css';
+
+/* Tailwind skips node_modules; the design system is linked source, not a build artefact. */
+@source "../../../node_modules/@neoworks-dev/ui/src";
+
+html,
+body,
+#app {
+	height: 100%;
+	margin: 0;
+	overflow: hidden;
+}

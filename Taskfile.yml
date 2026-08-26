@@ -1,0 +1,92 @@
+version: '3'
+
+vars:
+  ENGINE_BUILD_DIR: '{{.TASKFILE_DIR}}/engine/build'
+  ADDON: '{{.TASKFILE_DIR}}/bridge/build/Release/engine.node'
+
+tasks:
+  default:
+    cmds:
+      - task --list
+
+  install:
+    desc: Install JavaScript dependencies for the bridge and the app
+    cmds:
+      - cd {{.TASKFILE_DIR}}/bridge && bun install
+      - cd {{.TASKFILE_DIR}}/app && bun install
+
+  engine:configure:
+    desc: Configure the C++ engine build
+    cmds:
+      - cmake -S {{.TASKFILE_DIR}}/engine -B {{.ENGINE_BUILD_DIR}} -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+    status:
+      - test -f {{.ENGINE_BUILD_DIR}}/build.ninja
+
+  engine:build:
+    desc: Build the C++ engine and its test binary
+    deps: [engine:configure]
+    cmds:
+      - cmake --build {{.ENGINE_BUILD_DIR}}
+
+  engine:test:
+    desc: Run the Catch2 engine suite
+    deps: [engine:build]
+    cmds:
+      - ctest --test-dir {{.ENGINE_BUILD_DIR}} --output-on-failure
+
+  bridge:build:
+    desc: Build the N-API addon that wraps the engine
+    dir: '{{.TASKFILE_DIR}}/bridge'
+    cmds:
+      - bunx cmake-js compile --CDCMAKE_BUILD_TYPE=RelWithDebInfo
+    sources:
+      - '{{.TASKFILE_DIR}}/bridge/src/**/*'
+      - '{{.TASKFILE_DIR}}/bridge/CMakeLists.txt'
+      - '{{.TASKFILE_DIR}}/engine/src/**/*'
+      - '{{.TASKFILE_DIR}}/engine/include/**/*'
+    generates:
+      - '{{.ADDON}}'
+
+  app:test:
+    desc: Run the frontend logic suite
+    dir: '{{.TASKFILE_DIR}}/app'
+    cmds:
+      - bun test
+
+  app:check:
+    desc: Type-check the Svelte and TypeScript sources
+    dir: '{{.TASKFILE_DIR}}/app'
+    cmds:
+      - bun run check
+
+  dev:
+    desc: Build the native addon, then run the app with hot reload
+    deps: [bridge:build]
+    dir: '{{.TASKFILE_DIR}}/app'
+    cmds:
+      - bun run dev
+
+  build:
+    desc: Build engine, addon, and app bundles
+    cmds:
+      - task: engine:build
+      - task: bridge:build
+      - cd {{.TASKFILE_DIR}}/app && bun run build
+
+  test:
+    desc: Run the engine suite and the frontend suite
+    cmds:
+      - task: engine:test
+      - task: app:test
+
+  package:
+    desc: Produce a distributable Electron package
+    deps: [bridge:build]
+    dir: '{{.TASKFILE_DIR}}/app'
+    cmds:
+      - bun run package
+
+  clean:
+    desc: Remove build output
+    cmds:
+      - rm -rf {{.ENGINE_BUILD_DIR}} {{.TASKFILE_DIR}}/bridge/build {{.TASKFILE_DIR}}/app/out {{.TASKFILE_DIR}}/app/release

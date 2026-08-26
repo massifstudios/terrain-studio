@@ -1,0 +1,35 @@
+{
+	"name": "terrain-studio",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Neoworks desktop terrain-generation tool",
+	"main": "out/main/index.mjs",
+	"scripts": {
+		"dev": "electron-vite dev",
+		"build": "electron-vite build",
+		"preview": "electron-vite preview",
+		"package": "electron-vite build && electron-builder",
+		"check": "svelte-check --tsconfig tsconfig.json && tsc -p tsconfig.node.json --noEmit"
+	},
+	"dependencies": {
+		"@neoworks-dev/ui": "link:@neoworks-dev/ui",
+		"three": "^0.185.0"
+	},
+	"devDependencies": {
+		"@fontsource/geist-mono": "^5.2.5",
+		"@fontsource/geist-sans": "^5.2.5",
+		"@sveltejs/vite-plugin-svelte": "^7.3.0",
+		"@tailwindcss/vite": "^4.2.2",
+		"@types/bun": "^1.4.0",
+		"@types/three": "^0.185.0",
+		"electron": "^44.0.0",
+		"electron-builder": "^26.0.12",
+		"electron-vite": "^5.0.0",
+		"phosphor-svelte": "^3.1.0",
+		"svelte": "^5.56.3",
+		"svelte-check": "^4.3.3",
+		"tailwindcss": "^4.2.2",
+		"typescript": "^5.9.2",
+		"vite": "^8.2.2"
+	}
+}

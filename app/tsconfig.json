@@ -1,0 +1,38 @@
+{
+	"include": [
+		"src/renderer/**/*",
+		"src/preload/*.d.ts",
+		"src/shared/**/*"
+	],
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": [
+			"ES2023",
+			"DOM",
+			"DOM.Iterable"
+		],
+		"types": [
+			"svelte",
+			"bun"
+		],
+		"strict": true,
+		"noUnusedLocals": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"baseUrl": ".",
+		"paths": {
+			"$lib/*": [
+				"src/renderer/src/lib/*"
+			],
+			"$shared/*": [
+				"src/shared/*"
+			]
+		}
+	}
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+build/
+release/
+.DS_Store
+*.log
+
+# CMake / native build output
+engine/build/
+bridge/build/
+compile_commands.json
+.task/

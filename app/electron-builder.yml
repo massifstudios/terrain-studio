@@ -1,0 +1,14 @@
+appId: dev.neoworks.terrain-studio
+productName: Terrain Studio
+directories:
+  output: release
+files:
+  - out/**
+  - package.json
+# The engine addon stays outside the asar so the utilityProcess can dlopen it.
+extraResources:
+  - from: ../bridge/build/Release/engine.node
+    to: engine.node
+linux:
+  target: dir
+  category: Graphics
