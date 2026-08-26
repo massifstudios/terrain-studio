@@ -12,8 +12,11 @@ find_package(ZLIB REQUIRED)
 add_library(terrain_engine STATIC
     src/version.cpp
     src/heightfield.cpp
+    src/color_field.cpp
+    src/point_set.cpp
     src/hash.cpp
     src/curve.cpp
+    src/color_ramp.cpp
     src/noise.cpp
     src/json_writer.cpp
     src/resample.cpp
@@ -28,6 +31,8 @@ add_library(terrain_engine STATIC
     src/formats/heightfield_png.cpp
     src/formats/raw_float32.cpp
     src/formats/elevation_import.cpp
+    src/formats/texture_maps.cpp
+    src/formats/point_files.cpp
     src/nodes/node_support.cpp
     src/nodes/builtin_nodes.cpp
     src/nodes/input_nodes.cpp
@@ -37,6 +42,8 @@ add_library(terrain_engine STATIC
     src/nodes/erosion_support.cpp
     src/nodes/erosion_nodes.cpp
     src/nodes/combine_nodes.cpp
+    src/nodes/texture_nodes.cpp
+    src/nodes/vegetation_nodes.cpp
     src/nodes/output_nodes.cpp
 )
 

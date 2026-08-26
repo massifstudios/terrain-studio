@@ -97,13 +97,33 @@ void runBatch(std::vector<std::function<void()>>& tasks, int threadCount) {
     }
 }
 
-std::shared_ptr<Heightfield> makeOutputField(const GraphSettings& settings,
-                                             const PortDescriptor& port) {
-    auto field = std::make_shared<Heightfield>(settings.resolution, settings.resolution);
-    field->setCellSizeMeters(settings.cellSizeMeters());
-    field->setGeoreference(settings.georeference);
-    field->setSemantics(port.fieldSemantics);
-    return field;
+/// Storage for one output port, of whichever kind the port declares.
+NodeOutput makeOutput(const GraphSettings& settings, const PortDescriptor& port) {
+    NodeOutput output;
+    if (port.type == PortType::Color) {
+        output.color = std::make_shared<ColorField>(settings.resolution, settings.resolution);
+        return output;
+    }
+    if (port.type == PortType::Points) {
+        output.points = std::make_shared<PointSet>();
+        return output;
+    }
+
+    output.field = std::make_shared<Heightfield>(settings.resolution, settings.resolution);
+    output.field->setCellSizeMeters(settings.cellSizeMeters());
+    output.field->setGeoreference(settings.georeference);
+    output.field->setSemantics(port.fieldSemantics);
+    return output;
+}
+
+ThumbnailImage thumbnailOf(const NodeOutput& output, int size, double worldSizeMeters) {
+    if (output.color != nullptr) {
+        return renderThumbnail(*output.color, size);
+    }
+    if (output.points != nullptr) {
+        return renderThumbnail(*output.points, size, worldSizeMeters);
+    }
+    return renderThumbnail(*output.field, size);
 }
 
 }  // namespace
@@ -112,7 +132,7 @@ std::shared_ptr<Heightfield> makeOutputField(const GraphSettings& settings,
 /// the whole graph at a glance without a second evaluation.
 void Evaluator::collectThumbnails(
     const std::map<std::string, std::shared_ptr<NodeResult>>& results, int thumbnailResolution,
-    EvaluationOutcome& outcome) {
+    double worldSizeMeters, EvaluationOutcome& outcome) {
     if (thumbnailResolution <= 0) {
         return;
     }
@@ -120,8 +140,9 @@ void Evaluator::collectThumbnails(
         if (result == nullptr || result->outputs.empty()) {
             continue;
         }
-        outcome.thumbnails.push_back(
-            NodeThumbnail{nodeId, renderThumbnail(*result->outputs.front(), thumbnailResolution)});
+        outcome.thumbnails.push_back(NodeThumbnail{
+            nodeId,
+            thumbnailOf(result->outputs.front(), thumbnailResolution, worldSizeMeters)});
     }
 }
 
@@ -159,6 +180,11 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
         Hasher hasher;
         hasher.combine(plan.type->typeName);
         hasher.combine(static_cast<std::uint64_t>(plan.type->version));
+        // A build is a different evaluation from a preview even when it would
+        // produce the same numbers, because it is the one allowed to write
+        // files. Without this, building straight after a preview would serve
+        // the exporters from cache and put nothing on disk.
+        hasher.combine(static_cast<std::uint64_t>(options.isFinalBuild));
         hashSettings(hasher, graph.settings);
         hashParameters(hasher, *node, *plan.type);
         for (std::size_t port = 0; port < plan.type->inputs.size(); ++port) {
@@ -216,7 +242,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
 
                 auto result = std::make_shared<NodeResult>();
                 for (const PortDescriptor& port : plan->type->outputs) {
-                    result->outputs.push_back(makeOutputField(graph.settings, port));
+                    result->outputs.push_back(makeOutput(graph.settings, port));
                 }
 
                 ContextState state;
@@ -237,7 +263,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
                     }
                     const NodeResult& upstream = *results.at(edge->fromNodeId);
                     state.inputs.push_back(
-                        upstream.outputs[static_cast<std::size_t>(edge->fromPort)]->data());
+                        &upstream.outputs[static_cast<std::size_t>(edge->fromPort)]);
                 }
 
                 for (const ParameterDescriptor& descriptor : plan->type->parameters) {
@@ -265,6 +291,13 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
                     waveErrors[index] = plan->node->id + ": " + state.error;
                     return;
                 }
+                // Emission order is whatever the node's lanes happened to be;
+                // sorting by id is what makes a point set reproducible.
+                for (NodeOutput& output : result->outputs) {
+                    if (output.points != nullptr) {
+                        output.points->canonicalise();
+                    }
+                }
                 waveResults[index] = std::move(result);
             });
         }
@@ -286,14 +319,18 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
         }
     }
 
-    collectThumbnails(results, options.thumbnailResolution, outcome);
+    collectThumbnails(results, options.thumbnailResolution, graph.settings.worldSizeMeters,
+                      outcome);
 
     const std::shared_ptr<NodeResult>& target = results.at(std::string(nodeId));
     if (outputPort < 0 || outputPort >= static_cast<int>(target->outputs.size())) {
         outcome.errors.push_back("Output port is out of range");
         return outcome;
     }
-    outcome.field = target->outputs[static_cast<std::size_t>(outputPort)];
+    const NodeOutput& requested = target->outputs[static_cast<std::size_t>(outputPort)];
+    outcome.field = requested.field;
+    outcome.color = requested.color;
+    outcome.points = requested.points;
     return outcome;
 }
 

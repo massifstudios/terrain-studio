@@ -12,7 +12,9 @@ import type {
 	EvaluateRequest,
 	ElevationModelDescription,
 	EvaluateResult,
-	FieldResult
+	ColorResult,
+	FieldResult,
+	PointsResult
 } from '../shared/engine-protocol';
 import type { GraphDocument } from '../shared/graph-document';
 
@@ -24,6 +26,8 @@ interface AddonProgress {
 
 interface AddonEvaluateResult {
 	field?: FieldResult;
+	color?: ColorResult;
+	points?: PointsResult;
 	thumbnails: EvaluateResult['thumbnails'];
 	evaluatedNodeIds: string[];
 	timings: EvaluateResult['timings'];
@@ -55,11 +59,13 @@ function loadAddon(): EngineAddon {
 
 const addon = loadAddon();
 
-function fieldOrNull(result: AddonEvaluateResult): FieldResult | null {
-	if (!result.field) {
+/// The addon leaves out whichever kinds of result the evaluated port did not
+/// produce, and the renderer would rather see an explicit absence.
+function orNull<Value>(value: Value | undefined): Value | null {
+	if (value === undefined) {
 		return null;
 	}
-	return result.field;
+	return value;
 }
 
 async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Promise<EvaluateResult> {
@@ -80,7 +86,9 @@ async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Pro
 	);
 
 	return {
-		field: fieldOrNull(result),
+		field: orNull(result.field),
+		color: orNull(result.color),
+		points: orNull(result.points),
 		thumbnails: result.thumbnails,
 		evaluatedNodeIds: result.evaluatedNodeIds,
 		timings: result.timings,

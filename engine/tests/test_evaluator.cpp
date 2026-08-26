@@ -204,9 +204,11 @@ TEST_CASE("export writes only during a build", "[evaluator]") {
     evaluator.evaluate(graph, "out", 0, EvaluationOptions{});
     REQUIRE_FALSE(std::filesystem::exists(output.path()));
 
+    // Deliberately not clearing the cache: a build straight after a preview
+    // must still write, which it only does if the two are different cache
+    // entries.
     EvaluationOptions build;
     build.isFinalBuild = true;
-    evaluator.clearCache();
     const EvaluationOutcome outcome = evaluator.evaluate(graph, "out", 0, build);
 
     REQUIRE(outcome.errors.empty());

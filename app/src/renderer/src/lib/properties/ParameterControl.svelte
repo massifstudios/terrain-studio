@@ -4,6 +4,7 @@
 	import FolderOpen from 'phosphor-svelte/lib/FolderOpen';
 	import type { ParameterSchema, ParameterValue } from '$shared/graph-document';
 	import CurveEditor from '$lib/controls/CurveEditor.svelte';
+	import RampEditor from '$lib/controls/RampEditor.svelte';
 	import ValueSlider from '$lib/controls/ValueSlider.svelte';
 
 	interface Props {
@@ -89,6 +90,8 @@
 			<Button size="sm" variant="surface" icon={FolderOpen} onclick={browse}>Browse</Button>
 		</span>
 	</div>
+{:else if schema.type === 'colorRamp'}
+	<RampEditor label={schema.label} value={textValue} onChange={onChange} />
 {:else if schema.type === 'curve'}
 	<CurveEditor label={schema.label} value={textValue} onChange={onChange} />
 {:else if schema.type === 'text'}

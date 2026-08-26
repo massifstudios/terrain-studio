@@ -115,6 +115,23 @@ typedef struct TerrainEvaluationContext TerrainEvaluationContext;
 typedef void (*TerrainLaneTask)(void* userData, int32_t laneIndex, int32_t laneCount);
 
 /*
+ * One scattered instance. Positions are in world meters on the graph's frame,
+ * with easting growing towards the east and northing towards the north.
+ *
+ * The engine sorts a finished set by `id`, so ids must be unique within a set
+ * and must come from the seed rather than from a running counter — a counter
+ * would renumber everything the moment one point was rejected.
+ */
+typedef struct TerrainPoint {
+    float eastingMeters;
+    float northingMeters;
+    float altitudeMeters;
+    float rotationDegrees;
+    float scale;
+    uint64_t id;
+} TerrainPoint;
+
+/*
  * Everything a node may reach. No other engine internals are visible.
  * All fields in a graph share the same square grid, so width equals height.
  */
@@ -156,6 +173,20 @@ typedef struct TerrainContextApi {
        the lane count, which is what the result may depend on. */
     void (*runLanes)(TerrainEvaluationContext* context, int32_t laneCount, TerrainLaneTask task,
                      void* userData);
+
+    /* Colour ports. Three floats per cell, red green blue, row-major on the
+       same grid as a field, linear and conventionally in [0, 1]. NULL from
+       `inputColor` when the port is unconnected. */
+    const float* (*inputColor)(TerrainEvaluationContext* context, int32_t portIndex);
+    float* (*outputColor)(TerrainEvaluationContext* context, int32_t portIndex);
+
+    /* Point ports. Reading gives the upstream set in its canonical order;
+       `emitPoint` appends to an output set, which the engine sorts by id once
+       the node returns. */
+    int32_t (*inputPointCount)(TerrainEvaluationContext* context, int32_t portIndex);
+    const TerrainPoint* (*inputPoints)(TerrainEvaluationContext* context, int32_t portIndex);
+    void (*emitPoint)(TerrainEvaluationContext* context, int32_t portIndex,
+                      const TerrainPoint* point);
 } TerrainContextApi;
 
 typedef void (*TerrainNodeEvaluate)(const TerrainContextApi* api,

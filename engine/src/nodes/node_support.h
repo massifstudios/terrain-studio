@@ -16,6 +16,8 @@ void registerFilterNodes(const TerrainRegistryApi& api, TerrainRegistry* registr
 void registerErosionNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerMaskNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerCombineNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerTextureNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerVegetationNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerOutputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 
 inline std::size_t cellCount(const TerrainContextApi* api, TerrainEvaluationContext* context) {

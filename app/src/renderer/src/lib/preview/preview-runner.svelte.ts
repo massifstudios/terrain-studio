@@ -71,6 +71,8 @@ class PreviewRunner {
 		if (!engineClient.isReady || !requested || requested.nodeId === null) {
 			previewState.field = null;
 			previewState.overlay = null;
+			previewState.painted = null;
+			previewState.points = null;
 			return;
 		}
 
@@ -100,14 +102,22 @@ class PreviewRunner {
 		outcome: EvaluateResult,
 		generation: number
 	): Promise<void> {
-		if (!outcome.field || outcome.field.semantics !== 'mask') {
+		previewState.overlay = null;
+		previewState.painted = null;
+		previewState.points = null;
+
+		const isSurface = outcome.field !== null && outcome.field.semantics !== 'mask';
+		if (isSurface) {
 			previewState.field = outcome.field;
-			previewState.overlay = null;
 			return;
 		}
 
-		// A mask is always read in terrain context, never on its own.
+		// A mask, a colour map and a point set all need ground under them, so
+		// each is shown over the nearest surface upstream rather than on its own.
 		previewState.overlay = outcome.field;
+		previewState.painted = outcome.color;
+		previewState.points = outcome.points;
+
 		const surfaceNodeId = this.#nearestSurfaceNodeId(nodeId);
 		if (surfaceNodeId === null) {
 			previewState.field = null;

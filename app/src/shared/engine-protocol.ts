@@ -51,6 +51,27 @@ export interface FieldResult {
 	semantics: 'heightfield' | 'mask';
 }
 
+/** An evaluated colour port: three floats per cell, red green blue. */
+export interface ColorResult {
+	samples: Float32Array;
+	width: number;
+	height: number;
+}
+
+/**
+ * An evaluated point port. Positions ride in one flat array of five values per
+ * instance rather than an array of objects, because a forest is millions of
+ * instances and a million small objects is a million allocations.
+ */
+export interface PointsResult {
+	count: number;
+	/// easting, northing, altitude, rotation, scale — in that order, per point.
+	values: Float32Array;
+	ids: BigUint64Array;
+}
+
+export const valuesPerPoint = 5;
+
 /** One node's thumbnail, shaded by the engine and ready to blit. */
 export interface NodeThumbnail {
 	nodeId: string;
@@ -60,6 +81,8 @@ export interface NodeThumbnail {
 
 export interface EvaluateResult {
 	field: FieldResult | null;
+	color: ColorResult | null;
+	points: PointsResult | null;
 	thumbnails: NodeThumbnail[];
 	evaluatedNodeIds: string[];
 	timings: NodeTiming[];

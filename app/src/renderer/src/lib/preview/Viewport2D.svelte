@@ -9,6 +9,7 @@
 		PlaneGeometry,
 		RedFormat,
 		Scene,
+		type Points,
 		ShaderMaterial,
 		Vector2,
 		WebGLRenderer
@@ -21,6 +22,7 @@
 		topDownFragmentShader,
 		topDownVertexShader
 	} from './hillshade';
+	import { applyDrape, buildPointMarkers, colorTexture, maskTexture } from './drapes';
 	import { previewState } from './preview-state.svelte';
 
 	let container = $state<HTMLDivElement | null>(null);
@@ -41,11 +43,15 @@
 			highestAltitude: { value: 1 },
 			ambient: { value: ambientShade },
 			overlay: { value: null },
-			overlayStrength: { value: 0 }
+			overlayStrength: { value: 0 },
+			painted: { value: null },
+			paintedStrength: { value: 0 }
 		}
 	});
 
 	let overlayTexture: DataTexture | null = null;
+	let paintedTexture: DataTexture | null = null;
+	let markers: Points | null = null;
 
 	let renderer: WebGLRenderer | null = null;
 	let quad: Mesh | null = null;
@@ -213,25 +219,39 @@
 
 	$effect(() => {
 		const overlay = previewState.overlay;
-		overlayTexture?.dispose();
-		if (!overlay) {
-			overlayTexture = null;
-			material.uniforms.overlay.value = null;
-			material.uniforms.overlayStrength.value = 0;
+		let next: DataTexture | null = null;
+		if (overlay) {
+			next = maskTexture(overlay);
+		}
+		overlayTexture = applyDrape(material, overlayTexture, next, 'overlay');
+	});
+
+	$effect(() => {
+		const painted = previewState.painted;
+		let next: DataTexture | null = null;
+		if (painted) {
+			next = colorTexture(painted);
+		}
+		paintedTexture = applyDrape(material, paintedTexture, next, 'painted');
+	});
+
+	/// The same markers the 3D view shows, laid flat just above the map so they
+	/// are not swallowed by the quad.
+	$effect(() => {
+		const points = previewState.points;
+		const field = previewState.field;
+		if (markers) {
+			scene.remove(markers);
+			markers.geometry.dispose();
+			markers = null;
+		}
+		if (!points || !field || points.count === 0) {
 			return;
 		}
-		overlayTexture = new DataTexture(
-			overlay.samples,
-			overlay.width,
-			overlay.height,
-			RedFormat,
-			FloatType
-		);
-		overlayTexture.minFilter = NearestFilter;
-		overlayTexture.magFilter = NearestFilter;
-		overlayTexture.needsUpdate = true;
-		material.uniforms.overlay.value = overlayTexture;
-		material.uniforms.overlayStrength.value = 1;
+		markers = buildPointMarkers(points, field, spanMeters / 200, readColorToken('--ctx-green'));
+		markers.position.z = 1;
+		markers.rotation.x = Math.PI / 2;
+		scene.add(markers);
 	});
 
 	$effect(() => {

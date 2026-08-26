@@ -65,6 +65,15 @@ vec3 altitudeRamp(float band) {
 float reliefBand(float altitude, float lowest, float highest) {
 	return clamp((altitude - lowest) / max(highest - lowest, 1.0), 0.0, 1.0);
 }
+
+// A colour map replaces the altitude ramp rather than tinting the lit result,
+// so the terrain keeps its own light and the map keeps its own colour.
+vec3 surfaceColor(vec3 rampColor, sampler2D painted, vec2 gridUv, float strength) {
+	if (strength <= 0.0) {
+		return rampColor;
+	}
+	return mix(rampColor, texture2D(painted, gridUv).rgb, strength);
+}
 `;
 
 export const surfaceVertexShader = /* glsl */ `
@@ -87,6 +96,8 @@ uniform float highestAltitude;
 uniform float ambient;
 uniform sampler2D overlay;
 uniform float overlayStrength;
+uniform sampler2D painted;
+uniform float paintedStrength;
 
 varying vec3 worldNormal;
 varying float altitudeMeters;
@@ -97,7 +108,8 @@ ${maskRampGlsl}
 
 void main() {
 	float shade = clamp(dot(normalize(worldNormal), sunDirection), 0.0, 1.0);
-	vec3 colour = altitudeRamp(reliefBand(altitudeMeters, lowestAltitude, highestAltitude));
+	vec3 ramp = altitudeRamp(reliefBand(altitudeMeters, lowestAltitude, highestAltitude));
+	vec3 colour = surfaceColor(ramp, painted, gridUv, paintedStrength);
 	vec3 shaded = colour * (ambient + (1.0 - ambient) * shade);
 	gl_FragColor = vec4(drapeMask(shaded, overlay, gridUv, overlayStrength), 1.0);
 }
@@ -128,6 +140,8 @@ uniform float highestAltitude;
 uniform float ambient;
 uniform sampler2D overlay;
 uniform float overlayStrength;
+uniform sampler2D painted;
+uniform float paintedStrength;
 
 varying vec2 gridUv;
 
@@ -150,7 +164,8 @@ void main() {
 	float lit = -east * sunDirection.x - north * (-sunDirection.z) + sunDirection.y;
 	float shade = clamp(lit / normalLength, 0.0, 1.0);
 
-	vec3 colour = altitudeRamp(reliefBand(here, lowestAltitude, highestAltitude));
+	vec3 ramp = altitudeRamp(reliefBand(here, lowestAltitude, highestAltitude));
+	vec3 colour = surfaceColor(ramp, painted, gridUv, paintedStrength);
 	vec3 shaded = colour * (ambient + (1.0 - ambient) * shade);
 	gl_FragColor = vec4(drapeMask(shaded, overlay, gridUv, overlayStrength), 1.0);
 }

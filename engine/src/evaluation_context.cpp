@@ -47,7 +47,7 @@ double contextNorthingMax(TerrainEvaluationContext* context) {
     return reference->northingMaxMeters;
 }
 
-const float* contextInputField(TerrainEvaluationContext* context, int32_t portIndex) {
+const NodeOutput* inputAt(TerrainEvaluationContext* context, int32_t portIndex) {
     const ContextState& state = stateOf(context);
     if (portIndex < 0 || portIndex >= static_cast<int32_t>(state.inputs.size())) {
         return nullptr;
@@ -55,20 +55,77 @@ const float* contextInputField(TerrainEvaluationContext* context, int32_t portIn
     return state.inputs[static_cast<std::size_t>(portIndex)];
 }
 
+NodeOutput* outputAt(TerrainEvaluationContext* context, int32_t portIndex) {
+    ContextState& state = stateOf(context);
+    if (state.outputs == nullptr || portIndex < 0
+        || portIndex >= static_cast<int32_t>(state.outputs->size())) {
+        return nullptr;
+    }
+    return &(*state.outputs)[static_cast<std::size_t>(portIndex)];
+}
+
+const float* contextInputField(TerrainEvaluationContext* context, int32_t portIndex) {
+    const NodeOutput* input = inputAt(context, portIndex);
+    if (input == nullptr || input->field == nullptr) {
+        return nullptr;
+    }
+    return input->field->data();
+}
+
 int32_t contextIsInputConnected(TerrainEvaluationContext* context, int32_t portIndex) {
-    if (contextInputField(context, portIndex) == nullptr) {
+    if (inputAt(context, portIndex) == nullptr) {
         return 0;
     }
     return 1;
 }
 
 float* contextOutputField(TerrainEvaluationContext* context, int32_t portIndex) {
-    ContextState& state = stateOf(context);
-    if (state.outputs == nullptr || portIndex < 0
-        || portIndex >= static_cast<int32_t>(state.outputs->size())) {
+    NodeOutput* output = outputAt(context, portIndex);
+    if (output == nullptr || output->field == nullptr) {
         return nullptr;
     }
-    return (*state.outputs)[static_cast<std::size_t>(portIndex)]->data();
+    return output->field->data();
+}
+
+const float* contextInputColor(TerrainEvaluationContext* context, int32_t portIndex) {
+    const NodeOutput* input = inputAt(context, portIndex);
+    if (input == nullptr || input->color == nullptr) {
+        return nullptr;
+    }
+    return input->color->data();
+}
+
+float* contextOutputColor(TerrainEvaluationContext* context, int32_t portIndex) {
+    NodeOutput* output = outputAt(context, portIndex);
+    if (output == nullptr || output->color == nullptr) {
+        return nullptr;
+    }
+    return output->color->data();
+}
+
+int32_t contextInputPointCount(TerrainEvaluationContext* context, int32_t portIndex) {
+    const NodeOutput* input = inputAt(context, portIndex);
+    if (input == nullptr || input->points == nullptr) {
+        return 0;
+    }
+    return static_cast<int32_t>(input->points->size());
+}
+
+const TerrainPoint* contextInputPoints(TerrainEvaluationContext* context, int32_t portIndex) {
+    const NodeOutput* input = inputAt(context, portIndex);
+    if (input == nullptr || input->points == nullptr || input->points->isEmpty()) {
+        return nullptr;
+    }
+    return input->points->points().data();
+}
+
+void contextEmitPoint(TerrainEvaluationContext* context, int32_t portIndex,
+                      const TerrainPoint* point) {
+    NodeOutput* output = outputAt(context, portIndex);
+    if (output == nullptr || output->points == nullptr || point == nullptr) {
+        return;
+    }
+    output->points->add(*point);
 }
 
 double contextParameterNumber(TerrainEvaluationContext* context, int32_t parameterIndex) {
@@ -165,7 +222,12 @@ const TerrainContextApi api = {contextWidth,
                                contextIsCancelled,
                                contextIsFinalBuild,
                                contextSetError,
-                               contextRunLanes};
+                               contextRunLanes,
+                               contextInputColor,
+                               contextOutputColor,
+                               contextInputPointCount,
+                               contextInputPoints,
+                               contextEmitPoint};
 
 }  // namespace
 

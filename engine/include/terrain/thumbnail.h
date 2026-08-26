@@ -3,7 +3,9 @@
 #include <cstdint>
 #include <vector>
 
+#include "terrain/color_field.h"
 #include "terrain/heightfield.h"
+#include "terrain/point_set.h"
 
 namespace terrain {
 
@@ -21,5 +23,13 @@ struct ThumbnailImage {
  * honestly.
  */
 ThumbnailImage renderThumbnail(const Heightfield& field, int size);
+
+/// Colour maps are shown as themselves, area-averaged down.
+ThumbnailImage renderThumbnail(const ColorField& colors, int size);
+
+/// A point set has no image of its own, so it gets a plan view: one dot per
+/// instance over an empty ground. `worldSizeMeters` is what maps a position to
+/// a pixel.
+ThumbnailImage renderThumbnail(const PointSet& points, int size, double worldSizeMeters);
 
 }  // namespace terrain

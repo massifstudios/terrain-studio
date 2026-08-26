@@ -142,7 +142,7 @@ does not match erosion at 8192.
 ### Cache key
 
 ```
-hash(typeName, typeVersion,
+hash(typeName, typeVersion, isFinalBuild,
      resolution, worldSizeMeters, seed, georeference,
      each parameter name and value in descriptor order,
      for each input port: the upstream node's key and output port index)
@@ -316,14 +316,52 @@ in §3 exists for.
   against their own strongest cell. The meters are already in the surface
   output; a mask is a weight.
 
-## 10. Pending decisions
+## 10. Colour and points
+
+- **A node output is a `NodeOutput`, not a heightfield.** Exactly one of
+  `field`, `color` and `points` is set, and which one is decided by the port's
+  declared type — never by inspecting the value. The evaluator allocates
+  storage from the descriptor, so a node cannot produce a kind it did not
+  declare.
+- **Colour is three floats per cell and no gamma is applied anywhere.** A stop
+  written `#808080` leaves the writer as 128. Guessing at a transfer function
+  would make an exported map disagree with the swatch the artist picked, and
+  there is no second place to undo the guess.
+- **A point set is canonicalised by id after the node returns.** Ids are
+  seed-derived and unique, so the order is the same however the node emitted
+  them. This is what lets a scatter be parallel later without the ABI growing
+  a footgun — emission order simply does not reach the result. Ids come from
+  the background cell rather than a counter, so a rejected candidate does not
+  renumber everything after it.
+- **Points cross the bridge as one flat `Float32Array` of five values each,
+  with the ids beside them in a `BigUint64Array`.** A forest is millions of
+  instances, and a million small objects is a million allocations.
+- **Colour and points are drawn over the nearest surface upstream**, the same
+  rule masks already follow: none of the three has ground of its own, and
+  reading one out of context tells you nothing. The colour drape replaces the
+  altitude ramp *before* lighting, so the terrain keeps its relief and the map
+  keeps its colour.
+- Colour textures are expanded from RGB to RGBA in the renderer, not in the
+  engine, where the fourth channel would be a plane of ones crossing the
+  bridge for nothing.
+- **The colour ramp and the transfer curve are both text**, and both are
+  duplicated between the engine and the editor — `color_ramp.cpp` beside
+  `app/src/shared/color-ramp.ts`, `curve.cpp` beside `transfer-curve.ts`. The
+  engine applies them; the editor draws them. The comment in each names the
+  other.
+- **`isFinalBuild` is part of the cache key.** A build is a different
+  evaluation from a preview even when the numbers match, because it is the one
+  allowed to write files. Without it, building straight after a preview serves
+  the exporters from cache and puts nothing on disk.
+
+## 11. Pending decisions
 
 Recorded here when they land, not before:
 
 - DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 11. Code style
+## 12. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

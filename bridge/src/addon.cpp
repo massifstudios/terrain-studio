@@ -7,7 +7,9 @@
 
 #include "engine_host.h"
 #include "graph_conversion.h"
+#include "terrain/color_field.h"
 #include "terrain/formats/massifdem.h"
+#include "terrain/point_set.h"
 #include "terrain/version.h"
 
 namespace {
@@ -105,6 +107,50 @@ Napi::Object fieldToJs(Napi::Env env, const terrain::Heightfield& field) {
     return description;
 }
 
+Napi::Object colorToJs(Napi::Env env, const terrain::ColorField& colors) {
+    Napi::Object description = Napi::Object::New(env);
+    const std::size_t byteLength = colors.samples().size() * sizeof(float);
+    Napi::ArrayBuffer buffer = Napi::ArrayBuffer::New(env, byteLength);
+    std::memcpy(buffer.Data(), colors.data(), byteLength);
+
+    description.Set("samples",
+                    Napi::Float32Array::New(env, colors.samples().size(), buffer, 0));
+    description.Set("width", Napi::Number::New(env, colors.width()));
+    description.Set("height", Napi::Number::New(env, colors.height()));
+    return description;
+}
+
+/**
+ * Points cross as one flat Float32Array of five values each, plus the ids in
+ * a BigUint64Array beside it. A million small objects would be a million
+ * allocations on the JavaScript side; a flat array is one.
+ */
+Napi::Object pointsToJs(Napi::Env env, const terrain::PointSet& points) {
+    constexpr std::size_t valuesPerPoint = 5;
+    Napi::Object description = Napi::Object::New(env);
+
+    Napi::ArrayBuffer values =
+        Napi::ArrayBuffer::New(env, points.size() * valuesPerPoint * sizeof(float));
+    Napi::ArrayBuffer ids = Napi::ArrayBuffer::New(env, points.size() * sizeof(std::uint64_t));
+    auto* value = static_cast<float*>(values.Data());
+    auto* id = static_cast<std::uint64_t*>(ids.Data());
+
+    for (const TerrainPoint& point : points.points()) {
+        *value++ = point.eastingMeters;
+        *value++ = point.northingMeters;
+        *value++ = point.altitudeMeters;
+        *value++ = point.rotationDegrees;
+        *value++ = point.scale;
+        *id++ = point.id;
+    }
+
+    description.Set("count", Napi::Number::New(env, points.size()));
+    description.Set("values",
+                    Napi::Float32Array::New(env, points.size() * valuesPerPoint, values, 0));
+    description.Set("ids", Napi::BigUint64Array::New(env, points.size(), ids, 0));
+    return description;
+}
+
 Napi::Array toThumbnailArray(Napi::Env env,
                              const std::vector<terrain::NodeThumbnail>& thumbnails) {
     Napi::Array array = Napi::Array::New(env, thumbnails.size());
@@ -184,6 +230,12 @@ private:
         result.Set("thumbnails", toThumbnailArray(env, outcome_.thumbnails));
         if (outcome_.field != nullptr) {
             result.Set("field", fieldToJs(env, *outcome_.field));
+        }
+        if (outcome_.color != nullptr) {
+            result.Set("color", colorToJs(env, *outcome_.color));
+        }
+        if (outcome_.points != nullptr) {
+            result.Set("points", pointsToJs(env, *outcome_.points));
         }
         return result;
     }

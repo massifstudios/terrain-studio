@@ -1,5 +1,44 @@
 # Done
 
+## T7 — Texturing and vegetation
+
+Terrain Studio no longer produces only shape. It now produces what covers the
+shape as well.
+
+**What works**
+
+- `ColorRamp` turns any field into a colour map through a gradient you edit in
+  the property panel, and `MixColor` blends two of them through a mask.
+- `SplatWeights` shares each cell out between up to four ground layers so they
+  add to exactly one — rock, scree, soil, snow — with anything unclaimed
+  falling to the base layer rather than leaving a hole.
+- `GrowthMask` answers "where would this grow?" in one node instead of five:
+  an altitude band, a slope limit and moisture, together.
+- `Scatter` places instances over the ground with a real minimum spacing in
+  meters, each with its own rotation and scale. A forest, in other words.
+- Four new ways out: 16-bit PNG heightmaps, RGBA splat maps, RGB colour maps,
+  and point sets as either CSV or JSON. Like the DEM export, they write only
+  during a build.
+- The preview understands all of it. A colour map is painted onto the terrain
+  keeping its own light, and scattered instances appear as markers in both the
+  3D and the top-down view, standing on the ground they were placed on.
+
+**Where things are**
+
+- `engine/src/nodes/texture_nodes.cpp` and `vegetation_nodes.cpp` — the nodes.
+- `engine/src/formats/texture_maps.cpp`, `point_files.cpp` — the new writers.
+- `app/src/renderer/src/lib/controls/RampEditor.svelte` — the gradient editor.
+
+**Useful to know**
+
+- Colours are written out exactly as you picked them. A stop set to #808080
+  leaves the tool as 128, 128, 128 — no gamma is guessed at anywhere.
+- Point positions are written in the survey coordinates of whatever DEM they
+  came from, so a forest lines up with the terrain it belongs to.
+- A scatter is reproducible down to the individual tree: every instance has an
+  id derived from the seed, so the same graph gives the same forest, and
+  adding a tree somewhere never renumbers the rest.
+
 ## T6 — Erosion
 
 The part the tool exists for. A coarse survey DEM now gains believable relief

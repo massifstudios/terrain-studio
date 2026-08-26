@@ -45,6 +45,27 @@ inline std::shared_ptr<const Heightfield> evaluateNode(const Graph& graph,
     return evaluateOutput(graph, nodeId, 0, threadCount);
 }
 
+inline std::shared_ptr<const ColorField> evaluateColor(const Graph& graph,
+                                                       const std::string& nodeId,
+                                                       int outputPort = 0,
+                                                       int threadCount = 1) {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+    EvaluationOptions options;
+    options.threadCount = threadCount;
+    return evaluator.evaluate(graph, nodeId, outputPort, options).color;
+}
+
+inline std::shared_ptr<const PointSet> evaluatePoints(const Graph& graph,
+                                                      const std::string& nodeId,
+                                                      int threadCount = 1) {
+    const NodeRegistry registry = builtinRegistry();
+    Evaluator evaluator(registry);
+    EvaluationOptions options;
+    options.threadCount = threadCount;
+    return evaluator.evaluate(graph, nodeId, 0, options).points;
+}
+
 inline std::uint64_t hashField(const Heightfield& field) {
     Hasher hasher;
     for (const float sample : field.samples()) {

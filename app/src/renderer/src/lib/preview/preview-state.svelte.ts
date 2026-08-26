@@ -1,4 +1,4 @@
-import type { FieldResult } from '$shared/engine-protocol';
+import type { ColorResult, FieldResult, PointsResult } from '$shared/engine-protocol';
 
 /**
  * The cell under the pointer, in grid coordinates so both views mirror the
@@ -16,6 +16,10 @@ class PreviewState {
 	field = $state<FieldResult | null>(null);
 	/// A mask draped over `field`, so it is always read in terrain context.
 	overlay = $state<FieldResult | null>(null);
+	/// A colour map painted onto `field`, for the same reason.
+	painted = $state<ColorResult | null>(null);
+	/// Scattered instances standing on `field`, drawn as markers.
+	points = $state<PointsResult | null>(null);
 	sunAzimuthDegrees = $state(315);
 	sunAltitudeDegrees = $state(45);
 	showTopDownView = $state(true);

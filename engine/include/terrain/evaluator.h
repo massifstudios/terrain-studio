@@ -9,12 +9,22 @@
 #include <unordered_map>
 #include <vector>
 
+#include "terrain/color_field.h"
 #include "terrain/graph.h"
 #include "terrain/heightfield.h"
+#include "terrain/point_set.h"
 #include "terrain/registry.h"
 #include "terrain/thumbnail.h"
 
 namespace terrain {
+
+/// What one output port produced. Exactly one member is set, and which one is
+/// decided by the port's declared type, never by inspection.
+struct NodeOutput {
+    std::shared_ptr<Heightfield> field;
+    std::shared_ptr<ColorField> color;
+    std::shared_ptr<PointSet> points;
+};
 
 class CancellationToken {
 public:
@@ -60,7 +70,10 @@ struct NodeThumbnail {
 };
 
 struct EvaluationOutcome {
+    /// The requested output. Which of the three is set follows the port type.
     std::shared_ptr<const Heightfield> field;
+    std::shared_ptr<const ColorField> color;
+    std::shared_ptr<const PointSet> points;
     /// Nodes that actually ran. A clean cache leaves this empty.
     std::vector<std::string> evaluatedNodeIds;
     std::vector<NodeTiming> timings;
@@ -68,7 +81,8 @@ struct EvaluationOutcome {
     std::vector<std::string> errors;
     bool wasCancelled = false;
 
-    bool succeeded() const { return field != nullptr && errors.empty() && !wasCancelled; }
+    bool hasResult() const { return field != nullptr || color != nullptr || points != nullptr; }
+    bool succeeded() const { return hasResult() && errors.empty() && !wasCancelled; }
 };
 
 /**
@@ -90,12 +104,12 @@ public:
 
 private:
     struct NodeResult {
-        std::vector<std::shared_ptr<Heightfield>> outputs;
+        std::vector<NodeOutput> outputs;
     };
 
     static void collectThumbnails(
         const std::map<std::string, std::shared_ptr<NodeResult>>& results,
-        int thumbnailResolution, EvaluationOutcome& outcome);
+        int thumbnailResolution, double worldSizeMeters, EvaluationOutcome& outcome);
 
     const NodeRegistry* registry_;
     std::unordered_map<std::uint64_t, std::shared_ptr<NodeResult>> cache_;

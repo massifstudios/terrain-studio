@@ -18,8 +18,9 @@ struct ContextState {
     const GeoReference* georeference = nullptr;
     std::uint64_t nodeSeed = 0;
 
-    std::vector<const float*> inputs;
-    std::vector<std::shared_ptr<Heightfield>>* outputs = nullptr;
+    /// One entry per declared input port, null where nothing is connected.
+    std::vector<const NodeOutput*> inputs;
+    std::vector<NodeOutput>* outputs = nullptr;
 
     std::vector<double> parameterNumbers;
     std::vector<std::string> parameterTexts;
