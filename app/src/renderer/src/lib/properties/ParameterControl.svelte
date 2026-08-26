@@ -18,11 +18,13 @@
 	const numberValue = $derived(Number(value));
 	const textValue = $derived(String(value));
 
+	/// Whole numbers snap to one; everything else lets the slider pick a quantum
+	/// from its own range.
 	const stepForType = $derived.by(() => {
 		if (schema.type === 'int') {
 			return 1;
 		}
-		return (schema.maximum - schema.minimum) / 1000;
+		return undefined;
 	});
 
 	const enumOptions = $derived(
