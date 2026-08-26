@@ -4,6 +4,7 @@ import {
 	lastKnownProjectText,
 	saveProjectAs
 } from '$lib/project-file';
+import { answerProjectChange } from '$shared/project-change';
 
 export interface ProjectConflict {
 	path: string;
@@ -51,13 +52,17 @@ class ProjectWatcher {
 	}
 
 	#handleChange(path: string, text: string): void {
-		if (path !== graphStore.filePath) {
+		const answer = answerProjectChange({
+			openPath: graphStore.filePath,
+			lastKnownText: lastKnownProjectText(),
+			hasUnsavedChanges: graphStore.hasUnsavedChanges,
+			changedPath: path,
+			changedText: text
+		});
+		if (answer === 'ignore') {
 			return;
 		}
-		if (text === lastKnownProjectText()) {
-			return;
-		}
-		if (graphStore.hasUnsavedChanges) {
+		if (answer === 'ask') {
 			this.conflict = { path, text };
 			return;
 		}

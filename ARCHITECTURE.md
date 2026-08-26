@@ -84,6 +84,12 @@ it.
 - Where parallel workers scatter into shared cells (droplet erosion,
   scatter), accumulation uses **integer atomics on a fixed-point encoding**,
   never float atomics.
+- **Bit-identical across backends, too.** Erosion runs on Vulkan, on CUDA or
+  on the CPU depending on the machine, and the three must agree exactly — a
+  graph cannot depend on what hardware built it. Two things follow, and §9
+  explains why each is forced rather than chosen: erosion runs the CPU in
+  **flush-to-zero**, and a GPU is only used once it has **reproduced the
+  host's arithmetic** on a live sample.
 - Erosion at 512 does not match erosion at 8192. That is accepted and
   documented, not fought: parameters are physical (meters) so results scale
   sensibly, but iteration over a different cell count is a different solve.
