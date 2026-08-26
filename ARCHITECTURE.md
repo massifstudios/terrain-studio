@@ -250,6 +250,15 @@ disk. Preview evaluation runs constantly while a parameter is being dragged.
   edges by target, parameter keys alphabetically — so moving a node in the
   editor does not reorder the file. The engine never parses it: the bridge
   builds a `terrain::Graph` from the live object instead.
+- Every key in the file is snake_case, parameter names included, while memory
+  and the engine protocol stay camelCase. `app/src/shared/massifgraph.ts` is
+  the only place the two spellings meet. The conversion is its own inverse for
+  any camelCase name, so a parameter belonging to a plugin that is not loaded
+  still round-trips; a name containing an underscore would not, which the C++
+  style rules already forbid.
+- Reading a `.massifgraph` validates against a zod schema. The version is
+  checked first and on its own, so an old or a future file says so instead of
+  failing as a pile of unmet field expectations.
 
 ## 8. The node library
 
