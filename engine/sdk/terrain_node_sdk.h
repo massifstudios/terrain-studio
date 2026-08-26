@@ -34,6 +34,15 @@
  *     float addition is not associative.
  *   - Do not carry state between evaluations. A node is a pure function of
  *     its inputs, its parameters, and its seed.
+ *
+ * A node that offers a GPU path takes on the same obligation for it, and it
+ * is harder than it looks: the same graph must give the same bits whichever
+ * path ran. Vulkan does not round 32-bit division or square root correctly,
+ * denormal handling cannot be pinned on every vendor, and a device may fuse a
+ * multiply-add the host computed separately. The built-in erosion nodes solve
+ * all three — see ARCHITECTURE.md §9 — and are worth reading before writing a
+ * fourth. Prove agreement by measurement rather than by capability bit, and
+ * fall back to the CPU when a device cannot be vouched for.
  * ---------------------------------------------------------------------------
  */
 

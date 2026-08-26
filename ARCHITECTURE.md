@@ -9,6 +9,8 @@ this file holds what has been decided and must not drift.
 ```
 engine/           C++20 core: src/, include/, tests/, own CMake build
 engine/sdk/       public plugin C header, the registration boundary
+engine/src/gpu/   erosion on Vulkan and CUDA, and the parity gate on both
+engine/tools/     terrain_gpu_probe, terrain_erosion_benchmark
 bridge/           N-API addon wrapping engine/, built with cmake-js
 app/              Electron + Svelte 5: main/, preload/, engine/, renderer/
 cli/              `massif`: the engine from a terminal, no Electron
@@ -323,6 +325,57 @@ in §3 exists for.
   against their own strongest cell. The meters are already in the surface
   output; a mask is a weight.
 
+### Where the arithmetic happens
+
+`ThermalErosion`, `Deposit` and `HydraulicErosion` run on CUDA where there is
+a device, otherwise on Vulkan compute, otherwise on the CPU. `FlowMask` stays
+on the CPU: it is sequential by nature, as above. The backend is chosen once
+per process and can be pinned with `TERRAIN_EROSION_BACKEND=cpu|vulkan|cuda`.
+
+**The CPU is a fallback, not a lesser answer.** All three produce the same
+bits, and `test_erosion_gpu.cpp` drives one graph through every backend the
+machine has and compares the outputs — surface and masks — pattern for
+pattern. `terrain_erosion_benchmark` times them and checks the same thing, so
+a change that buys speed with accuracy reads as a failure rather than as a
+good number.
+
+Three things are load-bearing in making that true.
+
+- **Vulkan's divide and square root are not correctly rounded.** The spec
+  allows 2.5 units in the last place for a 32-bit `OpFDiv` and 3.0 for
+  `Sqrt`; only add, subtract, multiply and fused multiply-add are exact. So
+  `exact_math.glsl` rebuilds both from those four, each ending by forming the
+  residual of a nearly right answer with an `fma` and folding it back in.
+  Both work on mantissas rather than on the values, because that residual is
+  itself about an ulp wide and would be denormal — and flushed — near the
+  bottom of the exponent range. `terrain_gpu_probe --exhaustive` sweeps every
+  32-bit pattern through the reciprocal and the square root; the correctly
+  rounded reciprocal is what makes the division exact in turn.
+- **The host gives ground on denormals, not the device.** No vendor lets
+  32-bit denormal handling be pinned on every part — NVIDIA offers no control
+  over it and flushes — so erosion puts the CPU in flush-to-zero instead, on
+  the calling thread and on every lane worker, whichever backend runs. It is
+  set unconditionally: a CPU-only machine has to agree with a GPU one. Below
+  1.2e-38 in a solver measured in metres, nothing worth having is lost.
+- **`precise` reaches a variable, not a struct member and not an expression
+  written inside a call.** Without it a device may fuse a multiply-add the
+  host computed separately and land an ulp out. Every mixed multiply-add in
+  the shaders is worked out into a named `precise` local first. On CUDA the
+  same job is done by `-fmad=false`, alongside `--prec-div`, `--prec-sqrt`
+  and `-ftz=true`; those flags are the contract, not tuning.
+
+A capability bit cannot answer whether a device agrees, so the engine does not
+ask one. A GPU backend offers itself only after reproducing the host's
+arithmetic on a live sample at startup, and a device that fails is declined
+with a reason — `erosionBackendExplanation()` — while erosion carries on
+correctly on the CPU.
+
+Buffers are **device-local**, with staging copies for the few transfers a run
+needs. This is not a detail either: a droplet run scatters hundreds of
+millions of atomic additions, and holding those grids in host-visible memory
+put every one of them across the bus and made the first GPU path six times
+slower than the CPU it replaced.
+
 ## 10. Colour and points
 
 - **A node output is a `NodeOutput`, not a heightfield.** Exactly one of
@@ -453,6 +506,14 @@ out    = ExportPoints(forest, format: json)
 
 ## 13. Build and recovery
 
+- **Both GPU backends are optional at build time and absent-safe at run
+  time.** Vulkan needs only its headers, fetched like Catch2, and `glslc` to
+  turn the shaders into SPIR-V, which are embedded in the binary so a packaged
+  app has no shader directory to find; the loader itself is opened by name at
+  run time rather than linked, so a machine without one still starts. CUDA is
+  built when the toolkit is found and links the runtime statically, so an
+  engine built with it still loads where it is not installed. Either backend
+  missing costs speed and nothing else.
 - **A build is every node in the `Output` category, evaluated one at a time.**
   The category is the registry's own grouping, not a list of type names, so a
   plugin's writer is built exactly like a built-in one. Exporters share almost
