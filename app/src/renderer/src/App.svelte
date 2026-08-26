@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import TopBar from '$lib/TopBar.svelte';
 	import PreviewArea from '$lib/preview/PreviewArea.svelte';
 	import GraphPanel from '$lib/GraphPanel.svelte';
@@ -60,11 +61,15 @@
 		previewRunner.request(graphStore.document(), graphStore.previewNodeId);
 	});
 
+	// Progress is the only thing this effect follows. Recording it reads the
+	// status record it then replaces, so that read is kept out of the effect's
+	// dependencies — tracked, it would invalidate the effect that wrote it.
 	$effect(() => {
 		const progress = engineClient.progress;
-		if (progress) {
-			nodeStatusStore.markEvaluating(progress.nodeId, progress.fraction);
+		if (!progress) {
+			return;
 		}
+		untrack(() => nodeStatusStore.markEvaluating(progress.nodeId, progress.fraction));
 	});
 
 	// The project file is followed wherever it moves, so a graph rewritten from
