@@ -1,4 +1,4 @@
-import type { NodeSchema } from '$shared/graph-document';
+import type { NodeSchema } from './graph-document';
 
 /// Node body metrics, in graph-space pixels. The editor scales the whole
 /// surface with one CSS transform, so nothing here needs a zoom factor.

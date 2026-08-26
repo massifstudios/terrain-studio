@@ -40,6 +40,17 @@ export interface GraphDocument {
 	edges: GraphEdgeDocument[];
 }
 
+/// What a graph nobody has touched yet is made of. The editor and the `massif`
+/// command both start here, so a new project is the same project either way.
+export function emptyGraphSettings(): GraphSettings {
+	return {
+		resolution: 512,
+		worldSizeMeters: 10000,
+		seed: 1,
+		georeference: { coordinateSystem: '', eastingMinMeters: 0, northingMaxMeters: 0 }
+	};
+}
+
 /* ---------------------------------------------------------- the registry -- */
 
 export type PortTypeName = 'field' | 'color' | 'points';

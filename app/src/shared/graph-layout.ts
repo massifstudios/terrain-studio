@@ -4,9 +4,9 @@
  * it was put, so rewriting a line never rearranges the graph around it.
  */
 
-import type { GraphNodeDocument, RegistrySchema } from '$shared/graph-document';
-import { inDependencyOrder, type GraphContents } from '$shared/graph-operations';
-import { findNodeSchema } from '$shared/registry-schema';
+import type { GraphNodeDocument, RegistrySchema } from './graph-document';
+import { inDependencyOrder, type GraphContents } from './graph-operations';
+import { findNodeSchema } from './registry-schema';
 import { nodeHeight, nodeWidth } from './graph-geometry';
 
 const columnGap = 72;

@@ -5,32 +5,28 @@
 
 namespace terrain::nodes {
 
-FixedPointGrid::FixedPointGrid(std::size_t count) : cells_(count) {
-    clear();
-}
+FixedPointGrid::FixedPointGrid(std::size_t count) : cells_(count, 0) {}
 
 void FixedPointGrid::add(std::size_t index, float meters) {
     const auto units = static_cast<std::int32_t>(std::lround(meters * unitsPerMeter));
     if (units == 0) {
         return;
     }
-    cells_[index].fetch_add(units, std::memory_order_relaxed);
+    std::atomic_ref<std::int32_t>(cells_[index]).fetch_add(units, std::memory_order_relaxed);
 }
 
 float FixedPointGrid::valueAt(std::size_t index) const {
-    return static_cast<float>(cells_[index].load(std::memory_order_relaxed)) / unitsPerMeter;
+    return static_cast<float>(cells_[index]) / unitsPerMeter;
 }
 
 void FixedPointGrid::clear() {
-    for (std::atomic<std::int32_t>& cell : cells_) {
-        cell.store(0, std::memory_order_relaxed);
-    }
+    std::fill(cells_.begin(), cells_.end(), 0);
 }
 
 float FixedPointGrid::strongest() const {
     std::int32_t highest = 0;
-    for (const std::atomic<std::int32_t>& cell : cells_) {
-        highest = std::max(highest, std::abs(cell.load(std::memory_order_relaxed)));
+    for (std::int32_t cell : cells_) {
+        highest = std::max(highest, std::abs(cell));
     }
     return static_cast<float>(highest) / unitsPerMeter;
 }

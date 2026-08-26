@@ -43,6 +43,7 @@ add_executable(terrain_engine_tests
     test_noise.cpp
     test_nodes.cpp
     test_erosion.cpp
+    test_erosion_gpu.cpp
     test_texturing.cpp
 )
 
@@ -50,6 +51,10 @@ target_link_libraries(terrain_engine_tests PRIVATE
     terrain_engine
     Catch2::Catch2WithMain
 )
+
+# The GPU parity tests reach the backend selector directly, which is engine
+# internals rather than the node SDK.
+target_include_directories(terrain_engine_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../src/gpu)
 
 add_dependencies(terrain_engine_tests terrain_example_plugin terrain_future_abi_plugin)
 

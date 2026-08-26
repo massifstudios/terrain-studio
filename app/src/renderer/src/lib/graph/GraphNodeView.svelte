@@ -13,7 +13,7 @@
 		portSnapRadius,
 		portSpacing,
 		type Point
-	} from './graph-geometry';
+	} from '$shared/graph-geometry';
 	import Warning from 'phosphor-svelte/lib/Warning';
 	import { nodeStatusStore, type NodeState } from './node-status.svelte';
 	import NodeThumbnailView from './NodeThumbnailView.svelte';

@@ -62,6 +62,8 @@ add_library(terrain_engine STATIC
     src/nodes/mask_nodes.cpp
     src/nodes/erosion_support.cpp
     src/nodes/erosion_nodes.cpp
+    src/gpu/erosion_backend.cpp
+    src/gpu/denormal_mode.cpp
     src/nodes/combine_nodes.cpp
     src/nodes/texture_nodes.cpp
     src/nodes/vegetation_nodes.cpp
@@ -72,6 +74,7 @@ target_include_directories(terrain_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sdk>
 )
+target_include_directories(terrain_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/gpu)
 
 target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB ${CMAKE_DL_LIBS})
 
@@ -79,12 +82,18 @@ if(TERRAIN_ENGINE_ENABLE_VULKAN)
     target_sources(terrain_engine PRIVATE
         src/gpu/vulkan_api.cpp
         src/gpu/vulkan_device.cpp
+        src/gpu/vulkan_erosion.cpp
         src/gpu/float_parity.cpp
     )
     target_link_libraries(terrain_engine PRIVATE Vulkan::Headers)
     target_compile_definitions(terrain_engine PRIVATE TERRAIN_WITH_VULKAN=1)
-    target_include_directories(terrain_engine PRIVATE src/gpu)
-    terrain_embed_shaders(terrain_engine SHADERS src/gpu/shaders/float_parity.comp)
+    terrain_embed_shaders(terrain_engine SHADERS
+        src/gpu/shaders/float_parity.comp
+        src/gpu/shaders/thermal_scatter.comp
+        src/gpu/shaders/apply_delta.comp
+        src/gpu/shaders/add_constant.comp
+        src/gpu/shaders/hydraulic_droplet.comp
+    )
 
     add_executable(terrain_gpu_probe tools/gpu_probe.cpp)
     target_link_libraries(terrain_gpu_probe PRIVATE terrain_engine Vulkan::Headers ${CMAKE_DL_LIBS})

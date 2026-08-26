@@ -14,8 +14,6 @@
 #include <string>
 #include <vector>
 
-#include <xmmintrin.h>
-#include <pmmintrin.h>
 
 #include "float_parity.h"
 #include "vulkan_api.h"
@@ -181,13 +179,6 @@ int main(int argumentCount, char** arguments) {
     }
     std::printf("chosen for compute: %s\n\n", chosen->name().c_str());
 
-    for (int index = 1; index < argumentCount; ++index) {
-        if (std::string(arguments[index]) == "--flush-to-zero") {
-            _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
-            _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
-            std::printf("host put into flush-to-zero mode\n\n");
-        }
-    }
 
     const bool isExhaustive = argumentCount > 1 && std::string(arguments[1]) == "--exhaustive";
     if (!isExhaustive) {

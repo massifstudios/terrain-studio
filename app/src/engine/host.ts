@@ -7,51 +7,14 @@
 import { createRequire } from 'node:module';
 import { delimiter } from 'node:path';
 import type { MessagePortMain } from 'electron';
+import type { AddonProgress, EngineAddon } from '../shared/engine-addon';
 import type {
 	EngineRequest,
 	EngineResponse,
 	EvaluateRequest,
-	ElevationModelDescription,
 	EvaluateResult,
-	ColorResult,
-	FieldResult,
-	PluginReport,
-	PointsResult
+	PluginReport
 } from '../shared/engine-protocol';
-import type { GraphDocument } from '../shared/graph-document';
-
-interface AddonProgress {
-	nodeId: string;
-	typeName: string;
-	fraction: number;
-}
-
-interface AddonEvaluateResult {
-	field?: FieldResult;
-	color?: ColorResult;
-	points?: PointsResult;
-	thumbnails: EvaluateResult['thumbnails'];
-	signatures: EvaluateResult['signatures'];
-	evaluatedNodeIds: string[];
-	timings: EvaluateResult['timings'];
-	errors: EvaluateResult['errors'];
-	cancelled: boolean;
-}
-
-interface EngineAddon {
-	engineVersion(): string;
-	nodeRegistryJson(): string;
-	loadPlugins(directories: string[]): PluginReport[];
-	evaluate(
-		graph: GraphDocument,
-		nodeId: string,
-		outputPort: number,
-		options: { threadCount?: number; isFinalBuild?: boolean; thumbnailResolution?: number },
-		onProgress: (update: AddonProgress) => void
-	): Promise<AddonEvaluateResult>;
-	cancelEvaluation(): void;
-	describeElevationModel(path: string): ElevationModelDescription;
-}
 
 function loadAddon(): EngineAddon {
 	const addonPath = process.env.TERRAIN_ENGINE_ADDON;

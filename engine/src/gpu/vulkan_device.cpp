@@ -279,8 +279,13 @@ bool VulkanDevice::selectPhysicalDevice() {
         properties.pNext = &controls;
         api_.vkGetPhysicalDeviceProperties2(candidate, &properties);
 
+        VkPhysicalDeviceFeatures2 features{};
+        features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        api_.vkGetPhysicalDeviceFeatures2(candidate, &features);
+
         const int preference = preferenceForType(properties.properties.deviceType);
-        if (preference <= bestPreference || !hasUsableFloatControls(controls)) {
+        if (preference <= bestPreference || !hasUsableFloatControls(controls)
+            || features.features.shaderInt64 != VK_TRUE) {
             continue;
         }
         std::uint32_t familyCount = 0;
@@ -311,10 +316,16 @@ bool VulkanDevice::createLogicalDevice() {
     queueCreation.queueCount = 1;
     queueCreation.pQueuePriorities = &priority;
 
+    // The droplet shader draws its landing spot from the same splitmix64 the
+    // host uses, and splitmix64 is 64-bit integer arithmetic all the way down.
+    VkPhysicalDeviceFeatures features{};
+    features.shaderInt64 = VK_TRUE;
+
     VkDeviceCreateInfo creation{};
     creation.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     creation.queueCreateInfoCount = 1;
     creation.pQueueCreateInfos = &queueCreation;
+    creation.pEnabledFeatures = &features;
 
     if (!isSuccess(api_.vkCreateDevice(physicalDevice_, &creation, nullptr, &device_))) {
         device_ = VK_NULL_HANDLE;

@@ -4,11 +4,24 @@
 #include <numbers>
 #include <vector>
 
+#include "denormal_mode.h"
+#include "erosion_backend.h"
 #include "erosion_support.h"
 #include "node_support.h"
 
 namespace terrain::nodes {
 namespace {
+
+/// Lets a node hand the engine's cancellation and progress to a backend that
+/// knows nothing about the SDK.
+gpu::EvaluationHooks hooksFor(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    gpu::EvaluationHooks hooks;
+    hooks.isCancelled = [api, context] { return api->isCancelled(context) != 0; };
+    hooks.reportProgress = [api, context](float fraction) {
+        api->reportProgress(context, fraction);
+    };
+    return hooks;
+}
 
 /* ================================================================ thermal == */
 
@@ -115,6 +128,7 @@ void scatterSlump(const float* height, const float* available, FixedPointGrid& d
 void applyDelta(const TerrainContextApi* api, TerrainEvaluationContext* context, float* height,
                 const FixedPointGrid& delta, int size) {
     forEachRowRange(api, context, size, [&](int firstRow, int lastRow) {
+        const gpu::FlushDenormalsToZero denormals;
         for (int row = firstRow; row < lastRow; ++row) {
             for (int column = 0; column < size; ++column) {
                 const std::size_t index = static_cast<std::size_t>(row) * size + column;
@@ -132,6 +146,7 @@ void thermalScatter(const TerrainContextApi* api, TerrainEvaluationContext* cont
                     const ThermalSettings& settings) {
     delta.clear();
     forEachRowRange(api, context, settings.size, [&](int firstRow, int lastRow) {
+        const gpu::FlushDenormalsToZero denormals;
         for (int row = firstRow; row < lastRow; ++row) {
             for (int column = 0; column < settings.size; ++column) {
                 scatterSlump(surface, available, delta, settings, row, column);
@@ -167,7 +182,60 @@ const TerrainParameterDescriptor thermalParameters[] = {
     {"strength", "Strength", "How much of the unstable material moves each time", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0}};
 
+gpu::ThermalJob thermalJobFor(const ThermalSettings& settings, float* surface, float* sediment,
+                              std::size_t count, int iterations, float amountPerIteration) {
+    gpu::ThermalJob job;
+    job.surface = surface;
+    job.sediment = sediment;
+    job.count = count;
+    job.size = settings.size;
+    job.iterations = iterations;
+    job.talusDropMeters = settings.talusDropMeters;
+    job.rate = settings.rate;
+    job.amountPerIteration = amountPerIteration;
+    return job;
+}
+
+void releaseSediment(const gpu::ThermalJob& job) {
+    for (std::size_t index = 0; index < job.count; ++index) {
+        job.surface[index] += job.amountPerIteration;
+        job.sediment[index] += job.amountPerIteration;
+    }
+}
+
+void runThermalOnCpu(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                     const gpu::ThermalJob& job, const ThermalSettings& settings) {
+    FixedPointGrid delta(job.count);
+    for (int iteration = 0; iteration < job.iterations; ++iteration) {
+        if (api->isCancelled(context) != 0) {
+            return;
+        }
+        if (job.sediment != nullptr) {
+            releaseSediment(job);
+        }
+        thermalScatter(api, context, job.surface, job.sediment, delta, settings);
+        applyDelta(api, context, job.surface, delta, settings.size);
+        if (job.sediment != nullptr) {
+            applyDelta(api, context, job.sediment, delta, settings.size);
+        }
+        api->reportProgress(context, static_cast<float>(iteration + 1) / job.iterations);
+    }
+}
+
+/// The thermal solve, on whichever backend this machine offers. A device that
+/// declines costs speed and nothing else — the two agree bit for bit.
+void runThermalSolve(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                     const gpu::ThermalJob& job, const ThermalSettings& settings) {
+    const gpu::ErosionBackend backend = gpu::selectedErosionBackend();
+    if (backend != gpu::ErosionBackend::Cpu
+        && gpu::runThermalOnDevice(backend, job, hooksFor(api, context))) {
+        return;
+    }
+    runThermalOnCpu(api, context, job, settings);
+}
+
 void evaluateThermalErosion(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const gpu::FlushDenormalsToZero denormals;
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
     const int iterations = static_cast<int>(api->parameterNumber(context, 1));
@@ -176,15 +244,9 @@ void evaluateThermalErosion(const TerrainContextApi* api, TerrainEvaluationConte
         static_cast<float>(api->parameterNumber(context, 2)));
 
     std::vector<float> working(input, input + count);
-    FixedPointGrid delta(count);
-    for (int iteration = 0; iteration < iterations; ++iteration) {
-        if (api->isCancelled(context) != 0) {
-            return;
-        }
-        thermalScatter(api, context, working.data(), nullptr, delta, settings);
-        applyDelta(api, context, working.data(), delta, settings.size);
-        api->reportProgress(context, static_cast<float>(iteration + 1) / iterations);
-    }
+    runThermalSolve(api, context,
+                    thermalJobFor(settings, working.data(), nullptr, count, iterations, 0.0f),
+                    settings);
 
     blendThroughMask(input, working.data(), api->inputField(context, 1),
                      api->outputField(context, 0), count);
@@ -237,6 +299,7 @@ void writeNormalisedDepth(const std::vector<float>& depth, float* destination) {
  * find the concavities first.
  */
 void evaluateDeposit(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const gpu::FlushDenormalsToZero denormals;
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
     const float amount = static_cast<float>(api->parameterNumber(context, 0));
@@ -247,20 +310,10 @@ void evaluateDeposit(const TerrainContextApi* api, TerrainEvaluationContext* con
 
     std::vector<float> surface(input, input + count);
     std::vector<float> sediment(count, 0.0f);
-    FixedPointGrid delta(count);
-    for (int iteration = 0; iteration < iterations; ++iteration) {
-        if (api->isCancelled(context) != 0) {
-            return;
-        }
-        for (std::size_t index = 0; index < count; ++index) {
-            surface[index] += perIteration;
-            sediment[index] += perIteration;
-        }
-        thermalScatter(api, context, surface.data(), sediment.data(), delta, settings);
-        applyDelta(api, context, surface.data(), delta, settings.size);
-        applyDelta(api, context, sediment.data(), delta, settings.size);
-        api->reportProgress(context, static_cast<float>(iteration + 1) / iterations);
-    }
+    runThermalSolve(api, context,
+                    thermalJobFor(settings, surface.data(), sediment.data(), count, iterations,
+                                  perIteration),
+                    settings);
 
     blendThroughMask(input, surface.data(), api->inputField(context, 1),
                      api->outputField(context, 0), count);
@@ -491,6 +544,8 @@ struct BatchWork {
 };
 
 void runDropletLane(void* userData, std::int32_t laneIndex, std::int32_t laneCount) {
+    // The mode is a thread's own, and this one belongs to the engine's pool.
+    const gpu::FlushDenormalsToZero denormals;
     const BatchWork& work = *static_cast<const BatchWork*>(userData);
     const std::int64_t span = work.lastDroplet - work.firstDroplet;
     const std::int64_t first = work.firstDroplet + span * laneIndex / laneCount;
@@ -578,7 +633,80 @@ void writeNormalisedGrid(const FixedPointGrid& source, float* destination) {
     }
 }
 
+static_assert(sizeof(ErosionBrush::Sample) == sizeof(gpu::BrushSample),
+              "the brush is uploaded to a device as it stands, so the two layouts are one");
+
+/// The grids a hydraulic run accumulates into, and the surface it walks over.
+struct HydraulicWorkspace {
+    std::vector<float> working;
+    FixedPointGrid delta;
+    FixedPointGrid wear;
+    FixedPointGrid deposit;
+    FixedPointGrid flow;
+
+    explicit HydraulicWorkspace(std::size_t count)
+        : working(count), delta(count), wear(count), deposit(count), flow(count) {}
+};
+
+gpu::HydraulicJob hydraulicJobFor(const HydraulicSettings& settings, HydraulicWorkspace& workspace,
+                                  const ErosionBrush& brush, std::size_t count,
+                                  std::int64_t dropletCount, std::uint64_t seed) {
+    gpu::HydraulicJob job;
+    job.surface = workspace.working.data();
+    job.delta = workspace.delta.data();
+    job.wear = workspace.wear.data();
+    job.deposit = workspace.deposit.data();
+    job.flow = workspace.flow.data();
+    job.brush = reinterpret_cast<const gpu::BrushSample*>(brush.samples().data());
+    job.brushSampleCount = static_cast<std::int32_t>(brush.samples().size());
+    job.count = count;
+    job.dropletCount = dropletCount;
+    job.batchSize = dropletsPerBatch(dropletCount);
+    job.seed = seed;
+    job.size = settings.size;
+    job.lifetime = settings.lifetime;
+    job.water = settings.water;
+    job.inertia = settings.inertia;
+    job.capacityFactor = settings.capacityFactor;
+    job.minimumSlope = settings.minimumSlope;
+    job.erosionRate = settings.erosionRate;
+    job.depositionRate = settings.depositionRate;
+    job.evaporation = settings.evaporation;
+    job.gravity = settings.gravity;
+    return job;
+}
+
+void runRainfallOnCpu(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                      const HydraulicSettings& settings, HydraulicWorkspace& workspace,
+                      const ErosionBrush& brush, const gpu::HydraulicJob& job) {
+    const HydraulicGrids grids{workspace.working.data(), &workspace.delta, &workspace.wear,
+                               &workspace.deposit, &workspace.flow};
+    for (std::int64_t first = 0; first < job.dropletCount; first += job.batchSize) {
+        if (api->isCancelled(context) != 0) {
+            return;
+        }
+        workspace.delta.clear();
+        BatchWork work{job.seed, first, std::min(first + job.batchSize, job.dropletCount), &grids,
+                       &brush, &settings};
+        api->runLanes(context, dropletLaneCount, &runDropletLane, &work);
+        applyDelta(api, context, workspace.working.data(), workspace.delta, settings.size);
+        api->reportProgress(context, static_cast<float>(first) / job.dropletCount);
+    }
+}
+
+void runRainfall(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                 const HydraulicSettings& settings, HydraulicWorkspace& workspace,
+                 const ErosionBrush& brush, const gpu::HydraulicJob& job) {
+    const gpu::ErosionBackend backend = gpu::selectedErosionBackend();
+    if (backend != gpu::ErosionBackend::Cpu
+        && gpu::runHydraulicOnDevice(backend, job, hooksFor(api, context))) {
+        return;
+    }
+    runRainfallOnCpu(api, context, settings, workspace, brush, job);
+}
+
 void evaluateHydraulicErosion(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const gpu::FlushDenormalsToZero denormals;
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
     const HydraulicSettings settings = hydraulicSettingsFor(api, context);
@@ -593,31 +721,20 @@ void evaluateHydraulicErosion(const TerrainContextApi* api, TerrainEvaluationCon
         static_cast<int>(std::lround(api->parameterNumber(context, 3) / cellSizeMeters));
     const ErosionBrush brush(radiusInCells, settings.size);
 
-    std::vector<float> working(count);
+    HydraulicWorkspace workspace(count);
     for (std::size_t index = 0; index < count; ++index) {
-        working[index] = static_cast<float>(input[index] / cellSizeMeters);
+        workspace.working[index] = static_cast<float>(input[index] / cellSizeMeters);
     }
-    FixedPointGrid delta(count);
-    FixedPointGrid wear(count);
-    FixedPointGrid deposit(count);
-    FixedPointGrid flow(count);
-    const HydraulicGrids grids{working.data(), &delta, &wear, &deposit, &flow};
 
     const std::uint64_t seed = terrainSeedForLane(
         api->randomSeed(context), static_cast<std::uint64_t>(api->parameterNumber(context, 1)));
+    const gpu::HydraulicJob job =
+        hydraulicJobFor(settings, workspace, brush, count, dropletCount, seed);
+    runRainfall(api, context, settings, workspace, brush, job);
 
-    const std::int64_t batchSize = dropletsPerBatch(dropletCount);
-    for (std::int64_t first = 0; first < dropletCount; first += batchSize) {
-        if (api->isCancelled(context) != 0) {
-            return;
-        }
-        delta.clear();
-        BatchWork work{seed, first, std::min(first + batchSize, dropletCount), &grids, &brush,
-                       &settings};
-        api->runLanes(context, dropletLaneCount, &runDropletLane, &work);
-        applyDelta(api, context, working.data(), delta, settings.size);
-        api->reportProgress(context, static_cast<float>(first) / dropletCount);
-    }
+    const FixedPointGrid& wear = workspace.wear;
+    const FixedPointGrid& deposit = workspace.deposit;
+    std::vector<float>& working = workspace.working;
 
     // Every write to the surface went into wear or deposit as well, so their
     // difference is the whole change. Reading it back that way keeps the
@@ -631,7 +748,7 @@ void evaluateHydraulicErosion(const TerrainContextApi* api, TerrainEvaluationCon
                      api->outputField(context, 0), count);
     writeNormalisedGrid(wear, api->outputField(context, 1));
     writeNormalisedGrid(deposit, api->outputField(context, 2));
-    writeNormalisedGrid(flow, api->outputField(context, 3));
+    writeNormalisedGrid(workspace.flow, api->outputField(context, 3));
 }
 
 const TerrainNodeDescriptor hydraulicDescriptor = {

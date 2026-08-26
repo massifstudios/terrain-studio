@@ -16,7 +16,7 @@
 		type InputPortCandidate,
 		type Point,
 		type PortTarget
-	} from './graph-geometry';
+	} from '$shared/graph-geometry';
 	import { graphStore } from './graph-store.svelte';
 	import { nodeStatusStore, type NodeStatus } from './node-status.svelte';
 	import GraphNodeView from './GraphNodeView.svelte';

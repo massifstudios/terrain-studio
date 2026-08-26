@@ -103,30 +103,38 @@ SurfacePoint surfaceAt(float row, float column) {
     precise float southWest = surface[lower];
     precise float southEast = surface[lower + 1];
 
+    // Through named `precise` locals rather than straight into the struct:
+    // `precise` reaches a variable, not a struct member, and every one of
+    // these is a multiply feeding an add — exactly what a device is otherwise
+    // free to fuse into a single differently-rounded operation.
+    precise float alongColumns = (northEast - northWest) * (1.0 - rowFraction)
+                                 + (southEast - southWest) * rowFraction;
+    precise float alongRows = (southWest - northWest) * (1.0 - columnFraction)
+                              + (southEast - northEast) * columnFraction;
+    precise float interpolated = northWest * (1.0 - columnFraction) * (1.0 - rowFraction)
+                                 + northEast * columnFraction * (1.0 - rowFraction)
+                                 + southWest * (1.0 - columnFraction) * rowFraction
+                                 + southEast * columnFraction * rowFraction;
+
     SurfacePoint point;
-    point.alongColumns = (northEast - northWest) * (1.0 - rowFraction)
-                         + (southEast - southWest) * rowFraction;
-    point.alongRows = (southWest - northWest) * (1.0 - columnFraction)
-                      + (southEast - northEast) * columnFraction;
-    point.height = northWest * (1.0 - columnFraction) * (1.0 - rowFraction)
-                   + northEast * columnFraction * (1.0 - rowFraction)
-                   + southWest * (1.0 - columnFraction) * rowFraction
-                   + southEast * columnFraction * rowFraction;
+    point.alongColumns = alongColumns;
+    point.alongRows = alongRows;
+    point.height = interpolated;
     return point;
 }
 
 /// Erosion and deposition use the same footprint deliberately: a droplet that
 /// takes from a disc but gives back to one cell builds a spike in every hollow.
 void applyOverBrush(int row, int column, float signedAmount, int tally) {
-    for (int sample = 0; sample < settings.brushSampleCount; ++sample) {
-        int targetRow = row + brushSamples[sample].offsetRow;
-        int targetColumn = column + brushSamples[sample].offsetColumn;
+    for (int which = 0; which < settings.brushSampleCount; ++which) {
+        int targetRow = row + brushSamples[which].offsetRow;
+        int targetColumn = column + brushSamples[which].offsetColumn;
         if (!isInsideGrid(targetRow, targetColumn, settings.size)) {
             continue;
         }
         int index = targetRow * settings.size + targetColumn;
-        addToGrid(0, index, signedAmount * brushSamples[sample].weight);
-        addToGrid(tally, index, abs(signedAmount) * brushSamples[sample].weight);
+        addToGrid(0, index, signedAmount * brushSamples[which].weight);
+        addToGrid(tally, index, abs(signedAmount) * brushSamples[which].weight);
     }
 }
 
@@ -161,13 +169,18 @@ void settleOrBite(inout Droplet droplet, float deltaHeight, int fromRow, int fro
 bool moveDownhill(inout Droplet droplet, out float fromRow, out float fromColumn,
                   out SurfacePoint here) {
     here = surfaceAt(droplet.row, droplet.column);
-    droplet.directionRow =
+    precise float directionRow =
         droplet.directionRow * settings.inertia - here.alongRows * (1.0 - settings.inertia);
-    droplet.directionColumn =
+    precise float directionColumn =
         droplet.directionColumn * settings.inertia - here.alongColumns * (1.0 - settings.inertia);
+    droplet.directionRow = directionRow;
+    droplet.directionColumn = directionColumn;
 
-    precise float length = terrainSquareRoot(droplet.directionRow * droplet.directionRow
-                                             + droplet.directionColumn * droplet.directionColumn);
+    // The argument is worked out into a `precise` local first: an expression
+    // written inside a call is the callee's to round, and its parameter is not
+    // precise.
+    precise float lengthSquared = directionRow * directionRow + directionColumn * directionColumn;
+    precise float length = terrainSquareRoot(lengthSquared);
     if (length < 1.0e-6) {
         return false;
     }
@@ -195,8 +208,8 @@ bool stepDroplet(inout Droplet droplet) {
     // A droplet reaches a terminal velocity. Without the cap its carrying
     // capacity climbs for its whole life, until one droplet can drop a
     // mountain's worth of sediment into a single hollow.
-    precise float slowed = largerOf(droplet.speed * droplet.speed - deltaHeight * settings.gravity,
-                                    0.0);
+    precise float kinetic = droplet.speed * droplet.speed - deltaHeight * settings.gravity;
+    precise float slowed = largerOf(kinetic, 0.0);
     droplet.speed = smallerOf(terrainSquareRoot(slowed), maximumDropletSpeed);
     droplet.water = droplet.water * (1.0 - settings.evaporation);
     addToGrid(3, int(droplet.row) * settings.size + int(droplet.column), droplet.water);

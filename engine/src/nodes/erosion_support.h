@@ -32,10 +32,17 @@ public:
     /// The largest absolute value in the grid, for normalising a mask output.
     float strongest() const;
 
+    /// The raw fixed-point cells. A GPU backend accumulates into a buffer of
+    /// exactly this layout and copies it back over these.
+    std::int32_t* data() { return cells_.data(); }
+    const std::int32_t* data() const { return cells_.data(); }
+
 private:
     static constexpr float unitsPerMeter = 100000.0f;
 
-    std::vector<std::atomic<std::int32_t>> cells_;
+    /// Plain storage reached through `std::atomic_ref` rather than an array of
+    /// atomics, so the same bytes can be handed to a device.
+    std::vector<std::int32_t> cells_;
 };
 
 /**

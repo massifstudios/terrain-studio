@@ -1,0 +1,31 @@
+{
+	"include": [
+		"src/**/*",
+		"../app/src/shared/**/*"
+	],
+	"compilerOptions": {
+		"target": "ES2022",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": [
+			"ES2023"
+		],
+		"types": [
+			"node",
+			"bun"
+		],
+		"strict": true,
+		"noUnusedLocals": true,
+		"noEmit": true,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"isolatedModules": true,
+		"verbatimModuleSyntax": true,
+		"baseUrl": ".",
+		"paths": {
+			"$shared/*": [
+				"../app/src/shared/*"
+			]
+		}
+	}
+}

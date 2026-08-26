@@ -7,6 +7,7 @@ import type {
 	ParameterValue,
 	RegistrySchema
 } from '$shared/graph-document';
+import { emptyGraphSettings } from '$shared/graph-document';
 import {
 	canConnect,
 	findNode,
@@ -21,22 +22,13 @@ import {
 import type { GraphProject } from '$shared/massifgraph';
 import { defaultParameters } from '$shared/registry-schema';
 
-function emptySettings(): GraphSettings {
-	return {
-		resolution: 512,
-		worldSizeMeters: 10000,
-		seed: 1,
-		georeference: { coordinateSystem: '', eastingMinMeters: 0, northingMaxMeters: 0 }
-	};
-}
-
 /**
  * The single source of truth for the graph. The node editor renders this and
  * emits mutations; no editor component holds graph state of its own. Every
  * rule lives in `$shared/graph-operations`, which this only makes reactive.
  */
 class GraphStore {
-	settings = $state<GraphSettings>(emptySettings());
+	settings = $state<GraphSettings>(emptyGraphSettings());
 	nodes = $state<GraphNodeDocument[]>([]);
 	edges = $state<GraphEdgeDocument[]>([]);
 	selectedNodeIds = $state<string[]>([]);

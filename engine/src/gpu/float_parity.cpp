@@ -5,6 +5,7 @@
 #include <cstring>
 #include <vector>
 
+#include "denormal_mode.h"
 #include "float_parity_spv.h"
 #include "terrain_node_sdk.h"
 #include "vulkan_device.h"
@@ -214,6 +215,11 @@ void accumulateMismatches(const ParityRequest& request, const ChunkOperands& ope
 }  // namespace
 
 ParityReport checkArithmeticParity(const ParityRequest& request) {
+    // The comparison is against the host as erosion runs it, and erosion runs
+    // it flushing denormals. Computing the reference in any other mode would
+    // measure a machine that never evaluates a graph.
+    const FlushDenormalsToZero denormals;
+
     ParityReport report;
     VulkanDevice* device = VulkanDevice::shared();
     if (device == nullptr) {

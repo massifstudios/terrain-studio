@@ -12,7 +12,7 @@
 	import { engineClient } from '$lib/engine-client.svelte';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { DslError, parseDsl, printDsl } from '$shared/graph-dsl';
-	import { laidOut } from './graph-layout';
+	import { laidOut } from '$shared/graph-layout';
 
 	let draft = $state('');
 	let complaint = $state<string | null>(null);
