@@ -34,8 +34,8 @@ describe('drag acceleration', () => {
 	});
 
 	test('grows with speed, in either direction', () => {
-		expect(scrubAcceleration(12, wideLimit)).toBeCloseTo(7, 6);
-		expect(scrubAcceleration(-12, wideLimit)).toBeCloseTo(7, 6);
+		expect(scrubAcceleration(12, wideLimit)).toBeCloseTo(4, 6);
+		expect(scrubAcceleration(-12, wideLimit)).toBeCloseTo(4, 6);
 	});
 
 	test('stops at the ceiling however hard the flick', () => {

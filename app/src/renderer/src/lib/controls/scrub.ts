@@ -9,8 +9,8 @@
  */
 
 const slowDragPixels = 2;
-const accelerationPerPixel = 0.6;
-const accelerationCeiling = 24;
+const accelerationPerPixel = 0.3;
+const accelerationCeiling = 10;
 const pixelsToCrossAtFullSpeed = 400;
 const largestDecimals = 6;
 
