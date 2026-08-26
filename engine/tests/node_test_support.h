@@ -27,15 +27,22 @@ inline NodeRegistry builtinRegistry() {
     return registry;
 }
 
-/// Evaluates one node of a graph and returns its field, or nullptr on failure.
-inline std::shared_ptr<const Heightfield> evaluateNode(const Graph& graph,
-                                                       const std::string& nodeId,
-                                                       int threadCount = 1) {
+/// Evaluates one output of one node and returns its field, or nullptr on
+/// failure.
+inline std::shared_ptr<const Heightfield> evaluateOutput(const Graph& graph,
+                                                         const std::string& nodeId, int outputPort,
+                                                         int threadCount = 1) {
     const NodeRegistry registry = builtinRegistry();
     Evaluator evaluator(registry);
     EvaluationOptions options;
     options.threadCount = threadCount;
-    return evaluator.evaluate(graph, nodeId, 0, options).field;
+    return evaluator.evaluate(graph, nodeId, outputPort, options).field;
+}
+
+inline std::shared_ptr<const Heightfield> evaluateNode(const Graph& graph,
+                                                       const std::string& nodeId,
+                                                       int threadCount = 1) {
+    return evaluateOutput(graph, nodeId, 0, threadCount);
 }
 
 inline std::uint64_t hashField(const Heightfield& field) {

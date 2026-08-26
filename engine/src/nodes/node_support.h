@@ -13,6 +13,7 @@ namespace terrain::nodes {
 void registerInputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerGenerateNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerFilterNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerErosionNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerMaskNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerCombineNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerOutputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);

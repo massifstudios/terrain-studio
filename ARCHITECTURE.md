@@ -271,14 +271,59 @@ disk. Preview evaluation runs constantly while a parameter is being dragged.
   arrived that way. It freezes at ABI version 1 in T9, and from then on a
   change means a new version.
 
-## 9. Pending decisions
+## 9. Erosion
+
+The hardest determinism problem in the tool, and the one the fixed-point rule
+in §3 exists for.
+
+- **Scattering goes through `FixedPointGrid`.** Thermal slumping writes into
+  its neighbours and droplets land wherever they land, so many workers add to
+  the same cell at once. Float addition is not associative; integer addition
+  is. One unit is 10 µm, which is finer than a single droplet's bite and
+  leaves 20 km of headroom in an `int32`.
+- **Rain arrives in 32 batches.** Droplets inside a batch read a frozen
+  surface and write only into the delta grid, which is what makes the run
+  reproducible — none of them can see which thread went first. The batch
+  count divides the *rainfall*, not the droplet count, so the feedback between
+  batches is identical however finely the rain was sampled. That is what makes
+  the droplet count a quality dial: doubling it halves each droplet's share of
+  the rain and converges on the same terrain instead of eroding twice as much.
+- **The droplet solver works in cell units, not meters.** One step sideways is
+  one unit, so a height difference of one unit is 45°. Mixing the two would
+  make every parameter depend on the ground resolution. The surface is scaled
+  on the way in and the change is scaled back on the way out — and the change
+  is read back as `deposit - wear` rather than from the working copy, so the
+  absolute altitude never round-trips through the conversion and no rain at
+  all returns the input untouched rather than merely close.
+- **A droplet's footprint has a floor of three cells**, and it erodes and
+  deposits over the same one. This is not a tuning constant. A droplet that
+  takes from a disc but gives back to a single cell concentrates what erosion
+  spread, and builds a tower in every hollow it reaches; and since the radius
+  is asked for in meters, a coarse graph would otherwise request a fraction of
+  a cell and get exactly that. Both failures are pinned by tests.
+- **Droplet speed is capped.** Carrying capacity scales with speed, and an
+  uncapped droplet accelerates for its whole life, so a single one could
+  eventually drop a mountain's worth of sediment into one hollow.
+- **`Deposit` moves only the sediment layer**, tracked separately from the
+  rock. Slumping the rock as well would make it a second thermal erosion
+  rather than a fill.
+- **`FlowMask` is sequential by nature**: cells are visited highest first, and
+  a cell passes on what reached it. Ties break on index so the ordering is a
+  total order and not something the sort implementation decides. Water leaves
+  towards every lower neighbour at once — a single-direction rule draws
+  channels one cell wide along the grid axes.
+- Erosion secondary outputs (`Wear`, `Deposit`, `Flow`) are masks normalised
+  against their own strongest cell. The meters are already in the surface
+  output; a mask is a weight.
+
+## 10. Pending decisions
 
 Recorded here when they land, not before:
 
 - DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 10. Code style
+## 11. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

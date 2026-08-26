@@ -20,6 +20,7 @@ add_executable(terrain_engine_tests
     test_curve.cpp
     test_noise.cpp
     test_nodes.cpp
+    test_erosion.cpp
 )
 
 target_link_libraries(terrain_engine_tests PRIVATE

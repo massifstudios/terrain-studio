@@ -1,5 +1,48 @@
 # Done
 
+## T6 — Erosion
+
+The part the tool exists for. A coarse survey DEM now gains believable relief
+at a scale the survey never recorded.
+
+**What works**
+
+- `HydraulicErosion` runs rain over the terrain: water finds its way downhill,
+  cuts channels, carries material and lays it down again where it slows. It
+  also reports where it wore the ground away, where it left sediment, and
+  where the water ran — three extra outputs you can use as masks.
+- `ThermalErosion` lets loose material slide until nothing is steeper than the
+  angle it will hold, which is what gives scree slopes and rounded shoulders.
+- `Deposit` releases sediment over the whole terrain and lets it settle, so it
+  slides off anything too steep and gathers in the hollows. Only the sediment
+  moves; the rock underneath stays where it is.
+- `FlowMask` follows water across the whole terrain and marks where it
+  gathers — the river network, without eroding anything.
+- All of them take a mask, so erosion can be confined to the steep ground or
+  kept out of a valley floor.
+
+**Where things are**
+
+- `engine/src/nodes/erosion_nodes.cpp` — the three erosion nodes.
+- `engine/tests/test_erosion.cpp` — including the milestone check that a
+  coarse DEM gains detail while staying the same mountain.
+
+**Useful to know**
+
+- Measured on the game's own `diffusion.massifdem` (30 m per pixel): previewed
+  at 512, thermal plus hydraulic erosion through a slope mask multiplies the
+  fine relief by about four while moving the summit by well under one percent.
+  It takes about half a second.
+- **The droplet count is a quality dial, not a strength dial.** Raising it
+  makes the same result cleaner rather than eroding more, so you can preview
+  cheaply and build finely without the terrain changing character. Erosion
+  strength lives in Capacity and Droplet life.
+- Erosion is the slow part. Half a second at 512, a few seconds at 1024, and
+  minutes at build resolutions — the cost rises with both the resolution and
+  the channel width, since a wider channel means more ground per droplet.
+- Erosion at 512 will not match erosion at 8192. That is expected of tools of
+  this kind: the same rain falling on a finer grid finds finer paths.
+
 ## T5 — Generators, filters and masks
 
 There is now something to build terrain *out of*, not just something to build
