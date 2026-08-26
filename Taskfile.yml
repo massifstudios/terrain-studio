@@ -10,10 +10,11 @@ tasks:
       - task --list
 
   install:
-    desc: Install JavaScript dependencies for the bridge and the app
+    desc: Install JavaScript dependencies for the bridge, the app and the command
     cmds:
       - cd {{.TASKFILE_DIR}}/bridge && bun install
       - cd {{.TASKFILE_DIR}}/app && bun install
+      - cd {{.TASKFILE_DIR}}/cli && bun install
 
   engine:configure:
     desc: Configure the C++ engine build
@@ -59,6 +60,24 @@ tasks:
     cmds:
       - bun run check
 
+  cli:check:
+    desc: Type-check the massif command
+    dir: '{{.TASKFILE_DIR}}/cli'
+    cmds:
+      - bunx tsc -p tsconfig.json --noEmit
+
+  cli:test:
+    desc: Run the massif command's suite
+    dir: '{{.TASKFILE_DIR}}/cli'
+    cmds:
+      - bun test
+
+  massif:
+    desc: Run the massif command, as in `task massif -- nodes`
+    deps: [bridge:build]
+    cmds:
+      - bun {{.TASKFILE_DIR}}/cli/src/massif.ts {{.CLI_ARGS}}
+
   dev:
     desc: Build the native addon, then run the app with hot reload
     deps: [bridge:build]
@@ -74,10 +93,11 @@ tasks:
       - cd {{.TASKFILE_DIR}}/app && bun run build
 
   test:
-    desc: Run the engine suite and the frontend suite
+    desc: Run the engine, frontend and command-line suites
     cmds:
       - task: engine:test
       - task: app:test
+      - task: cli:test
 
   package:
     desc: Produce a distributable Electron package
