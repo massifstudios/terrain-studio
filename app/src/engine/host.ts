@@ -6,10 +6,48 @@
 
 import { createRequire } from 'node:module';
 import type { MessagePortMain } from 'electron';
-import type { EngineRequest, EngineResponse } from '../shared/engine-protocol';
+import type {
+	EngineRequest,
+	EngineResponse,
+	EvaluateRequest,
+	ElevationModelDescription,
+	EvaluateResult,
+	FieldResult
+} from '../shared/engine-protocol';
+import type { GraphDocument } from '../shared/graph-document';
+
+interface AddonProgress {
+	nodeId: string;
+	typeName: string;
+	fraction: number;
+}
+
+interface AddonEvaluateResult {
+	samples?: Float32Array;
+	width?: number;
+	height?: number;
+	cellSizeMeters?: number;
+	minimum?: number;
+	maximum?: number;
+	semantics?: 'heightfield' | 'mask';
+	evaluatedNodeIds: string[];
+	timings: EvaluateResult['timings'];
+	errors: string[];
+	cancelled: boolean;
+}
 
 interface EngineAddon {
 	engineVersion(): string;
+	nodeRegistryJson(): string;
+	evaluate(
+		graph: GraphDocument,
+		nodeId: string,
+		outputPort: number,
+		options: { threadCount?: number; isFinalBuild?: boolean },
+		onProgress: (update: AddonProgress) => void
+	): Promise<AddonEvaluateResult>;
+	cancelEvaluation(): void;
+	describeElevationModel(path: string): ElevationModelDescription;
 }
 
 function loadAddon(): EngineAddon {
@@ -22,9 +60,59 @@ function loadAddon(): EngineAddon {
 
 const addon = loadAddon();
 
-function runCommand(request: EngineRequest): unknown {
+function fieldFrom(result: AddonEvaluateResult): FieldResult | null {
+	if (!result.samples) {
+		return null;
+	}
+	return {
+		samples: result.samples,
+		width: result.width!,
+		height: result.height!,
+		cellSizeMeters: result.cellSizeMeters!,
+		minimum: result.minimum!,
+		maximum: result.maximum!,
+		semantics: result.semantics!
+	};
+}
+
+async function runEvaluate(port: MessagePortMain, payload: EvaluateRequest): Promise<EvaluateResult> {
+	const reportProgress = (update: AddonProgress): void => {
+		port.postMessage({ event: 'progress', ...update });
+	};
+
+	const result = await addon.evaluate(
+		payload.graph,
+		payload.nodeId,
+		payload.outputPort,
+		{ threadCount: payload.threadCount, isFinalBuild: payload.isFinalBuild },
+		reportProgress
+	);
+
+	return {
+		field: fieldFrom(result),
+		evaluatedNodeIds: result.evaluatedNodeIds,
+		timings: result.timings,
+		errors: result.errors,
+		cancelled: result.cancelled
+	};
+}
+
+async function runCommand(port: MessagePortMain, request: EngineRequest): Promise<unknown> {
 	if (request.command === 'engineVersion') {
 		return addon.engineVersion();
+	}
+	if (request.command === 'nodeRegistry') {
+		return JSON.parse(addon.nodeRegistryJson());
+	}
+	if (request.command === 'cancelEvaluation') {
+		addon.cancelEvaluation();
+		return null;
+	}
+	if (request.command === 'describeElevationModel') {
+		return addon.describeElevationModel((request.payload as { path: string }).path);
+	}
+	if (request.command === 'evaluate') {
+		return runEvaluate(port, request.payload as EvaluateRequest);
 	}
 	throw new Error(`Unknown engine command: ${request.command}`);
 }
@@ -36,18 +124,22 @@ function describeError(error: unknown): string {
 	return String(error);
 }
 
-function handleRequest(port: MessagePortMain, request: EngineRequest): void {
+async function handleRequest(port: MessagePortMain, request: EngineRequest): Promise<void> {
 	let response: EngineResponse;
 	try {
-		response = { requestId: request.requestId, status: 'ok', result: runCommand(request) };
+		response = { requestId: request.requestId, status: 'ok', result: await runCommand(port, request) };
 	} catch (error) {
 		response = { requestId: request.requestId, status: 'error', message: describeError(error) };
 	}
+	// MessagePortMain transfers ports only; a Float32Array crosses as a
+	// structured clone, which is one binary copy and never JSON.
 	port.postMessage(response);
 }
 
 function attachPort(port: MessagePortMain): void {
-	port.on('message', (event) => handleRequest(port, event.data as EngineRequest));
+	port.on('message', (event) => {
+		handleRequest(port, event.data as EngineRequest);
+	});
 	port.start();
 }
 

@@ -17,6 +17,8 @@ execute_process(
 
 add_library(engine SHARED
     src/addon.cpp
+    src/engine_host.cpp
+    src/graph_conversion.cpp
     ${CMAKE_JS_SRC}
 )
 
@@ -37,7 +39,8 @@ target_link_libraries(engine PRIVATE
 
 # Node-API version 8 is the highest both current Node and current Electron
 # implement, so one binary serves the test runner and the utilityProcess.
+# C++ exceptions stay on: the engine reports IO and format failures that way,
+# and node-addon-api turns them into JavaScript errors at the boundary.
 target_compile_definitions(engine PRIVATE
-    NAPI_DISABLE_CPP_EXCEPTIONS
     NAPI_VERSION=8
 )

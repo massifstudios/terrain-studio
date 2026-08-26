@@ -5,6 +5,7 @@ declare global {
 		engineBridge: {
 			requestPort(): void;
 			onStatus(handler: (status: EngineStatus) => void): void;
+			demoElevationModelPath(): Promise<string>;
 		};
 	}
 }

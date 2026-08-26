@@ -1,9 +1,14 @@
 import {
 	enginePortChannel,
+	isProgressEvent,
 	type EngineCommandName,
-	type EngineResponse,
-	type EngineStatus
+	type EngineOutbound,
+	type EngineProgressEvent,
+	type EngineStatus,
+	type EvaluateRequest,
+	type EvaluateResult
 } from '$shared/engine-protocol';
+import type { RegistrySchema } from '$shared/graph-document';
 import { RequestLedger } from '$shared/request-ledger';
 
 /**
@@ -13,6 +18,8 @@ import { RequestLedger } from '$shared/request-ledger';
 class EngineClient {
 	status = $state<EngineStatus>('starting');
 	version = $state<string | null>(null);
+	registry = $state<RegistrySchema | null>(null);
+	progress = $state<EngineProgressEvent | null>(null);
 
 	#port: MessagePort | null = null;
 	#ledger = new RequestLedger();
@@ -21,6 +28,10 @@ class EngineClient {
 		window.engineBridge.onStatus((status) => this.#handleStatus(status));
 		window.addEventListener('message', (event) => this.#handleWindowMessage(event));
 		window.engineBridge.requestPort();
+	}
+
+	get isReady(): boolean {
+		return this.#port !== null;
 	}
 
 	send(command: EngineCommandName, payload?: unknown): Promise<unknown> {
@@ -33,6 +44,14 @@ class EngineClient {
 		return request.result;
 	}
 
+	/// Starting a new preview evaluation abandons the one before it.
+	async evaluate(request: EvaluateRequest): Promise<EvaluateResult> {
+		await this.send('cancelEvaluation');
+		const result = (await this.send('evaluate', request)) as EvaluateResult;
+		this.progress = null;
+		return result;
+	}
+
 	#handleStatus(status: EngineStatus): void {
 		this.status = status;
 		if (status === 'crashed') {
@@ -43,6 +62,8 @@ class EngineClient {
 	#dropPort(): void {
 		this.#port = null;
 		this.version = null;
+		this.registry = null;
+		this.progress = null;
 		this.#ledger.failAll(new Error('Engine process exited'));
 	}
 
@@ -58,14 +79,22 @@ class EngineClient {
 
 	#adoptPort(port: MessagePort): void {
 		this.#port = port;
-		port.onmessage = (event) => this.#ledger.settle(event.data as EngineResponse);
+		port.onmessage = (event) => this.#receive(event.data as EngineOutbound);
 		port.start();
-		this.#refreshVersion();
+		this.#loadDescription();
 	}
 
-	async #refreshVersion(): Promise<void> {
-		const version = await this.send('engineVersion');
-		this.version = String(version);
+	#receive(message: EngineOutbound): void {
+		if (isProgressEvent(message)) {
+			this.progress = message;
+			return;
+		}
+		this.#ledger.settle(message);
+	}
+
+	async #loadDescription(): Promise<void> {
+		this.version = String(await this.send('engineVersion'));
+		this.registry = (await this.send('nodeRegistry')) as RegistrySchema;
 	}
 }
 

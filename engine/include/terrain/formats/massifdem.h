@@ -24,6 +24,20 @@ struct DemDocument {
     std::string label;
 };
 
+/// Header-only view, so the import dialog can state a file's extent and band
+/// without paging a 200 MB grid into memory.
+struct DemInfo {
+    int width = 0;
+    int height = 0;
+    double cellSizeMeters = 1.0;
+    double minimumAltitudeMeters = 0.0;
+    double maximumAltitudeMeters = 0.0;
+    GeoReference georeference;
+    std::string label;
+};
+
+DemInfo readMassifDemInfo(const std::filesystem::path& path);
+
 DemDocument readMassifDem(const std::filesystem::path& path);
 
 void writeMassifDem(const std::filesystem::path& path, const Heightfield& field,

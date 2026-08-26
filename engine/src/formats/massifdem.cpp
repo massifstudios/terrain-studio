@@ -55,6 +55,31 @@ double altitudeStepFor(double minimum, double maximum) {
 
 }  // namespace
 
+DemInfo readMassifDemInfo(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Cannot open DEM: " + path.string());
+    }
+    std::vector<std::uint8_t> header(massifDemHeaderBytes, 0);
+    file.read(reinterpret_cast<char*>(header.data()),
+              static_cast<std::streamsize>(header.size()));
+    validateHeader(header);
+
+    DemInfo info;
+    info.width = static_cast<int>(binary::readLittle32(header.data() + 12));
+    info.height = static_cast<int>(binary::readLittle32(header.data() + 16));
+    info.cellSizeMeters = binary::readLittleDouble(header.data() + 24);
+    info.minimumAltitudeMeters = binary::readLittleDouble(header.data() + 32);
+    const double altitudeStep = binary::readLittleDouble(header.data() + 40);
+    info.maximumAltitudeMeters = info.minimumAltitudeMeters + altitudeStep * quantisationLevels;
+    info.georeference = GeoReference{
+        readPaddedString(header.data() + coordinateSystemOffset, coordinateSystemBytes),
+        binary::readLittleDouble(header.data() + 48),
+        binary::readLittleDouble(header.data() + 56)};
+    info.label = readPaddedString(header.data() + labelOffset, labelBytes);
+    return info;
+}
+
 DemDocument readMassifDem(const std::filesystem::path& path) {
     const std::vector<std::uint8_t> bytes = io::readAllBytes(path, "DEM");
     validateHeader(bytes);

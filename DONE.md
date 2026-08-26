@@ -1,5 +1,37 @@
 # Done
 
+## T3 — The preview area
+
+You can now see the terrain.
+
+**What works**
+
+- Opening an elevation model shows the mountain in two views side by side: an
+  orbiting 3D view and a top-down map, each with its own pan and zoom. The 2D
+  view can be switched off to give the 3D view the full width.
+- The sun can be moved — azimuth and elevation — and both views relight
+  immediately. The lighting matches the preview image the tool writes beside
+  an exported DEM, so what you see is what you get.
+- Move the pointer over either view and the corner readout shows the position
+  and the altitude under it; the other view marks the same spot.
+- The engine reports progress per node while it works and a new preview
+  cancels the one before it, so dragging never queues up stale work.
+
+**Where things are**
+
+- `app/src/renderer/src/lib/preview/` — the two viewports and the shading
+  they share.
+- `bridge/` — now carries graph evaluation, progress and cancellation, not
+  just a version string.
+
+**Useful to know**
+
+- The terrain shown at startup is a placeholder file the repo carries. Point
+  `TERRAIN_STUDIO_DEMO_DEM` at another `.massifdem` to look at something else
+  until the open dialog arrives.
+- Nothing in the interface works out a height. It draws the numbers the
+  engine hands it, and reads them back cell by cell for the readout.
+
 ## T2 — The node graph engine
 
 Terrain Studio can now run a graph.

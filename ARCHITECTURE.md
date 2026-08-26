@@ -32,8 +32,14 @@ Electron main ── utilityProcess.fork ──► engine host (Node) ── dlo
 - **The renderer talks to the engine host directly over a `MessagePort`.**
   Main mints a `MessageChannelMain`, hands `port1` to the engine host and
   `port2` to the renderer's `WebContents`. Result buffers therefore never
-  round-trip through the main process, and transferable `ArrayBuffer`s stay
-  zero-copy.
+  round-trip through the main process.
+- `MessagePortMain.postMessage` accepts only `MessagePortMain` values in its
+  transfer list, so a `Float32Array` crosses as a structured clone: one
+  binary copy per hop, never JSON. The addon likewise copies its result into
+  a fresh `ArrayBuffer` rather than wrapping an external one, because
+  Electron builds Node-API without external buffer support. Two copies of a
+  10240² field is 800 MB of memcpy on a build, which is cheap next to the
+  evaluation that produced it.
 - `MessagePort` objects cannot cross `contextBridge`. The preload script
   re-posts the port into the page with `window.postMessage(..., [port])` on
   the `engine:port` channel; the page adopts it from `event.ports[0]`.
@@ -175,14 +181,39 @@ anything took.
 `Export` and every other writer must check `isFinalBuild` before touching the
 disk. Preview evaluation runs constantly while a parameter is being dragged.
 
-## 6. Pending decisions
+## 6. The preview area
+
+- **Shading is presentation, not terrain math.** The viewports take the grid
+  the engine produced and shade it on the GPU; no height value is ever
+  computed in TypeScript, and the cursor readout is a nearest-cell lookup into
+  the engine's own samples, never an interpolation.
+- Both views use the same hillshade the engine writes beside an exported DEM:
+  sun at 315°/45° over the altitude ramp, plus a small ambient term so a slope
+  facing away from the sun still reads as terrain. Preview and exported file
+  therefore agree.
+- The 3D view displaces a `PlaneGeometry` whose vertex order is exactly the
+  engine's row-major order after rotating to the ground plane. World axes are
+  +X east, +Y up, −Z north.
+- The 2D view is a single quad carrying the field as an `R32F` data texture;
+  hillshade comes from central differences in the fragment shader over the
+  same cell spacing. It pans and zooms independently of the 3D camera.
+- The cursor is shared as a **grid cell**, not a world position, so the two
+  views mirror the same sample exactly.
+- Renderer setup lives in `onMount`, never in `$effect`. An effect that
+  happens to read anything it also writes re-creates the WebGL context on
+  every change; pan and zoom are therefore kept outside the reactive graph and
+  mirrored into a write-only `$state` object for the crosshair to read.
+- Colours come from design tokens even inside WebGL: `readColorToken` resolves
+  the CSS custom property for the canvas clear colour.
+
+## 7. Pending decisions
 
 Recorded here when they land, not before:
 
 - DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 7. Code style
+## 8. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

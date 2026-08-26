@@ -47,6 +47,20 @@ TEST_CASE("the reference header is read field for field", "[massifdem]") {
     REQUIRE(document.label == "Terrain Studio format fixture");
 }
 
+TEST_CASE("the header can be read without loading the grid", "[massifdem]") {
+    const terrain::formats::DemInfo info = terrain::formats::readMassifDemInfo(fixturePath());
+
+    REQUIRE(info.width == 96);
+    REQUIRE(info.height == 96);
+    REQUIRE(info.cellSizeMeters == 30.0);
+    REQUIRE(info.georeference.coordinateSystem == "EPSG:31254");
+    REQUIRE(info.label == "Terrain Studio format fixture");
+
+    const auto document = readMassifDem(fixturePath());
+    REQUIRE(info.minimumAltitudeMeters == Approx(document.field.minimum()).epsilon(1.0e-6));
+    REQUIRE(info.maximumAltitudeMeters == Approx(document.field.maximum()).epsilon(1.0e-6));
+}
+
 TEST_CASE("samples decode to the surface the reference writer quantised", "[massifdem]") {
     const auto document = readMassifDem(fixturePath());
     const Heightfield& field = document.field;

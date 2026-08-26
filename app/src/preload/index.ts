@@ -13,6 +13,9 @@ const engineBridge = {
 	},
 	onStatus(handler: (status: EngineStatus) => void): void {
 		ipcRenderer.on('engine:status', (_event, status: EngineStatus) => handler(status));
+	},
+	demoElevationModelPath(): Promise<string> {
+		return ipcRenderer.invoke('app:demo-dem-path');
 	}
 };
 

@@ -40,6 +40,16 @@ function loadRenderer(window: BrowserWindow): void {
 
 ipcMain.on('engine:request-port', (event) => connectRenderer(event.sender));
 
+// Placeholder until the open dialog lands: a DEM the repo carries, or one named
+// by TERRAIN_STUDIO_DEMO_DEM.
+ipcMain.handle('app:demo-dem-path', () => {
+	const override = process.env.TERRAIN_STUDIO_DEMO_DEM;
+	if (override) {
+		return override;
+	}
+	return join(app.getAppPath(), '..', 'engine', 'tests', 'data', 'fixture.massifdem');
+});
+
 app.whenReady().then(() => {
 	startEngine();
 	createWindow();
