@@ -56,6 +56,71 @@ export function rectangleFromCorners(first: Point, second: Point): Rectangle {
 	};
 }
 
+/// How near the pointer has to come before a port starts reaching for it, and
+/// how far a dropped edge will look for a port it missed. Both are generous:
+/// the dot is five pixels across and the pointer is not a scalpel.
+export const portApproachRadius = 30;
+export const portSnapRadius = 22;
+const largestPortGrowth = 0.6;
+
+/// A port swells as the pointer nears it, at rest by the edge of the radius.
+export function portGrowth(distance: number, radius: number): number {
+	if (distance >= radius) {
+		return 1;
+	}
+	return 1 + (1 - distance / radius) * largestPortGrowth;
+}
+
+export function distanceBetween(first: Point, second: Point): number {
+	return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+export interface PortTarget {
+	nodeId: string;
+	port: number;
+}
+
+export interface InputPortCandidate {
+	nodeId: string;
+	position: Point;
+	inputCount: number;
+}
+
+/// The input port nearest a dropped edge, so releasing beside a port connects
+/// to it rather than to nothing.
+export function nearestInputPort(
+	candidates: InputPortCandidate[],
+	point: Point,
+	radius: number
+): PortTarget | null {
+	let best: PortTarget | null = null;
+	let bestDistance = radius;
+	for (const candidate of candidates) {
+		const found = nearestPortOfNode(candidate, point, bestDistance);
+		if (found !== null) {
+			best = found.target;
+			bestDistance = found.distance;
+		}
+	}
+	return best;
+}
+
+function nearestPortOfNode(
+	candidate: InputPortCandidate,
+	point: Point,
+	within: number
+): { target: PortTarget; distance: number } | null {
+	let best: { target: PortTarget; distance: number } | null = null;
+	for (let index = 0; index < candidate.inputCount; index += 1) {
+		const distance = distanceBetween(inputPortPosition(candidate.position, index), point);
+		const limit = best?.distance ?? within;
+		if (distance < limit) {
+			best = { target: { nodeId: candidate.nodeId, port: index }, distance };
+		}
+	}
+	return best;
+}
+
 export function nodeIntersects(node: Point, schema: NodeSchema | null, box: Rectangle): boolean {
 	const right = node.x + nodeWidth;
 	const bottom = node.y + nodeHeight(schema);

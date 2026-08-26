@@ -85,7 +85,7 @@
 	graph instead of the list and dismiss the palette before a pick lands.
 -->
 <div
-	class="absolute z-overlay w-72"
+	class="absolute z-[var(--z-overlay)] w-72"
 	style="left: {left}px; top: {top}px; height: {height}px"
 	onkeydown={handleKey}
 	onwheel={(event) => event.stopPropagation()}

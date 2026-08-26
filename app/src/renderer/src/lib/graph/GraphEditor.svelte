@@ -5,10 +5,14 @@
 	import {
 		edgePath,
 		inputPortPosition,
+		nearestInputPort,
 		nodeIntersects,
 		outputPortPosition,
+		portSnapRadius,
 		rectangleFromCorners,
-		type Point
+		type InputPortCandidate,
+		type Point,
+		type PortTarget
 	} from './graph-geometry';
 	import { graphStore } from './graph-store.svelte';
 	import GraphNodeView from './GraphNodeView.svelte';
@@ -29,6 +33,25 @@
 	let surface = $state<HTMLDivElement | null>(null);
 	let surfaceWidth = $state(0);
 	let surfaceHeight = $state(0);
+
+	const gridSpacing = 24;
+	const cellsPerMajorLine = 5;
+
+	/// The grid is painted on the surface rather than on the transformed layer:
+	/// scaling a background of hairlines thickens them, so the spacing follows
+	/// the zoom instead and the lines stay one pixel wide.
+	const gridStyle = $derived.by(() => {
+		const minor = gridSpacing * view.scale;
+		const major = minor * cellsPerMajorLine;
+		const lines = [
+			'linear-gradient(to right, var(--border) 1px, transparent 1px)',
+			'linear-gradient(to bottom, var(--border) 1px, transparent 1px)',
+			'linear-gradient(to right, var(--border-faint) 1px, transparent 1px)',
+			'linear-gradient(to bottom, var(--border-faint) 1px, transparent 1px)'
+		];
+		const sizes = [`${major}px ${major}px`, `${major}px ${major}px`, `${minor}px ${minor}px`, `${minor}px ${minor}px`];
+		return `background-image: ${lines.join(', ')}; background-size: ${sizes.join(', ')}; background-position: ${view.offsetX}px ${view.offsetY}px`;
+	});
 	let view = $state({ offsetX: 40, offsetY: 20, scale: 1 });
 	let pendingEdge = $state<PendingEdge | null>(null);
 	let selectionBox = $state<{ start: Point; end: Point } | null>(null);
@@ -36,6 +59,7 @@
 
 	let hoverTarget = $state<HoverTarget | null>(null);
 	let isSpaceHeld = $state(false);
+	let cursor = $state<Point | null>(null);
 
 	let panOrigin: Point | null = null;
 	let dragOrigin: Point | null = null;
@@ -178,6 +202,7 @@
 	}
 
 	function updateGesture(event: PointerEvent): void {
+		cursor = toGraphSpace(event);
 		if (panOrigin) {
 			view = {
 				...view,
@@ -202,9 +227,53 @@
 		}
 	}
 
+	function inputPortCandidates(): InputPortCandidate[] {
+		return graphStore.nodes.map((node) => ({
+			nodeId: node.id,
+			position: { x: node.positionX, y: node.positionY },
+			inputCount: displayedSchema(node).inputs.length
+		}));
+	}
+
+	function requestFor(edge: PendingEdge, target: PortTarget) {
+		return {
+			fromNodeId: edge.fromNodeId,
+			fromPort: edge.fromPort,
+			toNodeId: target.nodeId,
+			toPort: target.port
+		};
+	}
+
+	/// An edge dropped beside a port still lands on it. Only a drop that reached
+	/// no port at all gets here; one released on a port has already connected.
+	function connectToNearestPort(edge: PendingEdge, point: Point): void {
+		const target = nearestInputPort(inputPortCandidates(), point, portSnapRadius);
+		if (target === null) {
+			return;
+		}
+		const request = requestFor(edge, target);
+		if (graphStore.canConnect(engineClient.registry, request)) {
+			graphStore.connect(request);
+		}
+	}
+
+	/// While an edge is in flight, every port it could legally land on says so.
+	function isPortEligible(nodeId: string, side: 'input' | 'output', index: number): boolean {
+		if (!pendingEdge || side !== 'input') {
+			return false;
+		}
+		return graphStore.canConnect(
+			engineClient.registry,
+			requestFor(pendingEdge, { nodeId, port: index })
+		);
+	}
+
 	function endGesture(event: PointerEvent): void {
 		if (selectionBox) {
 			applySelectionBox();
+		}
+		if (pendingEdge) {
+			connectToNearestPort(pendingEdge, toGraphSpace(event));
 		}
 		panOrigin = null;
 		dragOrigin = null;
@@ -300,6 +369,7 @@
 
 <div
 	class="relative h-full w-full overflow-hidden bg-canvas"
+	style={gridStyle}
 	role="application"
 	aria-label="Node graph editor"
 	bind:this={surface}
@@ -308,6 +378,7 @@
 	onpointerdown={beginSurfaceGesture}
 	onpointermove={updateGesture}
 	onpointerup={endGesture}
+	onpointerleave={() => (cursor = null)}
 	oncontextmenu={openPalette}
 	onwheel={zoom}
 >
@@ -333,8 +404,10 @@
 		{#each graphStore.nodes as node (node.id)}
 			<GraphNodeView
 				{node}
+				{cursor}
 				schema={displayedSchema(node)}
 				isPlaceholder={schemaOf(node.typeName) === null}
+				isPortEligible={(side, index) => isPortEligible(node.id, side, index)}
 				isSelected={graphStore.selectedNodeIds.includes(node.id)}
 				isPreviewed={graphStore.previewNodeId === node.id}
 				onPointerDown={(event) => beginNodeDrag(event, node.id)}
@@ -362,6 +435,14 @@
 		{/if}
 	</div>
 
+	{#if graphStore.nodes.length === 0 && !palette}
+		<div
+			class="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-faint"
+		>
+			Right-click or press Tab to add a node
+		</div>
+	{/if}
+
 	{#if palette}
 		<NodePalette
 			screenX={palette.screenX}
@@ -371,11 +452,5 @@
 			onPick={insertNode}
 			onDismiss={() => (palette = null)}
 		/>
-	{/if}
-
-	{#if graphStore.nodes.length === 0}
-		<div class="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-faint">
-			Right-click or press Tab to add a node
-		</div>
 	{/if}
 </div>

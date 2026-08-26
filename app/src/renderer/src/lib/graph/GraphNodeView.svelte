@@ -1,11 +1,17 @@
 <script lang="ts">
 	import type { GraphNodeDocument, NodeSchema, PortSchema } from '$shared/graph-document';
 	import {
+		distanceBetween,
+		inputPortPosition,
 		nodeHeaderHeight,
 		nodeHeight,
 		nodeThumbnailHeight,
 		nodeWidth,
-		portSpacing
+		outputPortPosition,
+		portApproachRadius,
+		portGrowth,
+		portSpacing,
+		type Point
 	} from './graph-geometry';
 	import { nodeStatusStore, type NodeState } from './node-status.svelte';
 	import NodeThumbnailView from './NodeThumbnailView.svelte';
@@ -17,6 +23,9 @@
 		isPreviewed: boolean;
 		/// The registry does not know this type: a plugin is missing.
 		isPlaceholder: boolean;
+		/// Where the pointer is in graph space, so ports can reach for it.
+		cursor: Point | null;
+		isPortEligible: (side: 'input' | 'output', index: number) => boolean;
 		onPointerDown: (event: PointerEvent) => void;
 		onPortPointerDown: (event: PointerEvent, side: 'input' | 'output', index: number) => void;
 		onPortPointerUp: (event: PointerEvent, side: 'input' | 'output', index: number) => void;
@@ -30,6 +39,8 @@
 		isSelected,
 		isPreviewed,
 		isPlaceholder,
+		cursor,
+		isPortEligible,
 		onPointerDown,
 		onPortPointerDown,
 		onPortPointerUp,
@@ -71,6 +82,35 @@
 			return 'bg-red';
 		}
 		return stateColour[status.state];
+	}
+
+	/// How far a port's hit area reaches past its row, so a pointer a few pixels
+	/// off still lands on it.
+	const portHitPadding = 5;
+
+	const nodePosition = $derived({ x: node.positionX, y: node.positionY });
+
+	function portPosition(side: 'input' | 'output', index: number): Point {
+		if (side === 'input') {
+			return inputPortPosition(nodePosition, index);
+		}
+		return outputPortPosition(nodePosition, index);
+	}
+
+	function portScale(side: 'input' | 'output', index: number): number {
+		if (!cursor) {
+			return 1;
+		}
+		return portGrowth(distanceBetween(portPosition(side, index), cursor), portApproachRadius);
+	}
+
+	/// White marks a port the pointer can act on: one it has come close enough to
+	/// grab, or one the edge in flight is allowed to land on.
+	function isPortLit(side: 'input' | 'output', index: number): boolean {
+		if (isPortEligible(side, index)) {
+			return true;
+		}
+		return portScale(side, index) > 1;
 	}
 
 	function timingLabel(): string {
@@ -116,8 +156,9 @@
 	<div class="relative" style="height: {portRowsHeight}px">
 		{#each inputs as port, index}
 			<button
-				class="absolute flex items-center gap-1 pl-0 text-2xs text-muted"
-				style="left: -5px; top: {index * portSpacing}px; height: {portSpacing}px"
+				class="absolute flex items-center gap-1 pl-2 text-2xs text-muted"
+				style="left: -13px; top: {index * portSpacing - portHitPadding}px; height: {portSpacing +
+					portHitPadding * 2}px"
 				title={port.description}
 				onpointerdown={(event) => onPortPointerDown(event, 'input', index)}
 				onpointerup={(event) => onPortPointerUp(event, 'input', index)}
@@ -125,9 +166,11 @@
 				onpointerleave={onPortLeave}
 			>
 				<span
-					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong"
-					class:bg-canvas={port.optional}
-					class:bg-line-strong={!port.optional}
+					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform"
+					class:bg-default={isPortLit('input', index)}
+					class:bg-canvas={port.optional && !isPortLit('input', index)}
+					class:bg-line-strong={!port.optional && !isPortLit('input', index)}
+					style="transform: scale({portScale('input', index)})"
 				></span>
 				<span class="pointer-events-none">{port.name}</span>
 			</button>
@@ -135,14 +178,18 @@
 
 		{#each outputs as port, index}
 			<button
-				class="absolute flex flex-row-reverse items-center gap-1 text-2xs text-muted"
-				style="right: -5px; top: {index * portSpacing}px; height: {portSpacing}px"
+				class="absolute flex flex-row-reverse items-center gap-1 pr-2 text-2xs text-muted"
+				style="right: -13px; top: {index * portSpacing - portHitPadding}px; height: {portSpacing +
+					portHitPadding * 2}px"
 				title={port.description}
 				onpointerdown={(event) => onPortPointerDown(event, 'output', index)}
 				onpointerup={(event) => onPortPointerUp(event, 'output', index)}
 			>
 				<span
-					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong bg-line-strong"
+					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform"
+					class:bg-default={isPortLit('output', index)}
+					class:bg-line-strong={!isPortLit('output', index)}
+					style="transform: scale({portScale('output', index)})"
 				></span>
 				<span class="pointer-events-none">{port.name}</span>
 			</button>
