@@ -3,7 +3,7 @@ import type {
 	ParameterSchema,
 	ParameterValue,
 	RegistrySchema
-} from '$shared/graph-document';
+} from './graph-document';
 
 /// Everything the UI knows about a node comes from here and nowhere else.
 
@@ -23,7 +23,7 @@ export function findNodeSchema(
 
 /// Which half of a parameter carries its value comes from the descriptor, the
 /// same split the engine makes between `number` and `text`.
-const textualTypes: ReadonlySet<ParameterSchema['type']> = new Set([
+export const textualTypes: ReadonlySet<ParameterSchema['type']> = new Set([
 	'path',
 	'text',
 	'colorRamp',

@@ -12,7 +12,7 @@
 	import { graphStore } from './graph-store.svelte';
 	import GraphNodeView from './GraphNodeView.svelte';
 	import NodePalette from './NodePalette.svelte';
-	import { findNodeSchema } from './registry-schema';
+	import { findNodeSchema } from '$shared/registry-schema';
 
 	interface PendingEdge {
 		fromNodeId: string;

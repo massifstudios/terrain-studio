@@ -354,14 +354,65 @@ in §3 exists for.
   allowed to write files. Without it, building straight after a preview serves
   the exporters from cache and puts nothing on disk.
 
-## 11. Pending decisions
+## 11. The DSL
+
+The code view is the same graph as text. The grammar in full:
+
+```
+program   = { statement }
+statement = name "=" typeName "(" [ arguments ] ")"
+arguments = argument { "," argument }
+argument  = input | parameter
+input     = name [ "." outputPort ] | "_"
+parameter = name ":" value
+value     = number | string | "true" | "false" | enumOptionName
+```
+
+`#` runs to the end of the line. Whitespace, including newlines, is
+insignificant — a statement may span lines, because `)` followed by
+`name =` is unambiguous.
+
+```
+dem    = ImportDEM(path: "diffusion.massifdem")
+slope  = SlopeMask(dem, minimumSlope: 25, maximumSlope: 55)
+eroded = HydraulicErosion(dem, slope, density: 2, capacity: 1.5)
+trees  = GrowthMask(eroded, eroded.Flow)
+forest = Scatter(trees, eroded, spacing: 14)
+out    = ExportPoints(forest, format: json)
+```
+
+- **The graph is the source of truth; the text is printed and parsed against
+  the registry.** No type name, port name, parameter name or parameter type is
+  written down in the DSL implementation, so a plugin's node reads and writes
+  like a built-in with no change here.
+- **A node must be defined before it is named**, which makes a cycle
+  unwritable rather than merely rejected — there is no second cycle check in
+  the parser. Printing is therefore topological.
+- **Inputs are positional and come before named parameters**, and `_` leaves
+  one unconnected. Naming inputs as well would put port names and parameter
+  names in one namespace, where a collision would be silent. A trailing run of
+  unconnected inputs is simply left off.
+- **Only parameters that differ from the registry default are printed**, and
+  parsing fills the rest back in. The text stays readable, and a changed
+  default cannot silently alter a graph that was saved with the old one.
+- **An unknown type name is refused, and the message asks about plugins.** The
+  DSL is hand-written, so a typo must not quietly become a placeholder node; a
+  project with a missing plugin still prints, but will not apply until the
+  plugin is back.
+- **The text is authoritative only while it has focus.** Every keystroke that
+  parses is applied to the graph immediately; leaving the box prints the graph
+  again, which is where the text is tidied. Reprinting under the cursor would
+  fight the typing.
+- **Node positions are not in the text.** A node the editor already knows keeps
+  its position; new nodes are laid out by dependency depth into columns.
+
+## 12. Pending decisions
 
 Recorded here when they land, not before:
 
-- DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 12. Code style
+## 13. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

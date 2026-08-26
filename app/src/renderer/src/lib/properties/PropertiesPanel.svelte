@@ -2,7 +2,7 @@
 	import { SectionHeader } from '@neoworks-dev/ui';
 	import { engineClient } from '$lib/engine-client.svelte';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
-	import { defaultParameterValue, findNodeSchema } from '$lib/graph/registry-schema';
+	import { defaultParameterValue, findNodeSchema } from '$shared/registry-schema';
 	import ParameterControl from './ParameterControl.svelte';
 
 	const node = $derived(graphStore.selectedNode);

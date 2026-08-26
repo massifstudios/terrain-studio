@@ -1,5 +1,50 @@
 # Done
 
+## T8 — The graph as code
+
+The bottom panel's second tab is no longer a placeholder. The same graph is
+now readable and editable as a few lines of text.
+
+**What works**
+
+- Every graph prints as one line per node, names lined up, in the order the
+  data flows:
+
+  ```
+  dem    = ImportDEM(path: "diffusion.massifdem")
+  slope  = SlopeMask(dem, minimumSlope: 25, maximumSlope: 55)
+  eroded = HydraulicErosion(dem, slope, density: 2, capacity: 1.5)
+  out    = Export(eroded, path: "refined.massifdem")
+  ```
+
+- Editing the text edits the graph, line by line as you type. Anything that
+  does not read cleanly is refused with the line it went wrong on, and the
+  graph is left alone until it does.
+- Extra outputs are named: `eroded.Flow` takes the water rather than the
+  ground. `_` leaves an input deliberately unconnected.
+- Comments start with `#`, blank lines are free, and a long node can be
+  broken over several lines.
+- Nodes you add in text appear in the graph laid out left to right by what
+  feeds what; nodes you had already placed by hand stay exactly where you put
+  them.
+
+**Where things are**
+
+- `app/src/shared/graph-dsl.ts` — the grammar, reader and writer.
+- `app/src/renderer/src/lib/graph/CodeView.svelte` — the panel.
+- `ARCHITECTURE.md` §11 — the grammar written out in full.
+
+**Useful to know**
+
+- Only settings you have changed are written. Everything left alone is filled
+  back in from the node itself, which keeps the text short and readable.
+- A node has to be written before it can be used, so a loop is not something
+  you can even type.
+- While your cursor is in the box the text is left exactly as you typed it;
+  clicking away tidies it up.
+- The seed, world size and resolutions stay in the top bar — they belong to
+  the project, not to the graph.
+
 ## T7 — Texturing and vegetation
 
 Terrain Studio no longer produces only shape. It now produces what covers the

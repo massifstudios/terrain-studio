@@ -2,7 +2,7 @@
 	import { Card } from '@neoworks-dev/ui';
 	import type { NodeSchema } from '$shared/graph-document';
 	import { engineClient } from '$lib/engine-client.svelte';
-	import { groupByCategory } from './registry-schema';
+	import { groupByCategory } from '$shared/registry-schema';
 
 	interface Props {
 		screenX: number;

@@ -2,6 +2,7 @@
 	import { Button } from '@neoworks-dev/ui';
 	import CodeIcon from 'phosphor-svelte/lib/Code';
 	import GraphIcon from 'phosphor-svelte/lib/Graph';
+	import CodeView from '$lib/graph/CodeView.svelte';
 	import GraphEditor from '$lib/graph/GraphEditor.svelte';
 
 	type PanelView = 'graph' | 'code';
@@ -44,9 +45,7 @@
 		{#if view === 'graph'}
 			<GraphEditor />
 		{:else}
-			<div class="flex h-full items-center justify-center text-xs text-faint">
-				Graph as code
-			</div>
+			<CodeView />
 		{/if}
 	</div>
 </section>

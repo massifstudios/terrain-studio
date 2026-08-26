@@ -19,7 +19,7 @@ import {
 	type ConnectionRequest
 } from '$shared/graph-operations';
 import type { GraphProject } from '$shared/massifgraph';
-import { defaultParameters } from './registry-schema';
+import { defaultParameters } from '$shared/registry-schema';
 
 function emptySettings(): GraphSettings {
 	return {
@@ -114,6 +114,19 @@ class GraphStore {
 
 	setParameter(nodeId: string, name: string, value: ParameterValue): void {
 		this.nodes = withParameter(this.nodes, nodeId, name, value);
+		this.#touch();
+	}
+
+	/// The whole graph at once, as the code view hands it over. Selection and
+	/// preview survive for whatever nodes the new text still names.
+	replaceContents(nodes: GraphNodeDocument[], edges: GraphEdgeDocument[]): void {
+		const surviving = new Set(nodes.map((node) => node.id));
+		this.nodes = nodes;
+		this.edges = edges;
+		this.selectedNodeIds = this.selectedNodeIds.filter((id) => surviving.has(id));
+		if (this.previewNodeId !== null && !surviving.has(this.previewNodeId)) {
+			this.previewNodeId = null;
+		}
 		this.#touch();
 	}
 

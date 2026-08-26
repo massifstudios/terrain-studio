@@ -7,10 +7,10 @@
 import type {
 	GraphEdgeDocument,
 	GraphNodeDocument,
-	NodeSchema,
 	ParameterValue,
 	RegistrySchema
 } from './graph-document';
+import { findNodeSchema } from './registry-schema';
 
 export function findNode(
 	nodes: GraphNodeDocument[],
@@ -61,17 +61,6 @@ export function reachesDownstream(
 	return false;
 }
 
-function schemaFor(registry: RegistrySchema | null, typeName: string): NodeSchema | null {
-	if (!registry) {
-		return null;
-	}
-	const found = registry.nodes.find((node) => node.typeName === typeName);
-	if (!found) {
-		return null;
-	}
-	return found;
-}
-
 export interface ConnectionRequest {
 	fromNodeId: string;
 	fromPort: number;
@@ -93,8 +82,8 @@ export function canConnect(
 	if (!source || !target) {
 		return false;
 	}
-	const output = schemaFor(registry, source.typeName)?.outputs[request.fromPort];
-	const input = schemaFor(registry, target.typeName)?.inputs[request.toPort];
+	const output = findNodeSchema(registry, source.typeName)?.outputs[request.fromPort];
+	const input = findNodeSchema(registry, target.typeName)?.inputs[request.toPort];
 	if (!output || !input || output.type !== input.type) {
 		return false;
 	}
@@ -145,6 +134,32 @@ export function withMovedNodes(
 		}
 		return { ...node, positionX: node.positionX + deltaX, positionY: node.positionY + deltaY };
 	});
+}
+
+function dependenciesMet(
+	edges: GraphEdgeDocument[],
+	node: GraphNodeDocument,
+	settled: Set<string>
+): boolean {
+	return edges
+		.filter((edge) => edge.toNodeId === node.id)
+		.every((edge) => settled.has(edge.fromNodeId));
+}
+
+/// Nodes ordered so that every node follows the ones feeding it. A graph with
+/// a cycle in it still comes back whole, in an arbitrary order — reporting the
+/// cycle is the engine's job, and a caller here must not hang on one.
+export function inDependencyOrder(contents: GraphContents): GraphNodeDocument[] {
+	const remaining = [...contents.nodes];
+	const ordered: GraphNodeDocument[] = [];
+	const settled = new Set<string>();
+	while (remaining.length > 0) {
+		const found = remaining.findIndex((node) => dependenciesMet(contents.edges, node, settled));
+		const next = remaining.splice(Math.max(found, 0), 1)[0];
+		ordered.push(next);
+		settled.add(next.id);
+	}
+	return ordered;
 }
 
 export function withParameter(

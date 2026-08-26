@@ -3,7 +3,7 @@ import type { GraphDocument } from '$shared/graph-document';
 import { engineClient } from '$lib/engine-client.svelte';
 import { graphStore } from '$lib/graph/graph-store.svelte';
 import { nodeStatusStore } from '$lib/graph/node-status.svelte';
-import { findNodeSchema } from '$lib/graph/registry-schema';
+import { findNodeSchema } from '$shared/registry-schema';
 import { previewState } from './preview-state.svelte';
 
 const debounceMilliseconds = 150;
