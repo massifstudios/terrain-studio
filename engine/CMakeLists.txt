@@ -76,6 +76,7 @@ add_library(terrain_engine STATIC
     src/gpu/denormal_mode.cpp
     src/nodes/combine_nodes.cpp
     src/nodes/texture_nodes.cpp
+    src/nodes/color_nodes.cpp
     src/nodes/vegetation_nodes.cpp
     src/nodes/output_nodes.cpp
 )
