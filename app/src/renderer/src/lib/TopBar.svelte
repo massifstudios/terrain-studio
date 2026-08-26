@@ -6,7 +6,6 @@
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { openProject, saveProject } from '$lib/project-file';
 	import BuildControl from './BuildControl.svelte';
-	import EngineStatusIndicator from './EngineStatusIndicator.svelte';
 	import PluginIndicator from './PluginIndicator.svelte';
 
 	const previewResolutions = ['256', '512', '1024', '2048'];
@@ -84,6 +83,5 @@
 
 		<BuildControl />
 		<PluginIndicator />
-		<EngineStatusIndicator />
 	</div>
 </header>

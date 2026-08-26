@@ -30,8 +30,12 @@ class BuildRunner {
 	total = $state(0);
 	currentNodeId = $state<string | null>(null);
 	errors = $state<string[]>([]);
+	/// Wall-clock cost of the last build that ran to the end, for the status
+	/// bar. Null until one has.
+	lastMilliseconds = $state<number | null>(null);
 
 	#isCancelling = false;
+	#startedAt = 0;
 
 	get isBuilding(): boolean {
 		return this.state === 'running';
@@ -73,6 +77,7 @@ class BuildRunner {
 		this.currentNodeId = null;
 		this.errors = [];
 		this.#isCancelling = false;
+		this.#startedAt = performance.now();
 	}
 
 	/// The build resolution replaces the preview one for this run only; it is a
@@ -104,6 +109,7 @@ class BuildRunner {
 			this.completed += 1;
 		}
 		this.currentNodeId = null;
+		this.lastMilliseconds = performance.now() - this.#startedAt;
 		this.state = 'finished';
 	}
 

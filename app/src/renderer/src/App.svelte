@@ -13,6 +13,7 @@
 	import { projectWatcher } from '$lib/project-watch.svelte';
 	import { sessionStore } from '$lib/session';
 	import ProjectConflictBar from '$lib/ProjectConflictBar.svelte';
+	import StatusBar from '$lib/StatusBar.svelte';
 	import ResizeHandle from '$lib/controls/ResizeHandle.svelte';
 
 	engineClient.connect();
@@ -110,4 +111,5 @@
 		</div>
 		<PropertiesPanel />
 	</div>
+	<StatusBar />
 </div>

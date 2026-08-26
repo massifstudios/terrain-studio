@@ -16,6 +16,9 @@ const thumbnailResolution = 64;
  */
 class PreviewRunner {
 	isEvaluating = $state(false);
+	/// Wall-clock cost of the last preview that reached the viewport, for the
+	/// status bar. Null until one has.
+	lastMilliseconds = $state<number | null>(null);
 
 	#pending: ReturnType<typeof setTimeout> | null = null;
 	#generation = 0;
@@ -104,6 +107,7 @@ class PreviewRunner {
 
 		const graph = requested.graph;
 		const nodeId = requested.nodeId;
+		const startedAt = performance.now();
 		const outcome = await this.#evaluate(graph, nodeId);
 		if (generation !== this.#generation) {
 			return;
@@ -117,6 +121,7 @@ class PreviewRunner {
 		await this.#show(graph, nodeId, outcome, generation);
 
 		if (generation === this.#generation) {
+			this.lastMilliseconds = performance.now() - startedAt;
 			this.isEvaluating = false;
 		}
 	}
