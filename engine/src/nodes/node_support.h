@@ -12,6 +12,7 @@ namespace terrain::nodes {
 /// same C API a plugin uses.
 void registerInputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerGenerateNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerLandformNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerFilterNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerTransformNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerAdjustNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);

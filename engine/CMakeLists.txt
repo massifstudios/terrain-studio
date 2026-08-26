@@ -66,6 +66,7 @@ add_library(terrain_engine STATIC
     src/nodes/builtin_nodes.cpp
     src/nodes/input_nodes.cpp
     src/nodes/generate_nodes.cpp
+    src/nodes/landform_nodes.cpp
     src/nodes/filter_nodes.cpp
     src/nodes/transform_nodes.cpp
     src/nodes/adjust_nodes.cpp
