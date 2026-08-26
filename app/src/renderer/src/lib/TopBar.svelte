@@ -4,8 +4,7 @@
 	import FloppyDisk from 'phosphor-svelte/lib/FloppyDisk';
 	import FolderOpen from 'phosphor-svelte/lib/FolderOpen';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
-	import { sourceModel } from '$lib/graph/source-model.svelte';
-	import { parseGraph, serializeGraph } from '$shared/massifgraph';
+	import { openProject, saveProject } from '$lib/project-file';
 	import BuildControl from './BuildControl.svelte';
 	import EngineStatusIndicator from './EngineStatusIndicator.svelte';
 	import PluginIndicator from './PluginIndicator.svelte';
@@ -24,28 +23,6 @@
 		const cut = Math.max(graphStore.filePath.lastIndexOf('/'), graphStore.filePath.lastIndexOf('\\'));
 		return graphStore.filePath.slice(cut + 1);
 	});
-
-	async function openProject(): Promise<void> {
-		const path = await window.fileBridge.chooseOpenPath('graph');
-		if (path === null) {
-			return;
-		}
-		const project = parseGraph(await window.fileBridge.readText(path));
-		sourceModel.rememberLoadedProject(project);
-		graphStore.load(project, path);
-	}
-
-	async function saveProject(): Promise<void> {
-		let path = graphStore.filePath;
-		if (path === null) {
-			path = await window.fileBridge.chooseSavePath('graph', 'terrain.massifgraph');
-		}
-		if (path === null) {
-			return;
-		}
-		await window.fileBridge.writeText(path, serializeGraph(graphStore.project()));
-		graphStore.markSaved(path);
-	}
 
 	function rerollSeed(): void {
 		graphStore.settings.seed = Math.floor(Math.random() * 0xffffffff);

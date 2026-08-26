@@ -1,4 +1,5 @@
 import type { EngineStatus } from '../shared/engine-protocol';
+import type { StoredSession } from '../shared/session';
 
 declare global {
 	interface Window {
@@ -11,6 +12,10 @@ declare global {
 			chooseSavePath(kind: 'graph' | 'dem', suggestedName: string): Promise<string | null>;
 			readText(path: string): Promise<string>;
 			writeText(path: string, text: string): Promise<void>;
+		};
+		sessionBridge: {
+			read(): Promise<StoredSession | null>;
+			write(graph: string, pointer: string): void;
 		};
 	}
 }

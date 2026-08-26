@@ -8,9 +8,27 @@
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { previewRunner } from '$lib/preview/preview-runner.svelte';
 	import { sourceModel } from '$lib/graph/source-model.svelte';
+	import { saveProject } from '$lib/project-file';
+	import { sessionStore } from '$lib/session';
 	import ResizeHandle from '$lib/controls/ResizeHandle.svelte';
 
 	engineClient.connect();
+	sessionStore.restore();
+
+	// The debounce is generous, so the window closing is where the last edit of
+	// a session is actually written.
+	window.addEventListener('beforeunload', () => sessionStore.flush());
+
+	function handleKeyDown(event: KeyboardEvent): void {
+		if (event.key !== 's' && event.key !== 'S') {
+			return;
+		}
+		if (!event.ctrlKey && !event.metaKey) {
+			return;
+		}
+		event.preventDefault();
+		saveProject();
+	}
 
 	const minimumGraphPanelHeight = 160;
 	const minimumPreviewHeight = 200;
@@ -45,7 +63,20 @@
 			nodeStatusStore.markEvaluating(progress.nodeId, progress.fraction);
 		}
 	});
+
+	// Everything that would be missed if the window went now.
+	$effect(() => {
+		graphStore.settings;
+		graphStore.nodes;
+		graphStore.edges;
+		graphStore.previewNodeId;
+		graphStore.filePath;
+		graphStore.hasUnsavedChanges;
+		sessionStore.remember();
+	});
 </script>
+
+<svelte:window onkeydown={handleKeyDown} />
 
 <div class="flex h-full flex-col bg-canvas text-default">
 	<TopBar />

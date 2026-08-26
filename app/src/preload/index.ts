@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { enginePortChannel, type EngineStatus } from '../shared/engine-protocol';
+import type { StoredSession } from '../shared/session';
 
 // MessagePorts cannot cross the context bridge, so the port is re-posted into
 // the page itself; the envelope names the channel the renderer listens for.
@@ -31,8 +32,21 @@ const fileBridge = {
 	}
 };
 
+const sessionBridge = {
+	read(): Promise<StoredSession | null> {
+		return ipcRenderer.invoke('session:read');
+	},
+	/// Synchronous: this is also what runs as the window is closing, where an
+	/// unsettled promise would simply take the last edit with it.
+	write(graph: string, pointer: string): void {
+		ipcRenderer.sendSync('session:write', graph, pointer);
+	}
+};
+
 export type EngineBridge = typeof engineBridge;
 export type FileBridge = typeof fileBridge;
+export type SessionBridge = typeof sessionBridge;
 
 contextBridge.exposeInMainWorld('engineBridge', engineBridge);
 contextBridge.exposeInMainWorld('fileBridge', fileBridge);
+contextBridge.exposeInMainWorld('sessionBridge', sessionBridge);

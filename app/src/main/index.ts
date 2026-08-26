@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { connectRenderer, startEngine, stopEngine, trackStatus } from './engine-connection';
+import { readSession, writeSession } from './session-store';
 
 function createWindow(): BrowserWindow {
 	const window = new BrowserWindow({
@@ -79,6 +80,20 @@ ipcMain.handle('file:read-text', (_event, path: string) => readFile(path, 'utf8'
 ipcMain.handle('file:write-text', (_event, path: string, text: string) =>
 	writeFile(path, text, 'utf8')
 );
+
+ipcMain.handle('session:read', () => readSession());
+
+// Synchronous, so that the edit made a moment before a quit cannot be lost to a
+// promise the closing window will never settle. A disk that refuses the write
+// is reported and nothing more; it is not worth taking the app down for.
+ipcMain.on('session:write', (event, graph: string, pointer: string) => {
+	try {
+		writeSession({ graph, pointer });
+	} catch (error) {
+		console.warn(`Could not remember the session: ${String(error)}`);
+	}
+	event.returnValue = null;
+});
 
 app.whenReady().then(() => {
 	startEngine();
