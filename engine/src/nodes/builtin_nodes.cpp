@@ -13,6 +13,7 @@ void registerBuiltinNodes(NodeRegistry& registry) {
     nodes::registerGenerateNodes(api, handle);
     nodes::registerFilterNodes(api, handle);
     nodes::registerTransformNodes(api, handle);
+    nodes::registerAdjustNodes(api, handle);
     nodes::registerErosionNodes(api, handle);
     nodes::registerMaskNodes(api, handle);
     nodes::registerCombineNodes(api, handle);

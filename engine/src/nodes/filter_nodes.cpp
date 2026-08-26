@@ -92,6 +92,54 @@ const TerrainNodeDescriptor blurDescriptor = {"Blur",
                                               1,
                                               &evaluateBlur};
 
+/* -------------------------------------------------------------- Sharpen -- */
+
+const TerrainParameterDescriptor sharpenParameters[] = {
+    {"radius", "Radius", "The scale of the detail that is lifted, in ground distance", "m",
+     TerrainParameterType_Float, 30.0, 0.0, 20000.0, "", nullptr, 0},
+    {"amount", "Amount", "How much of the detail is added back on top", "",
+     TerrainParameterType_Float, 1.0, 0.0, 4.0, "", nullptr, 0}};
+
+/**
+ * An unsharp mask: whatever survives a blur is the shape, and what the blur
+ * removed is the detail, so adding the difference back exaggerates the detail
+ * without inventing any.
+ */
+void evaluateSharpen(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const int size = api->width(context);
+    const std::size_t count = cellCount(api, context);
+    const float* input = api->inputField(context, 0);
+    float* output = api->outputField(context, 0);
+
+    const int radiusCells = static_cast<int>(
+        std::lround(api->parameterNumber(context, 0) / api->cellSizeMeters(context)));
+    if (radiusCells < 1) {
+        std::copy(input, input + count, output);
+        return;
+    }
+
+    const float amount = static_cast<float>(api->parameterNumber(context, 1));
+    std::vector<float> softened(count);
+    blurSquare(input, softened.data(), size, radiusCells, 3);
+    for (std::size_t index = 0; index < count; ++index) {
+        softened[index] = input[index] + (input[index] - softened[index]) * amount;
+    }
+    blendThroughMask(input, softened.data(), api->inputField(context, 1), output, count);
+}
+
+const TerrainNodeDescriptor sharpenDescriptor = {
+    "Sharpen",
+    "Filter",
+    "Lifts fine detail by adding back what a blur of the same scale removed",
+    1,
+    blurInputs,
+    2,
+    blurOutputs,
+    1,
+    sharpenParameters,
+    2,
+    &evaluateSharpen};
+
 /* ---------------------------------------------------------------- Clamp -- */
 
 const TerrainPortDescriptor filterInputs[] = {
@@ -295,6 +343,7 @@ const TerrainNodeDescriptor warpDescriptor = {
 
 void registerFilterNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
     api.registerNode(registry, &blurDescriptor);
+    api.registerNode(registry, &sharpenDescriptor);
     api.registerNode(registry, &clampDescriptor);
     api.registerNode(registry, &terraceDescriptor);
     api.registerNode(registry, &curveDescriptor);

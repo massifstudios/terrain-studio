@@ -68,6 +68,7 @@ add_library(terrain_engine STATIC
     src/nodes/generate_nodes.cpp
     src/nodes/filter_nodes.cpp
     src/nodes/transform_nodes.cpp
+    src/nodes/adjust_nodes.cpp
     src/nodes/mask_nodes.cpp
     src/nodes/erosion_support.cpp
     src/nodes/erosion_nodes.cpp

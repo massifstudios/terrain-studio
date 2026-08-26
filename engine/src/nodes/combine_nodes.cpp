@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <cmath>
 
 #include "node_support.h"
 
@@ -96,6 +97,59 @@ const TerrainNodeDescriptor lerpDescriptor = {
     1,
     &evaluateLerp};
 
+/* -------------------------------------------------------------- Compare -- */
+
+const TerrainPortDescriptor compareOutputs[] = {
+    {"Out", "How far apart the two fields are, cell by cell", TerrainPortType_Field,
+     TerrainFieldSemantics_Mask, 0}};
+
+const TerrainEnumOption compareScales[] = {{"absolute", "Absolute", 0},
+                                           {"normalised", "Normalised", 1}};
+
+const TerrainParameterDescriptor compareParameters[] = {
+    {"scale", "Scale", "Absolute reads in meters; normalised puts the largest gap at 1", "",
+     TerrainParameterType_Enum, 1.0, 0.0, 1.0, "", compareScales, 2}};
+
+/**
+ * The size of the disagreement between two fields, as a mask. `Subtract` gives
+ * the signed difference in meters and is the right tool for arithmetic; this is
+ * for looking, which is why the sign is dropped and the result can be scaled
+ * to fill the range whatever the fields happen to measure.
+ */
+void evaluateCompare(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const float* first = api->inputField(context, 0);
+    const float* second = api->inputField(context, 1);
+    float* output = api->outputField(context, 0);
+    const std::size_t count = cellCount(api, context);
+
+    float widest = 0.0f;
+    for (std::size_t index = 0; index < count; ++index) {
+        output[index] = std::abs(first[index] - second[index]);
+        widest = std::max(widest, output[index]);
+    }
+
+    const bool normalised = api->parameterNumber(context, 0) != 0.0;
+    if (!normalised || widest <= 0.0f) {
+        return;
+    }
+    for (std::size_t index = 0; index < count; ++index) {
+        output[index] /= widest;
+    }
+}
+
+const TerrainNodeDescriptor compareDescriptor = {
+    "Compare",
+    "Combine",
+    "Shows where two fields disagree and by how much",
+    1,
+    pairInputs,
+    2,
+    compareOutputs,
+    1,
+    compareParameters,
+    1,
+    &evaluateCompare};
+
 const TerrainNodeDescriptor addDescriptor =
     pairDescriptor("Add", "Adds two fields together", &evaluatePair<&addValues>);
 const TerrainNodeDescriptor subtractDescriptor =
@@ -119,6 +173,7 @@ void registerCombineNodes(const TerrainRegistryApi& api, TerrainRegistry* regist
     api.registerNode(registry, &minimumDescriptor);
     api.registerNode(registry, &maximumDescriptor);
     api.registerNode(registry, &lerpDescriptor);
+    api.registerNode(registry, &compareDescriptor);
 }
 
 }  // namespace terrain::nodes
