@@ -136,12 +136,20 @@ function forget(contents: WebContents): void {
 	connectedRenderers.delete(contents);
 }
 
+/// The renderer asks for a port once its listeners are up, which is the first
+/// moment a status push is certain to land — one sent at window creation is
+/// dropped, because the preload script has not run yet. A renderer that asks
+/// while the engine is down is remembered anyway, so the next start reaches it.
 export function connectRenderer(contents: WebContents): void {
-	if (!engineProcess || contents.isDestroyed()) {
+	if (contents.isDestroyed()) {
+		return;
+	}
+	connectedRenderers.add(contents);
+	contents.send('engine:status', engineStatus);
+	if (!engineProcess) {
 		return;
 	}
 	const channel = new MessageChannelMain();
 	engineProcess.postMessage(null, [channel.port1]);
 	contents.postMessage('engine:port', null, [channel.port2]);
-	connectedRenderers.add(contents);
 }
