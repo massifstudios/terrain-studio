@@ -27,6 +27,8 @@
 	}
 
 	let surface = $state<HTMLDivElement | null>(null);
+	let surfaceWidth = $state(0);
+	let surfaceHeight = $state(0);
 	let view = $state({ offsetX: 40, offsetY: 20, scale: 1 });
 	let pendingEdge = $state<PendingEdge | null>(null);
 	let selectionBox = $state<{ start: Point; end: Point } | null>(null);
@@ -301,6 +303,8 @@
 	role="application"
 	aria-label="Node graph editor"
 	bind:this={surface}
+	bind:clientWidth={surfaceWidth}
+	bind:clientHeight={surfaceHeight}
 	onpointerdown={beginSurfaceGesture}
 	onpointermove={updateGesture}
 	onpointerup={endGesture}
@@ -362,6 +366,8 @@
 		<NodePalette
 			screenX={palette.screenX}
 			screenY={palette.screenY}
+			{surfaceWidth}
+			{surfaceHeight}
 			onPick={insertNode}
 			onDismiss={() => (palette = null)}
 		/>

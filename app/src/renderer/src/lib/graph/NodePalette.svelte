@@ -7,14 +7,34 @@
 	interface Props {
 		screenX: number;
 		screenY: number;
+		surfaceWidth: number;
+		surfaceHeight: number;
 		onPick: (schema: NodeSchema) => void;
 		onDismiss: () => void;
 	}
 
-	const { screenX, screenY, onPick, onDismiss }: Props = $props();
+	const { screenX, screenY, surfaceWidth, surfaceHeight, onPick, onDismiss }: Props = $props();
+
+	/// The editor surface clips whatever leaves it, and the graph panel is short,
+	/// so the palette is sized to the room it has and slid back inside it rather
+	/// than hanging off the cursor.
+	const paletteWidth = 288;
+	const preferredHeight = 320;
+	const edgeGap = 8;
 
 	let query = $state('');
 	let searchInput = $state<HTMLInputElement | null>(null);
+
+	function clamp(value: number, low: number, high: number): number {
+		if (high < low) {
+			return low;
+		}
+		return Math.min(Math.max(value, low), high);
+	}
+
+	const height = $derived(Math.min(preferredHeight, surfaceHeight - edgeGap * 2));
+	const left = $derived(clamp(screenX, edgeGap, surfaceWidth - paletteWidth - edgeGap));
+	const top = $derived(clamp(screenY, edgeGap, surfaceHeight - height - edgeGap));
 
 	const categories = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
@@ -48,22 +68,29 @@
 	});
 </script>
 
+<!--
+	Wheel and pointer events stop here: the editor surface behind the palette
+	reads them as a zoom and as a click on empty canvas, which would scroll the
+	graph instead of the list and dismiss the palette before a pick lands.
+-->
 <div
 	class="absolute z-overlay w-72"
-	style="left: {screenX}px; top: {screenY}px"
+	style="left: {left}px; top: {top}px; height: {height}px"
 	onkeydown={handleKey}
+	onwheel={(event) => event.stopPropagation()}
+	onpointerdown={(event) => event.stopPropagation()}
 	role="dialog"
 	aria-label="Node palette"
 	tabindex="-1"
 >
-	<Card surface="elevated" padding="sm">
+	<Card surface="elevated" padding="sm" class="flex h-full flex-col">
 		<input
 			class="mb-2 w-full rounded-sm border border-line bg-input px-2 py-1 text-xs text-default outline-none focus:border-line-strong"
 			placeholder="Search nodes"
 			bind:value={query}
 			bind:this={searchInput}
 		/>
-		<div class="max-h-72 overflow-y-auto">
+		<div class="min-h-0 flex-1 overflow-y-auto">
 			{#each categories as category}
 				<div class="mb-1">
 					<div class="px-1 py-1 text-2xs uppercase tracking-caps text-faint">
