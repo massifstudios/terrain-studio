@@ -4,6 +4,7 @@
 	import FloppyDisk from 'phosphor-svelte/lib/FloppyDisk';
 	import FolderOpen from 'phosphor-svelte/lib/FolderOpen';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
+	import { sourceModel } from '$lib/graph/source-model.svelte';
 	import { parseGraph, serializeGraph } from '$shared/massifgraph';
 	import BuildControl from './BuildControl.svelte';
 	import EngineStatusIndicator from './EngineStatusIndicator.svelte';
@@ -29,7 +30,9 @@
 		if (path === null) {
 			return;
 		}
-		graphStore.load(parseGraph(await window.fileBridge.readText(path)), path);
+		const project = parseGraph(await window.fileBridge.readText(path));
+		sourceModel.rememberLoadedProject(project);
+		graphStore.load(project, path);
 	}
 
 	async function saveProject(): Promise<void> {

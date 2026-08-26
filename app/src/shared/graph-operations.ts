@@ -225,6 +225,30 @@ export function outputNodeIds(
 		.map((node) => node.id);
 }
 
+/**
+ * Nodes that read a file from disk: no inputs, and a path to read. Nothing
+ * here names a node type — the descriptor says everything, so a plugin's own
+ * reader counts as a source exactly like the built-in one.
+ *
+ * The first of these is where the project's world size and survey coordinates
+ * come from. An exporter also carries a path, which is why having no inputs is
+ * half the rule and not an afterthought.
+ */
+export function fileSourceNodeIds(
+	nodes: GraphNodeDocument[],
+	registry: RegistrySchema | null
+): string[] {
+	return nodes.filter((node) => isFileSource(node, registry)).map((node) => node.id);
+}
+
+function isFileSource(node: GraphNodeDocument, registry: RegistrySchema | null): boolean {
+	const schema = findNodeSchema(registry, node.typeName);
+	if (!schema || schema.inputs.length > 0) {
+		return false;
+	}
+	return schema.parameters.some((parameter) => parameter.type === 'path');
+}
+
 export function withParameter(
 	nodes: GraphNodeDocument[],
 	nodeId: string,

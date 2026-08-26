@@ -3,11 +3,13 @@ import type {
 	GraphEdgeDocument,
 	GraphNodeDocument,
 	NodeSchema,
+	ParameterSchema,
 	PortSchema,
 	RegistrySchema
 } from './graph-document';
 import {
 	canConnect,
+	fileSourceNodeIds,
 	inDependencyOrder,
 	nextNodeId,
 	outputNodeIds,
@@ -40,6 +42,19 @@ function schema(
 	};
 }
 
+const pathParameter: ParameterSchema = {
+	name: 'path',
+	label: 'File',
+	description: '',
+	unit: '',
+	type: 'path',
+	defaultValue: 0,
+	minimum: 0,
+	maximum: 0,
+	defaultText: '',
+	options: []
+};
+
 const registry: RegistrySchema = {
 	abiVersion: 1,
 	nodes: [
@@ -48,8 +63,14 @@ const registry: RegistrySchema = {
 		schema('ColorRamp', [port('In', 'field')], [port('Out', 'color')]),
 		schema('MixColor', [port('A', 'color')], [port('Out', 'color')]),
 		{
+			...schema('ImportDEM', [], [port('Out', 'field')]),
+			category: 'Input',
+			parameters: [pathParameter]
+		},
+		{
 			...schema('Export', [port('In', 'field')], [port('Out', 'field')]),
-			category: 'Output'
+			category: 'Output',
+			parameters: [pathParameter]
 		}
 	]
 };
@@ -204,6 +225,26 @@ describe('what a build evaluates', () => {
 	test('a node whose type is not installed is never built', () => {
 		const contents = { nodes: [node('mystery1', 'Speckle')], edges: [] };
 		expect(outputNodeIds(contents, registry)).toEqual([]);
+	});
+});
+
+describe('where the project settings come from', () => {
+	test('a node that reads a file and has nothing feeding it', () => {
+		const nodes = [node('dem1', 'ImportDEM'), node('blur1', 'Blur')];
+		expect(fileSourceNodeIds(nodes, registry)).toEqual(['dem1']);
+	});
+
+	test('an exporter carries a path too, and is never mistaken for a source', () => {
+		const nodes = [node('export1', 'Export')];
+		expect(fileSourceNodeIds(nodes, registry)).toEqual([]);
+	});
+
+	test('a node with no path at all is not a source', () => {
+		expect(fileSourceNodeIds([node('constant1', 'Constant')], registry)).toEqual([]);
+	});
+
+	test('nothing is a source until the engine has reported its nodes', () => {
+		expect(fileSourceNodeIds([node('dem1', 'ImportDEM')], null)).toEqual([]);
 	});
 });
 

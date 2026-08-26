@@ -7,8 +7,15 @@
 	import { nodeStatusStore } from '$lib/graph/node-status.svelte';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { previewRunner } from '$lib/preview/preview-runner.svelte';
+	import { sourceModel } from '$lib/graph/source-model.svelte';
 
 	engineClient.connect();
+
+	// Choosing a different elevation model sets the world size and the survey
+	// coordinates from its header, before anything is evaluated against them.
+	$effect(() => {
+		sourceModel.follow(graphStore.nodes, engineClient.registry);
+	});
 
 	// Any edit to the graph, its settings, or the selected preview node asks for
 	// a fresh evaluation; the runner debounces and cancels what it replaces.

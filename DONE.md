@@ -15,6 +15,11 @@ The tool is finished: what you preview, you can now produce.
   with half a set of files, and says what it was.
 - Previews hold still while a build runs, and pick up again by themselves
   afterwards. Nothing has to be clicked twice.
+- Opening an elevation model now sets the project up around it: the ground it
+  covers and the survey coordinates it was cut from. Those travel through the
+  graph untouched and into every exported file, so a refined terrain and its
+  forest land exactly where the original stood. Until now they did not, and an
+  export came out in plain metres from zero.
 - If the engine falls over, the app does not. It says so, starts a new one,
   and the graph, the palette and the plugins come back on their own. If it
   cannot start at all after a few tries it says that instead of flickering

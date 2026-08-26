@@ -474,6 +474,14 @@ out    = ExportPoints(forest, format: json)
   new one and asks the engine to describe itself again, which is how the
   registry and the plugin list come back. A window that never asked for a port
   is left alone.
+- **Opening an elevation model sets the world size and the georeference**, and
+  only then, because rereading the header on every evaluation would keep
+  overwriting a world size the user had changed. A loaded project brings its
+  own settings and does not count as newly opened.
+- **The source node is recognised from its descriptor, not its name**: no
+  inputs, and a `path` parameter. An exporter carries a path too, which is why
+  having nothing feeding it is half the rule and not an afterthought. A
+  plugin's own reader counts as a source with no change here.
 - **In-flight requests fail rather than hang** when the engine goes: the
   request ledger rejects everything outstanding, and both the preview runner
   and the build runner treat a rejection as "nothing to draw" rather than
