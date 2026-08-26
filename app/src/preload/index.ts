@@ -32,6 +32,16 @@ const fileBridge = {
 	}
 };
 
+const projectBridge = {
+	/// Null stops watching, which is what an unsaved project wants.
+	watch(path: string | null): void {
+		ipcRenderer.send('project:watch', path);
+	},
+	onChanged(handler: (path: string, text: string) => void): void {
+		ipcRenderer.on('project:changed', (_event, path: string, text: string) => handler(path, text));
+	}
+};
+
 const sessionBridge = {
 	read(): Promise<StoredSession | null> {
 		return ipcRenderer.invoke('session:read');
@@ -45,8 +55,10 @@ const sessionBridge = {
 
 export type EngineBridge = typeof engineBridge;
 export type FileBridge = typeof fileBridge;
+export type ProjectBridge = typeof projectBridge;
 export type SessionBridge = typeof sessionBridge;
 
 contextBridge.exposeInMainWorld('engineBridge', engineBridge);
 contextBridge.exposeInMainWorld('fileBridge', fileBridge);
+contextBridge.exposeInMainWorld('projectBridge', projectBridge);
 contextBridge.exposeInMainWorld('sessionBridge', sessionBridge);

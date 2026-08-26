@@ -9,10 +9,13 @@
 	import { previewRunner } from '$lib/preview/preview-runner.svelte';
 	import { sourceModel } from '$lib/graph/source-model.svelte';
 	import { saveProject } from '$lib/project-file';
+	import { projectWatcher } from '$lib/project-watch.svelte';
 	import { sessionStore } from '$lib/session';
+	import ProjectConflictBar from '$lib/ProjectConflictBar.svelte';
 	import ResizeHandle from '$lib/controls/ResizeHandle.svelte';
 
 	engineClient.connect();
+	projectWatcher.connect();
 	sessionStore.restore();
 
 	// The debounce is generous, so the window closing is where the last edit of
@@ -64,6 +67,12 @@
 		}
 	});
 
+	// The project file is followed wherever it moves, so a graph rewritten from
+	// outside reaches the editor rather than being overwritten by the next save.
+	$effect(() => {
+		projectWatcher.follow(graphStore.filePath);
+	});
+
 	// Everything that would be missed if the window went now.
 	$effect(() => {
 		graphStore.settings;
@@ -80,6 +89,7 @@
 
 <div class="flex h-full flex-col bg-canvas text-default">
 	<TopBar />
+	<ProjectConflictBar />
 	<div class="flex min-h-0 flex-1">
 		<div class="flex min-w-0 flex-1 flex-col" bind:clientHeight={workspaceHeight}>
 			<PreviewArea />

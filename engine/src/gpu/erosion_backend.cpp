@@ -18,6 +18,12 @@ bool runThermalOnVulkan(const ThermalJob& job, const EvaluationHooks& hooks);
 bool runHydraulicOnVulkan(const HydraulicJob& job, const EvaluationHooks& hooks);
 #endif
 
+#if defined(TERRAIN_WITH_CUDA)
+bool cudaDeviceIsPresent();
+bool runThermalOnCuda(const ThermalJob& job, const EvaluationHooks& hooks);
+bool runHydraulicOnCuda(const HydraulicJob& job, const EvaluationHooks& hooks);
+#endif
+
 namespace {
 
 std::string backendExplanation;
@@ -53,6 +59,39 @@ bool isVulkanUsable() {
 #endif
 }
 
+ErosionBackend vulkanOrCpu() {
+    if (isVulkanUsable()) {
+        return ErosionBackend::Vulkan;
+    }
+    return ErosionBackend::Cpu;
+}
+
+bool isCudaUsable() {
+#if defined(TERRAIN_WITH_CUDA)
+    if (cudaDeviceIsPresent()) {
+        return true;
+    }
+    backendExplanation = "CUDA declined: no device is present";
+    return false;
+#else
+    backendExplanation = "CUDA declined: the engine was built without it";
+    return false;
+#endif
+}
+
+bool isBackendUsable(ErosionBackend backend) {
+    if (backend == ErosionBackend::Cpu) {
+        return true;
+    }
+    if (!FlushDenormalsToZero::isSupported()) {
+        return false;
+    }
+    if (backend == ErosionBackend::Cuda) {
+        return isCudaUsable();
+    }
+    return isVulkanUsable();
+}
+
 ErosionBackend chooseBackend() {
     bool wasRequested = false;
     const ErosionBackend requested = requestedBackend(wasRequested);
@@ -65,14 +104,19 @@ ErosionBackend chooseBackend() {
             "device that flushes denormals would then disagree with the CPU";
         return ErosionBackend::Cpu;
     }
+    if (wasRequested && requested == ErosionBackend::Vulkan) {
+        return vulkanOrCpu();
+    }
+
+    // CUDA first where it exists: on the hardware that has it, it is the
+    // faster of the two, and both are held to the same bit-for-bit result.
+    if (isCudaUsable()) {
+        return ErosionBackend::Cuda;
+    }
     if (wasRequested && requested == ErosionBackend::Cuda) {
-        backendExplanation = "CUDA was asked for but is not built into this engine";
         return ErosionBackend::Cpu;
     }
-    if (isVulkanUsable()) {
-        return ErosionBackend::Vulkan;
-    }
-    return ErosionBackend::Cpu;
+    return vulkanOrCpu();
 }
 
 }  // namespace
@@ -101,12 +145,11 @@ ErosionBackend selectedErosionBackend() {
 }
 
 bool forceErosionBackend(ErosionBackend backend) {
-    if (backend == ErosionBackend::Cpu) {
-        selectedErosionBackend();
-        activeBackend.store(ErosionBackend::Cpu);
-        return true;
-    }
-    if (selectedErosionBackend() != backend && chooseBackend() != backend) {
+    // Whether this backend can run, not whether it is the one that would have
+    // been picked: on a machine with both, asking for Vulkan must not be
+    // refused merely because CUDA is preferred.
+    selectedErosionBackend();
+    if (!isBackendUsable(backend)) {
         return false;
     }
     activeBackend.store(backend);
@@ -125,6 +168,11 @@ bool runThermalOnDevice(ErosionBackend backend, const ThermalJob& job,
         return runThermalOnVulkan(job, hooks);
     }
 #endif
+#if defined(TERRAIN_WITH_CUDA)
+    if (backend == ErosionBackend::Cuda) {
+        return runThermalOnCuda(job, hooks);
+    }
+#endif
     return false;
 }
 
@@ -133,6 +181,11 @@ bool runHydraulicOnDevice(ErosionBackend backend, const HydraulicJob& job,
 #if defined(TERRAIN_WITH_VULKAN)
     if (backend == ErosionBackend::Vulkan) {
         return runHydraulicOnVulkan(job, hooks);
+    }
+#endif
+#if defined(TERRAIN_WITH_CUDA)
+    if (backend == ErosionBackend::Cuda) {
+        return runHydraulicOnCuda(job, hooks);
     }
 #endif
     return false;

@@ -74,6 +74,7 @@ int main(int argumentCount, char** arguments) {
         resolution = std::atoi(arguments[1]);
     }
     const terrain::Graph graph = erosionGraph(resolution, 2.0);
+    const terrain::Graph warmup = erosionGraph(64, 0.25);
     std::printf("hydraulic erosion at %d x %d, 2 droplets per cell\n\n", resolution, resolution);
 
     std::vector<std::uint32_t> reference;
@@ -83,6 +84,9 @@ int main(int argumentCount, char** arguments) {
             std::printf("  %-7s unavailable\n", terrain::gpu::nameOf(backend));
             continue;
         }
+        // A first run on a device pays for creating its context, which is not
+        // what is being measured.
+        runOnce(warmup);
         const Timing timing = runOnce(graph);
         std::printf("  %-7s %7.2f s", terrain::gpu::nameOf(backend), timing.seconds);
         if (reference.empty()) {

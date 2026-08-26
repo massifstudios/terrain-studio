@@ -19,6 +19,11 @@ find_package(ZLIB REQUIRED)
 cmake_dependent_option(TERRAIN_ENGINE_ENABLE_VULKAN
     "Build the Vulkan compute backend for erosion" ON "TERRAIN_GLSLC" OFF)
 
+include(CheckLanguage)
+check_language(CUDA)
+cmake_dependent_option(TERRAIN_ENGINE_ENABLE_CUDA
+    "Build the CUDA compute backend for erosion" ON "CMAKE_CUDA_COMPILER" OFF)
+
 if(TERRAIN_ENGINE_ENABLE_VULKAN)
     FetchContent_Declare(
         VulkanHeaders
@@ -77,6 +82,29 @@ target_include_directories(terrain_engine PUBLIC
 target_include_directories(terrain_engine PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src/gpu)
 
 target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB ${CMAKE_DL_LIBS})
+
+if(TERRAIN_ENGINE_ENABLE_CUDA)
+    enable_language(CUDA)
+    set_property(TARGET terrain_engine PROPERTY CUDA_STANDARD 20)
+    # The CUDA runtime is linked statically so the engine still loads on a
+    # machine with no CUDA installed; the backend then finds no device and the
+    # CPU path runs.
+    set_property(TARGET terrain_engine PROPERTY CUDA_RUNTIME_LIBRARY Static)
+    set_property(TARGET terrain_engine PROPERTY CUDA_ARCHITECTURES native)
+    target_sources(terrain_engine PRIVATE src/gpu/cuda_erosion.cu)
+    target_compile_definitions(terrain_engine PRIVATE TERRAIN_WITH_CUDA=1)
+
+    # These four are the determinism contract expressed as compiler flags, not
+    # a tuning choice. Fusing a multiply-add, approximating a divide or a root,
+    # or keeping denormals the host has been told to flush would each give a
+    # different terrain from the same graph.
+    target_compile_options(terrain_engine PRIVATE
+        $<$<COMPILE_LANGUAGE:CUDA>:-fmad=false>
+        $<$<COMPILE_LANGUAGE:CUDA>:--prec-div=true>
+        $<$<COMPILE_LANGUAGE:CUDA>:--prec-sqrt=true>
+        $<$<COMPILE_LANGUAGE:CUDA>:-ftz=true>
+    )
+endif()
 
 if(TERRAIN_ENGINE_ENABLE_VULKAN)
     target_sources(terrain_engine PRIVATE

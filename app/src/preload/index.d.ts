@@ -13,6 +13,10 @@ declare global {
 			readText(path: string): Promise<string>;
 			writeText(path: string, text: string): Promise<void>;
 		};
+		projectBridge: {
+			watch(path: string | null): void;
+			onChanged(handler: (path: string, text: string) => void): void;
+		};
 		sessionBridge: {
 			read(): Promise<StoredSession | null>;
 			write(graph: string, pointer: string): void;

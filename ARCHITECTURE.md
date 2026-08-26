@@ -11,6 +11,7 @@ engine/           C++20 core: src/, include/, tests/, own CMake build
 engine/sdk/       public plugin C header, the registration boundary
 bridge/           N-API addon wrapping engine/, built with cmake-js
 app/              Electron + Svelte 5: main/, preload/, engine/, renderer/
+cli/              `massif`: the engine from a terminal, no Electron
 plugins/example/  example plugin: ABI regression test and author template (T9)
 Taskfile.yml      dev, build, test, package
 ```
@@ -487,7 +488,69 @@ out    = ExportPoints(forest, format: json)
   and the build runner treat a rejection as "nothing to draw" rather than
   letting it escape as an unhandled rejection.
 
-## 14. Code style
+## 14. The command line
+
+`cli/` is `massif`: the same engine, the same graph file and the same DSL, with
+no window. It exists so that a build can run in CI, and so that a program — an
+agent, a script, a render farm — can author a graph without anything having to
+speak a protocol. `.claude/skills/massif/` is the author-facing page.
+
+- **It is a command, not a server.** No socket, no port, no long-lived process
+  and nothing for the app to connect to. The `.massifgraph` file is the entire
+  interface between the two, which is what a sorted, human-diffable JSON file
+  was already for. A second protocol would mean a second source of truth for
+  the graph and two writers racing for it.
+- **It runs on the addon, not on a second engine.** `cli/src/engine.ts` loads
+  the very binary the utilityProcess loads, so there is no build of the engine
+  that only the command line exercises.
+- **The DSL and the serializer are the app's, imported as they stand.** Nothing
+  in `cli/` parses or prints a graph itself, so text written by the command and
+  text written by the code view cannot drift. `app/src/shared/` is therefore
+  shared with the command as well as between Electron's processes, and holds
+  only framework-free logic. The node body metrics live there for the same
+  reason: `apply` lays out new nodes exactly as the code view does.
+- **The addon's surface is declared once**, in `app/src/shared/engine-addon.ts`,
+  so the host and the command cannot describe different functions.
+- **Nothing in `cli/` names a node type.** `nodes` and `describe` read the
+  registry, exactly as the palette does, so a plugin's node is authorable from
+  text with no change here.
+- **Only `build` writes files**, because only `build` sets `isFinalBuild`. The
+  command cannot talk a node into exporting during a preview any more than the
+  UI can.
+
+### The app follows the file
+
+- **The open project file is watched, and the editor asks rather than guesses.**
+  With nothing unsaved the new contents are simply taken. With unsaved edits
+  there are two defensible answers — reload, or overwrite with what is in the
+  editor — and neither is safe to pick on the user's behalf, so the graph is
+  left untouched until they say.
+- The **containing directory** is watched, not the file, because a writer that
+  replaces the file rather than truncating it would take a file watch down with
+  it and the editor would then hear nothing ever again.
+- The renderer keeps the text it last read or wrote, so its own save does not
+  come back looking like somebody else's edit.
+- Following a file **reports once immediately**, which is what catches a graph
+  that changed while the app was closed.
+
+## 15. The session
+
+- **The graph outlives the window.** Every edit is written to the program's own
+  configuration directory — `$XDG_CONFIG_HOME/terrain-studio` on Linux, the
+  platform's equivalent elsewhere — as a plain `.massifgraph` beside a small
+  pointer file naming the project file it came from and whether it was saved.
+  The next launch picks the session up where it was left, unsaved edits and all.
+- **The pointer is a separate file**, because a path on this machine is not part
+  of a project and must not travel with one. The remembered graph is a real
+  `.massifgraph` and opens like any other.
+- **The write is synchronous.** It also runs as the window is closing, where an
+  unsettled promise would take the last edit with it.
+- **The main process owns the location**, for the same reason it owns the plugin
+  directories: only it knows where a platform keeps a program's configuration.
+- **This is not saving.** A project file is somewhere the user chose and only
+  `Save` — the button, or Ctrl+S — writes there.
+
+## 16. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

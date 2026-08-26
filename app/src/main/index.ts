@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { connectRenderer, startEngine, stopEngine, trackStatus } from './engine-connection';
+import { watchProject } from './project-watch';
 import { readSession, writeSession } from './session-store';
 
 function createWindow(): BrowserWindow {
@@ -80,6 +81,8 @@ ipcMain.handle('file:read-text', (_event, path: string) => readFile(path, 'utf8'
 ipcMain.handle('file:write-text', (_event, path: string, text: string) =>
 	writeFile(path, text, 'utf8')
 );
+
+ipcMain.on('project:watch', (event, path: string | null) => watchProject(event.sender, path));
 
 ipcMain.handle('session:read', () => readSession());
 
