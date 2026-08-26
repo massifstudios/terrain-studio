@@ -53,6 +53,15 @@
 	const accelerationLimit = $derived(scrubAccelerationLimit(span, quantum));
 	const fillPercent = $derived(Math.min(Math.max(((value - minimum) / span) * 100, 0), 100));
 
+	/// The unit sits inside the field, on top of it, so the number has to stop
+	/// short of it. Both are monospaced, which is what makes `ch` reliable here.
+	const numberPaddingRight = $derived.by(() => {
+		if (!unit) {
+			return '0.5rem';
+		}
+		return `calc(1rem + ${unit.length}ch)`;
+	});
+
 	function clampToRange(candidate: number): number {
 		if (Number.isNaN(candidate)) {
 			return value;
@@ -154,12 +163,7 @@
 <svelte:document onpointermove={updateScrub} onpointerup={endScrub} />
 
 <div class="flex flex-col gap-1">
-	<span class="flex items-baseline justify-between text-2xs text-muted">
-		<span>{label}</span>
-		{#if unit}
-			<span class="text-faint">{unit}</span>
-		{/if}
-	</span>
+	<span class="text-2xs text-muted">{label}</span>
 	<span class="flex items-center gap-2">
 		<div
 			bind:this={track}
@@ -174,20 +178,46 @@
 			onpointerdown={beginScrub}
 			onkeydown={handleKey}
 		>
-			<div class="h-1 w-full overflow-hidden rounded-full bg-input">
-				<div class="h-full rounded-full bg-action" style="width: {fillPercent}%"></div>
+			<div class="relative h-1 w-full rounded-full bg-input">
+				<div
+					class="absolute inset-y-0 left-0 rounded-full bg-action"
+					style="width: {fillPercent}%"
+				></div>
+				<span
+					class="absolute top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-line-strong bg-raised shadow-sm"
+					style="left: {fillPercent}%"
+				></span>
 			</div>
 		</div>
-		<input
-			class="w-20 rounded-sm border border-line bg-input px-2 py-1 text-right font-mono text-2xs text-default outline-none focus:border-line-strong"
-			type="number"
-			min={minimum}
-			max={maximum}
-			step={quantum}
-			{value}
-			{disabled}
-			aria-label={label}
-			onchange={handleType}
-		/>
+		<span class="relative shrink-0">
+			<input
+				class="w-24 rounded-sm border border-line bg-input py-1 pl-2 text-right font-mono text-2xs text-default outline-none focus:border-line-strong"
+				style="padding-right: {numberPaddingRight}"
+				type="number"
+				min={minimum}
+				max={maximum}
+				step={quantum}
+				{value}
+				{disabled}
+				aria-label={label}
+				onchange={handleType}
+			/>
+			{#if unit}
+				<span
+					class="pointer-events-none absolute inset-y-0 right-2 flex items-center font-mono text-2xs text-faint"
+				>
+					{unit}
+				</span>
+			{/if}
+		</span>
 	</span>
 </div>
+
+<style>
+	/* The value is scrubbed or typed; the spin buttons only crowd the unit. */
+	input::-webkit-inner-spin-button,
+	input::-webkit-outer-spin-button {
+		appearance: none;
+		margin: 0;
+	}
+</style>
