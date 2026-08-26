@@ -17,6 +17,9 @@ add_executable(terrain_engine_tests
     test_registry.cpp
     test_graph.cpp
     test_evaluator.cpp
+    test_curve.cpp
+    test_noise.cpp
+    test_nodes.cpp
 )
 
 target_link_libraries(terrain_engine_tests PRIVATE

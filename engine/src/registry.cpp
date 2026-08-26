@@ -79,6 +79,7 @@ const char* parameterTypeName(ParameterType type) {
         case ParameterType::ColorRamp: return "colorRamp";
         case ParameterType::Path: return "path";
         case ParameterType::Text: return "text";
+        case ParameterType::Curve: return "curve";
         case ParameterType::Float: break;
     }
     return "float";

@@ -13,6 +13,8 @@ add_library(terrain_engine STATIC
     src/version.cpp
     src/heightfield.cpp
     src/hash.cpp
+    src/curve.cpp
+    src/noise.cpp
     src/json_writer.cpp
     src/resample.cpp
     src/thumbnail.cpp
@@ -29,7 +31,9 @@ add_library(terrain_engine STATIC
     src/nodes/node_support.cpp
     src/nodes/builtin_nodes.cpp
     src/nodes/input_nodes.cpp
+    src/nodes/generate_nodes.cpp
     src/nodes/filter_nodes.cpp
+    src/nodes/mask_nodes.cpp
     src/nodes/combine_nodes.cpp
     src/nodes/output_nodes.cpp
 )

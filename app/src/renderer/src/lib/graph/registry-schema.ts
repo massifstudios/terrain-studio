@@ -21,11 +21,20 @@ export function findNodeSchema(
 	return found;
 }
 
+/// Which half of a parameter carries its value comes from the descriptor, the
+/// same split the engine makes between `number` and `text`.
+const textualTypes: ReadonlySet<ParameterSchema['type']> = new Set([
+	'path',
+	'text',
+	'colorRamp',
+	'curve'
+]);
+
 export function defaultParameterValue(parameter: ParameterSchema): ParameterValue {
 	if (parameter.type === 'bool') {
 		return parameter.defaultValue !== 0;
 	}
-	if (parameter.type === 'path' || parameter.type === 'text' || parameter.type === 'colorRamp') {
+	if (textualTypes.has(parameter.type)) {
 		return parameter.defaultText;
 	}
 	return parameter.defaultValue;

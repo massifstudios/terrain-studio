@@ -25,6 +25,9 @@ struct ContextState {
     std::vector<std::string> parameterTexts;
 
     bool isFinalBuild = false;
+    /// How many threads this node may spend on its own lanes. Affects speed
+    /// only: lane boundaries come from the node, never from this number.
+    int threadBudget = 1;
     CancellationToken* cancellation = nullptr;
     std::function<void(float)> onProgress;
 

@@ -176,6 +176,14 @@ Per-node timings use a steady clock and are reported to the UI only. No
 engine decision may read them; nothing about evaluation depends on how long
 anything took.
 
+A node that wants its own parallelism calls `runLanes` on the context API
+with a **lane count it chooses itself**. The lane count is a property of the
+node and the resolution, never of the machine: lane 3 of 64 always covers the
+same rows. The engine decides only how many threads to spend on those lanes,
+and gives a node the thread budget left over once the wave has been spread
+across the pool. This is why the thread count cannot reach a result — it
+never divides the work, it only consumes an already-fixed division.
+
 ### Side effects
 
 `Export` and every other writer must check `isFinalBuild` before touching the
@@ -234,14 +242,43 @@ disk. Preview evaluation runs constantly while a parameter is being dragged.
   editor does not reorder the file. The engine never parses it: the bridge
   builds a `terrain::Graph` from the live object instead.
 
-## 8. Pending decisions
+## 8. The node library
+
+- **Generators sample in world meters**, from the graph's north-west corner —
+  never from the georeference. Anchoring to the georeference would slide a
+  whole landscape the moment an import window moved, which is not what a seed
+  is for. Sampling in meters is also what makes a generator resolution
+  independent: a higher resolution adds detail rather than a new landscape.
+- **A generator's `seed` parameter is a variation dial**, mixed on top of the
+  per-node seed the graph already derived. It varies one node and nothing
+  else.
+- **Filters normalise against the field's own range** where the control is
+  artistic rather than physical — `Terrace` steps and `Curve` remaps both work
+  on [0, 1] and are mapped back afterwards. Physical controls (`Clamp`,
+  `HeightMask`, blur radius) stay in meters. The dividing line: if a number
+  means a place on the ground, it is in meters.
+- **`CurvatureMask` scales against the field's own strongest bend.** Curvature
+  is in 1/m and its useful magnitude changes completely between a floodplain
+  and an arête, so a fixed threshold would be a number nobody could guess.
+- **The transfer curve is text**, `"x,y;x,y;..."`, and monotone cubic
+  (Fritsch-Carlson) at both ends. Monotone rather than natural spline because
+  an overshoot would invent altitude nobody placed. The interpolation is
+  duplicated in `engine/src/curve.cpp` and
+  `app/src/shared/transfer-curve.ts` — the engine applies it, the editor draws
+  it, and the comment in each names the other.
+- The SDK header grows during v1 by appending only: new enum values, new
+  fields at the end of a struct. `TerrainParameterType_Curve` and `runLanes`
+  arrived that way. It freezes at ABI version 1 in T9, and from then on a
+  change means a new version.
+
+## 9. Pending decisions
 
 Recorded here when they land, not before:
 
 - DSL grammar (T8).
 - Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 9. Code style
+## 10. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

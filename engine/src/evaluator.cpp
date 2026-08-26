@@ -47,15 +47,26 @@ void hashSettings(Hasher& hasher, const GraphSettings& settings) {
     hasher.combine(settings.georeference.northingMaxMeters);
 }
 
+/// 0 means "as many as the machine has". Nothing about the result may depend
+/// on this number; it only decides how fast the same work happens.
+int resolvedThreadCount(int requested) {
+    if (requested > 0) {
+        return requested;
+    }
+    const int detected = static_cast<int>(std::thread::hardware_concurrency());
+    return std::max(detected, 1);
+}
+
 int workerCount(int requested, std::size_t taskCount) {
-    int available = requested;
-    if (available <= 0) {
-        available = static_cast<int>(std::thread::hardware_concurrency());
-    }
-    if (available <= 0) {
-        available = 1;
-    }
-    return std::min<int>(available, static_cast<int>(std::max<std::size_t>(taskCount, 1)));
+    return std::min<int>(resolvedThreadCount(requested),
+                         static_cast<int>(std::max<std::size_t>(taskCount, 1)));
+}
+
+/// Threads left for one node's own lanes once the wave has been spread across
+/// the pool, so a wave of eight nodes does not each spawn eight more threads.
+int laneThreadBudget(int requested, std::size_t waveSize) {
+    const int total = resolvedThreadCount(requested);
+    return std::max<int>(total / static_cast<int>(std::max<std::size_t>(waveSize, 1)), 1);
 }
 
 /// Runs a batch of independent tasks and waits for all of them. Every task
@@ -215,6 +226,7 @@ EvaluationOutcome Evaluator::evaluate(const Graph& graph, std::string_view nodeI
                 state.nodeSeed = deriveNodeSeed(graph.settings.seed, plan->node->id);
                 state.outputs = &result->outputs;
                 state.isFinalBuild = options.isFinalBuild;
+                state.threadBudget = laneThreadBudget(options.threadCount, wave.size());
                 state.cancellation = options.cancellation;
 
                 for (std::size_t port = 0; port < plan->type->inputs.size(); ++port) {

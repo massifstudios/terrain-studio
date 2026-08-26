@@ -1,5 +1,7 @@
 #include <algorithm>
+#include <cmath>
 #include <exception>
+#include <numbers>
 
 #include "node_support.h"
 #include "terrain/formats/elevation_import.h"
@@ -89,11 +91,89 @@ const TerrainNodeDescriptor constantDescriptor = {"Constant",
                                                   1,
                                                   &evaluateConstant};
 
+const TerrainPortDescriptor gradientOutputs[] = {
+    {"Out", "A field that rises evenly across the world", TerrainPortType_Field,
+     TerrainFieldSemantics_Heightfield, 0}};
+
+const TerrainParameterDescriptor gradientParameters[] = {
+    {"direction", "Direction", "Compass bearing the field rises towards; 0 is north", "deg",
+     TerrainParameterType_Float, 0.0, 0.0, 360.0, "", nullptr, 0},
+    {"startValue", "Start", "The value at the low end", "m", TerrainParameterType_Float, 0.0,
+     -12000.0, 12000.0, "", nullptr, 0},
+    {"endValue", "End", "The value at the high end", "m", TerrainParameterType_Float, 1000.0,
+     -12000.0, 12000.0, "", nullptr, 0}};
+
+/// Distance along the ramp direction, measured from the corner where the ramp
+/// is lowest, as [0, 1] across the world square.
+struct RampAxis {
+    double eastward = 0.0;
+    double northward = 1.0;
+    double lowest = 0.0;
+    double span = 1.0;
+
+    double positionAt(double eastMeters, double northMeters) const {
+        return (eastMeters * eastward + northMeters * northward - lowest) / span;
+    }
+};
+
+RampAxis rampAxisFor(double directionDegrees, double worldSizeMeters) {
+    const double radians = directionDegrees * std::numbers::pi / 180.0;
+    RampAxis axis;
+    axis.eastward = std::sin(radians);
+    axis.northward = std::cos(radians);
+
+    double lowest = 0.0;
+    double highest = 0.0;
+    for (const double east : {0.0, worldSizeMeters}) {
+        for (const double north : {0.0, worldSizeMeters}) {
+            const double projection = east * axis.eastward + north * axis.northward;
+            lowest = std::min(lowest, projection);
+            highest = std::max(highest, projection);
+        }
+    }
+    axis.lowest = lowest;
+    axis.span = std::max(highest - lowest, 1.0e-9);
+    return axis;
+}
+
+void evaluateGradient(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const int size = api->width(context);
+    const double cellSize = api->cellSizeMeters(context);
+    const RampAxis axis = rampAxisFor(api->parameterNumber(context, 0), size * cellSize);
+    const double startValue = api->parameterNumber(context, 1);
+    const double endValue = api->parameterNumber(context, 2);
+    float* output = api->outputField(context, 0);
+
+    for (int row = 0; row < size; ++row) {
+        // Row 0 is north, so northing counts down from the top edge.
+        const double northMeters = (size - row - 0.5) * cellSize;
+        float* line = output + static_cast<std::size_t>(row) * size;
+        for (int column = 0; column < size; ++column) {
+            const double unit = axis.positionAt((column + 0.5) * cellSize, northMeters);
+            line[column] = static_cast<float>(startValue + (endValue - startValue) * unit);
+        }
+    }
+}
+
+const TerrainNodeDescriptor gradientDescriptor = {
+    "Gradient",
+    "Input",
+    "A straight ramp across the world, for tilting or masking by direction",
+    1,
+    nullptr,
+    0,
+    gradientOutputs,
+    1,
+    gradientParameters,
+    3,
+    &evaluateGradient};
+
 }  // namespace
 
 void registerInputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
     api.registerNode(registry, &importDemDescriptor);
     api.registerNode(registry, &constantDescriptor);
+    api.registerNode(registry, &gradientDescriptor);
 }
 
 }  // namespace terrain::nodes

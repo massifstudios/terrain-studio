@@ -1,5 +1,9 @@
 #include "evaluation_context.h"
 
+#include <algorithm>
+#include <atomic>
+#include <thread>
+
 namespace terrain {
 namespace {
 
@@ -111,6 +115,32 @@ int32_t contextIsFinalBuild(TerrainEvaluationContext* context) {
     return 0;
 }
 
+void contextRunLanes(TerrainEvaluationContext* context, int32_t laneCount, TerrainLaneTask task,
+                     void* userData) {
+    if (task == nullptr || laneCount <= 0) {
+        return;
+    }
+    const int workers = std::min(stateOf(context).threadBudget, laneCount);
+    if (workers <= 1) {
+        for (int32_t lane = 0; lane < laneCount; ++lane) {
+            task(userData, lane, laneCount);
+        }
+        return;
+    }
+
+    std::atomic<int32_t> nextLane{0};
+    std::vector<std::jthread> threads;
+    threads.reserve(static_cast<std::size_t>(workers));
+    for (int worker = 0; worker < workers; ++worker) {
+        threads.emplace_back([&nextLane, laneCount, task, userData] {
+            for (int32_t lane = nextLane.fetch_add(1); lane < laneCount;
+                 lane = nextLane.fetch_add(1)) {
+                task(userData, lane, laneCount);
+            }
+        });
+    }
+}
+
 void contextSetError(TerrainEvaluationContext* context, const char* message) {
     ContextState& state = stateOf(context);
     state.hasError = true;
@@ -134,7 +164,8 @@ const TerrainContextApi api = {contextWidth,
                                contextReportProgress,
                                contextIsCancelled,
                                contextIsFinalBuild,
-                               contextSetError};
+                               contextSetError,
+                               contextRunLanes};
 
 }  // namespace
 

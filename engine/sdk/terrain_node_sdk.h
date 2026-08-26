@@ -6,8 +6,11 @@
  * structures the engine's own built-in nodes use, so this ABI cannot rot:
  * the engine is its own first plugin client.
  *
- * The header is C, deliberately. It is additive only and version-bumped —
- * never a silent signature change.
+ * The header is C, deliberately. Version 1 is still a draft: it grows, but
+ * only by appending — new enum values, new fields at the end of a struct —
+ * so anything already compiled against it keeps working. It freezes when
+ * dynamic plugin loading ships, and from then on a change means a new
+ * version, never a silent signature change.
  *
  * ---------------------------------------------------------------------------
  * THE DETERMINISM CONTRACT BINDS PLUGINS
@@ -64,7 +67,10 @@ typedef enum TerrainParameterType {
     TerrainParameterType_Seed = 4,
     TerrainParameterType_ColorRamp = 5,
     TerrainParameterType_Path = 6,
-    TerrainParameterType_Text = 7
+    TerrainParameterType_Text = 7,
+    /* A transfer curve, read as text: "x,y;x,y;..." with both coordinates in
+       [0, 1] and the points sorted by x. See terrain/curve.h. */
+    TerrainParameterType_Curve = 8
 } TerrainParameterType;
 
 typedef struct TerrainEnumOption {
@@ -98,6 +104,15 @@ typedef struct TerrainParameterDescriptor {
 /* ----------------------------------------------------------- evaluation -- */
 
 typedef struct TerrainEvaluationContext TerrainEvaluationContext;
+
+/*
+ * One slice of a node's own work. `laneCount` is chosen by the node and is the
+ * same on every machine, so a lane always covers exactly the same work; how
+ * many threads the engine spends on those lanes is a speed decision only. A
+ * lane must write only into storage no other lane writes, or accumulate
+ * through integer atomics.
+ */
+typedef void (*TerrainLaneTask)(void* userData, int32_t laneIndex, int32_t laneCount);
 
 /*
  * Everything a node may reach. No other engine internals are visible.
@@ -135,6 +150,12 @@ typedef struct TerrainContextApi {
 
     /* Aborts the evaluation with a message the UI shows on the node. */
     void (*setError)(TerrainEvaluationContext* context, const char* message);
+
+    /* Runs `laneCount` lanes of the node's own work and returns once all of
+       them have finished. The engine picks the thread count; the node picks
+       the lane count, which is what the result may depend on. */
+    void (*runLanes)(TerrainEvaluationContext* context, int32_t laneCount, TerrainLaneTask task,
+                     void* userData);
 } TerrainContextApi;
 
 typedef void (*TerrainNodeEvaluate)(const TerrainContextApi* api,

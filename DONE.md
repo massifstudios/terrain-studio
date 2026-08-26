@@ -1,5 +1,46 @@
 # Done
 
+## T5 — Generators, filters and masks
+
+There is now something to build terrain *out of*, not just something to build
+terrain *with*.
+
+**What works**
+
+- Three ways to make terrain from nothing: `Perlin` for rolling ground,
+  `RidgedNoise` for sharp crests and rounded valleys, `Voronoi` for mesas,
+  cracked plates or the seams between them. A `Gradient` gives a straight
+  ramp across the world for tilting or masking by direction.
+- Reshaping: `Terrace` cuts a field into level steps, `Curve` remaps it
+  through a curve you draw by hand, `Clamp` holds it between a floor and a
+  ceiling, and `Warp` pulls it sideways by the shape of another field to
+  break up anything that looks too regular.
+- Four ways to select part of a terrain: by steepness (`SlopeMask`), by
+  altitude (`HeightMask`), by whether the ground is a hollow or a rise
+  (`CurvatureMask`), and by which way a slope faces (`AspectMask`).
+- All six ways of combining two fields: `Add`, `Subtract`, `Multiply`, `Min`,
+  `Max`, and `Lerp` for blending between two of them.
+- Every filter takes a mask, so an effect can be applied to only part of a
+  terrain — steep ground only, or above the treeline only.
+- A curve editor in the property panel: drag a point to move it, click empty
+  space to add one, right-click to remove it.
+
+**Where things are**
+
+- `engine/src/nodes/` — one file per category; adding a node still touches
+  nothing outside the engine.
+- `app/src/renderer/src/lib/controls/CurveEditor.svelte` — the curve control.
+
+**Useful to know**
+
+- Generators are measured in meters, not pixels, so the same settings give the
+  same landscape whether you are previewing at 512 or building at 8192 — the
+  higher resolution simply adds finer detail.
+- A generator's own seed varies just that node. Rolling it leaves the rest of
+  the graph exactly as it was.
+- Masks show as a colour ramp draped over the terrain rather than as a picture
+  of their own.
+
 ## T4 — Building graphs
 
 The tool is now usable: you can build a terrain graph by hand.

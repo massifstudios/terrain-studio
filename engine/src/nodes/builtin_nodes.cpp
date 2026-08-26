@@ -10,7 +10,9 @@ void registerBuiltinNodes(NodeRegistry& registry) {
     TerrainRegistry* handle = registry.handle();
 
     nodes::registerInputNodes(api, handle);
+    nodes::registerGenerateNodes(api, handle);
     nodes::registerFilterNodes(api, handle);
+    nodes::registerMaskNodes(api, handle);
     nodes::registerCombineNodes(api, handle);
     nodes::registerOutputNodes(api, handle);
 }
