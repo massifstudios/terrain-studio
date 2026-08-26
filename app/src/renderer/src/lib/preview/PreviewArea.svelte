@@ -2,13 +2,36 @@
 	import { Button, Card } from '@neoworks-dev/ui';
 	import Columns from 'phosphor-svelte/lib/Columns';
 	import Sun from 'phosphor-svelte/lib/Sun';
+	import ResizeHandle from '$lib/controls/ResizeHandle.svelte';
 	import ValueSlider from '$lib/controls/ValueSlider.svelte';
 	import CursorReadout from './CursorReadout.svelte';
 	import { previewState } from './preview-state.svelte';
 	import Viewport2D from './Viewport2D.svelte';
 	import Viewport3D from './Viewport3D.svelte';
 
+	const smallestPaneFraction = 0.2;
+
 	let showSunControl = $state(false);
+	let viewportsWidth = $state(0);
+	let perspectiveFraction = $state(0.5);
+
+	/// The two viewports share their row: the perspective one keeps a fraction of
+	/// the width and the top-down one takes what is left.
+	function resizeViewports(deltaPixels: number): void {
+		if (viewportsWidth === 0) {
+			return;
+		}
+		const wanted = perspectiveFraction + deltaPixels / viewportsWidth;
+		const largest = 1 - smallestPaneFraction;
+		perspectiveFraction = Math.min(Math.max(wanted, smallestPaneFraction), largest);
+	}
+
+	const perspectiveStyle = $derived.by(() => {
+		if (!previewState.showTopDownView) {
+			return 'flex: 1 1 0%';
+		}
+		return `flex: 0 0 ${perspectiveFraction * 100}%`;
+	});
 
 	function toggleTopDownView(): void {
 		previewState.showTopDownView = !previewState.showTopDownView;
@@ -57,13 +80,21 @@
 		{/if}
 	</div>
 
-	<div class="flex min-h-0 flex-1">
-		<div class="relative min-w-0 flex-1 border-r border-line">
+	<div class="flex min-h-0 flex-1" bind:clientWidth={viewportsWidth}>
+		<div class="relative min-w-0" style={perspectiveStyle}>
 			<Viewport3D />
 			<CursorReadout />
 		</div>
 
 		{#if previewState.showTopDownView}
+			<ResizeHandle
+				orientation="vertical"
+				label="Resize the top-down view"
+				value={perspectiveFraction * 100}
+				minimum={smallestPaneFraction * 100}
+				maximum={(1 - smallestPaneFraction) * 100}
+				onResize={resizeViewports}
+			/>
 			<div class="relative min-w-0 flex-1">
 				<Viewport2D />
 				<CursorReadout />

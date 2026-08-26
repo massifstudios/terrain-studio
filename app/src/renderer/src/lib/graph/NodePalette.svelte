@@ -15,11 +15,10 @@
 
 	const { screenX, screenY, surfaceWidth, surfaceHeight, onPick, onDismiss }: Props = $props();
 
-	/// The editor surface clips whatever leaves it, and the graph panel is short,
-	/// so the palette is sized to the room it has and slid back inside it rather
-	/// than hanging off the cursor.
+	/// The editor surface clips whatever leaves it, so the palette is sized to the
+	/// room it has and kept inside the edges rather than hanging off the cursor.
 	const paletteWidth = 288;
-	const preferredHeight = 320;
+	const preferredHeight = 460;
 	const edgeGap = 8;
 
 	let query = $state('');
@@ -34,7 +33,18 @@
 
 	const height = $derived(Math.min(preferredHeight, surfaceHeight - edgeGap * 2));
 	const left = $derived(clamp(screenX, edgeGap, surfaceWidth - paletteWidth - edgeGap));
-	const top = $derived(clamp(screenY, edgeGap, surfaceHeight - height - edgeGap));
+
+	/// Below the cursor by preference, above it when the room is up there, and
+	/// against the nearest edge when it is in neither.
+	const top = $derived.by(() => {
+		if (screenY + height + edgeGap <= surfaceHeight) {
+			return screenY;
+		}
+		if (screenY - height >= edgeGap) {
+			return screenY - height;
+		}
+		return clamp(screenY, edgeGap, surfaceHeight - height - edgeGap);
+	});
 
 	const categories = $derived.by(() => {
 		const needle = query.trim().toLowerCase();

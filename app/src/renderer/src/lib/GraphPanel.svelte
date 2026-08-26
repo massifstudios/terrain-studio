@@ -7,6 +7,12 @@
 
 	type PanelView = 'graph' | 'code';
 
+	interface Props {
+		height: number;
+	}
+
+	const { height }: Props = $props();
+
 	let view = $state<PanelView>('graph');
 
 	function selectView(next: PanelView): void {
@@ -21,7 +27,7 @@
 	}
 </script>
 
-<section class="flex h-80 shrink-0 flex-col border-t border-line bg-elevated">
+<section class="flex shrink-0 flex-col bg-elevated" style="height: {height}px">
 	<div class="flex h-9 shrink-0 items-center gap-2 border-b border-line px-3">
 		<Button
 			size="sm"
