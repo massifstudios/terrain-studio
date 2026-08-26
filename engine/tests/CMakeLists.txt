@@ -14,6 +14,9 @@ add_executable(terrain_engine_tests
     test_massifdem.cpp
     test_png.cpp
     test_hillshade.cpp
+    test_registry.cpp
+    test_graph.cpp
+    test_evaluator.cpp
 )
 
 target_link_libraries(terrain_engine_tests PRIVATE

@@ -12,15 +12,30 @@ find_package(ZLIB REQUIRED)
 add_library(terrain_engine STATIC
     src/version.cpp
     src/heightfield.cpp
+    src/hash.cpp
+    src/json_writer.cpp
+    src/resample.cpp
+    src/registry.cpp
+    src/graph.cpp
+    src/evaluator.cpp
+    src/evaluation_context.cpp
     src/formats/massifdem.cpp
     src/formats/png_image.cpp
     src/formats/hillshade.cpp
     src/formats/heightfield_png.cpp
     src/formats/raw_float32.cpp
+    src/formats/elevation_import.cpp
+    src/nodes/node_support.cpp
+    src/nodes/builtin_nodes.cpp
+    src/nodes/input_nodes.cpp
+    src/nodes/filter_nodes.cpp
+    src/nodes/combine_nodes.cpp
+    src/nodes/output_nodes.cpp
 )
 
 target_include_directories(terrain_engine PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/sdk>
 )
 
 target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB)

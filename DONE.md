@@ -1,5 +1,40 @@
 # Done
 
+## T2 — The node graph engine
+
+Terrain Studio can now run a graph.
+
+**What works**
+
+- Nodes are registered, not listed anywhere. Adding one is a single
+  registration and it shows up everywhere — palette, properties, and later
+  the code view — with no other edits. Custom nodes from plugins will arrive
+  through exactly the same door, which is why the built-in nodes already use
+  it.
+- Graphs are checked before they run: unknown node types, missing
+  connections, mismatched port types and loops are all reported rather than
+  crashing or hanging.
+- Results are remembered. Changing one setting re-runs that node and the ones
+  downstream of it, and leaves everything else alone.
+- Independent branches run at the same time, and the result is identical
+  whether one thread or eight did the work.
+- The first five nodes: import a DEM, a flat constant, blur, add, and export.
+- Export only writes files during a real build, never while you are dragging
+  a slider.
+
+**Where things are**
+
+- `engine/sdk/terrain_node_sdk.h` — the plugin boundary, and where the
+  determinism rules are written down for node authors.
+- `engine/src/nodes/` — the built-in nodes, one file per category.
+- `ARCHITECTURE.md` §5 — how caching, seeding and scheduling are decided.
+
+**Useful to know**
+
+- A graph runs at one square resolution: low while you work, high when you
+  build. Erosion at low resolution will not match erosion at high resolution;
+  that is expected and is how tools of this kind behave.
+
 ## T1 — Heightfield and file formats
 
 The engine can now read and write real terrain.

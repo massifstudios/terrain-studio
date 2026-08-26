@@ -8,7 +8,7 @@ this file holds what has been decided and must not drift.
 
 ```
 engine/           C++20 core: src/, include/, tests/, own CMake build
-engine/sdk/       public plugin C header (lands at T9)
+engine/sdk/       public plugin C header, the registration boundary
 bridge/           N-API addon wrapping engine/, built with cmake-js
 app/              Electron + Svelte 5: main/, preload/, engine/, renderer/
 plugins/example/  example plugin: ABI regression test and author template (T9)
@@ -63,8 +63,9 @@ Electron main ── utilityProcess.fork ──► engine host (Node) ── dlo
 
 ## 3. Determinism contract
 
-Binding on the engine core and on every plugin (stated in the SDK header
-at T9).
+Binding on the engine core and on every plugin. It is stated in full at
+the top of `engine/sdk/terrain_node_sdk.h`, where a plugin author will read
+it.
 
 - Same graph + seed + resolution ⇒ **bit-identical output**, across runs and
   across thread counts.
@@ -109,15 +110,79 @@ at T9).
   non-interlaced grayscale, RGB and RGBA at 8 or 16 bits. Palette and
   interlace are refused with a message rather than guessed at.
 
-## 5. Pending decisions
+## 5. The graph engine
+
+### Registry
+
+Node types are registered, never enumerated. `engine/sdk/terrain_node_sdk.h`
+is the C ABI: descriptor structs, an evaluation context as a function-pointer
+table, and a registration call. **Built-ins go through exactly that call.**
+The engine is its own first plugin client, so the ABI cannot rot unnoticed —
+a change that would break a plugin breaks the built-ins first.
+
+The registry copies everything a descriptor points at, so a plugin may free
+its own storage the moment registration returns. `NodeRegistry::toJson()` is
+what the palette, the property panel, the DSL and the serializer read; none
+of them knows any node type by name.
+
+### One resolution per graph
+
+Every field in a graph is a square grid of `settings.resolution` cells, and
+cell size is `worldSizeMeters / resolution`. `ImportDEM` resamples whatever
+it reads onto that grid. This is what lets the context API stay small — a
+node never asks how big its neighbours are — and it is why erosion at 512
+does not match erosion at 8192.
+
+### Cache key
+
+```
+hash(typeName, typeVersion,
+     resolution, worldSizeMeters, seed, georeference,
+     each parameter name and value in descriptor order,
+     for each input port: the upstream node's key and output port index)
+```
+
+Hashing is FNV-1a in `terrain/hash.h`, not `std::hash`, whose results are
+not stable across standard-library versions. `-0.0` is folded to `0.0` so the
+two zeros cannot key different cache lines. Node version is in the key, so
+bumping it retires every stale result for that type.
+
+Dirty propagation falls out of this: editing a parameter changes that node's
+key and therefore every downstream key, and nothing else. The evaluator
+reports which nodes actually ran, which is what the cache tests assert on.
+
+### Seed derivation
+
+`deriveNodeSeed(graphSeed, nodeId)` mixes the graph seed with a stable hash of
+the node id through splitmix64. Adding a node never shifts another node's
+sequence. The same generator is defined inline in the SDK header so a plugin
+and a built-in draw identical streams from identical seeds.
+
+### Scheduling
+
+Nodes are grouped into waves by dependency depth; a wave runs on as many
+threads as asked for and the next wave starts when it drains. Every task
+writes only into its own output buffers and its own result slot, so the
+outcome cannot depend on how the wave was divided — that is what the
+one-thread-versus-many determinism test pins down.
+
+Per-node timings use a steady clock and are reported to the UI only. No
+engine decision may read them; nothing about evaluation depends on how long
+anything took.
+
+### Side effects
+
+`Export` and every other writer must check `isFinalBuild` before touching the
+disk. Preview evaluation runs constantly while a parameter is being dragged.
+
+## 6. Pending decisions
 
 Recorded here when they land, not before:
 
-- Node registry descriptors and the cache key (T2).
 - DSL grammar (T8).
-- Plugin C ABI, frozen at version 1 (T9).
+- Plugin dynamic loading; the SDK header freezes at ABI version 1 (T9).
 
-## 6. Code style
+## 7. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:
