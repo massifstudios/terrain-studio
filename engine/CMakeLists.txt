@@ -85,11 +85,15 @@ target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB ${CMAKE_DL_LIBS})
 
 if(TERRAIN_ENGINE_ENABLE_CUDA)
     enable_language(CUDA)
+    find_package(CUDAToolkit REQUIRED)
     set_property(TARGET terrain_engine PROPERTY CUDA_STANDARD 20)
     # The CUDA runtime is linked statically so the engine still loads on a
     # machine with no CUDA installed; the backend then finds no device and the
-    # CPU path runs.
+    # CPU path runs. It is a PUBLIC requirement because the bridge links this
+    # static library from a CXX-only project, where CMake adds no runtime of
+    # its own and the kernel registration symbols would go unresolved.
     set_property(TARGET terrain_engine PROPERTY CUDA_RUNTIME_LIBRARY Static)
+    target_link_libraries(terrain_engine PUBLIC CUDA::cudart_static)
     set_property(TARGET terrain_engine PROPERTY CUDA_ARCHITECTURES native)
     target_sources(terrain_engine PRIVATE src/gpu/cuda_erosion.cu)
     target_compile_definitions(terrain_engine PRIVATE TERRAIN_WITH_CUDA=1)
