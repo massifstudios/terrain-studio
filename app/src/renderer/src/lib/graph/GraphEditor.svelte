@@ -15,6 +15,7 @@
 		type PortTarget
 	} from './graph-geometry';
 	import { graphStore } from './graph-store.svelte';
+	import { nodeStatusStore, type NodeStatus } from './node-status.svelte';
 	import GraphNodeView from './GraphNodeView.svelte';
 	import NodePalette from './NodePalette.svelte';
 	import { findNodeSchema } from '$shared/registry-schema';
@@ -31,8 +32,6 @@
 	}
 
 	let surface = $state<HTMLDivElement | null>(null);
-	let surfaceWidth = $state(0);
-	let surfaceHeight = $state(0);
 
 	const gridSpacing = 24;
 	const cellsPerMajorLine = 5;
@@ -55,7 +54,13 @@
 	let view = $state({ offsetX: 40, offsetY: 20, scale: 1 });
 	let pendingEdge = $state<PendingEdge | null>(null);
 	let selectionBox = $state<{ start: Point; end: Point } | null>(null);
-	let palette = $state<{ screenX: number; screenY: number; graph: Point } | null>(null);
+	let palette = $state<{
+		screenX: number;
+		screenY: number;
+		graph: Point;
+		/// Set when the palette was opened by dropping an edge on open canvas.
+		source: PendingEdge | null;
+	} | null>(null);
 
 	let hoverTarget = $state<HoverTarget | null>(null);
 	let isSpaceHeld = $state(false);
@@ -115,6 +120,26 @@
 		);
 		return edgePath(start, pendingEdge.cursor);
 	});
+
+	/// What the previewed node cost, in the corner of the editor: the node bodies
+	/// say the same thing in six-pixel type, and this one is readable.
+	const timingReadout = $derived.by(() => {
+		const nodeId = graphStore.previewNodeId;
+		if (nodeId === null) {
+			return null;
+		}
+		return `${nodeId} · ${timingText(nodeStatusStore.statusOf(nodeId))}`;
+	});
+
+	function timingText(status: NodeStatus): string {
+		if (status.state === 'evaluating') {
+			return `${Math.round(status.fraction * 100)}%`;
+		}
+		if (status.state === 'evaluated') {
+			return `${status.milliseconds.toFixed(1)} ms`;
+		}
+		return status.state;
+	}
 
 	/* ------------------------------------------------------- interaction -- */
 
@@ -246,15 +271,27 @@
 
 	/// An edge dropped beside a port still lands on it. Only a drop that reached
 	/// no port at all gets here; one released on a port has already connected.
-	function connectToNearestPort(edge: PendingEdge, point: Point): void {
+	function connectToNearestPort(edge: PendingEdge, point: Point): boolean {
 		const target = nearestInputPort(inputPortCandidates(), point, portSnapRadius);
 		if (target === null) {
-			return;
+			return false;
 		}
 		const request = requestFor(edge, target);
-		if (graphStore.canConnect(engineClient.registry, request)) {
-			graphStore.connect(request);
+		if (!graphStore.canConnect(engineClient.registry, request)) {
+			return false;
 		}
+		graphStore.connect(request);
+		return true;
+	}
+
+	/// An edge let go over open canvas asks what should be at the other end of
+	/// it, and the node picked is wired up where it lands.
+	function finishPendingEdge(edge: PendingEdge, event: PointerEvent): void {
+		const point = toGraphSpace(event);
+		if (connectToNearestPort(edge, point)) {
+			return;
+		}
+		palette = { screenX: event.clientX, screenY: event.clientY, graph: point, source: edge };
 	}
 
 	/// While an edge is in flight, every port it could legally land on says so.
@@ -273,7 +310,7 @@
 			applySelectionBox();
 		}
 		if (pendingEdge) {
-			connectToNearestPort(pendingEdge, toGraphSpace(event));
+			finishPendingEdge(pendingEdge, event);
 		}
 		panOrigin = null;
 		dragOrigin = null;
@@ -315,11 +352,26 @@
 
 	function openPalette(event: MouseEvent): void {
 		event.preventDefault();
-		const bounds = surface!.getBoundingClientRect();
 		palette = {
-			screenX: event.clientX - bounds.left,
-			screenY: event.clientY - bounds.top,
-			graph: toGraphSpace(event)
+			screenX: event.clientX,
+			screenY: event.clientY,
+			graph: toGraphSpace(event),
+			source: null
+		};
+	}
+
+	/// Opened from the keyboard, with no pointer to sit under: the palette goes
+	/// to the bottom corner of the editor and the node lands near it.
+	function openPaletteAtCorner(): void {
+		if (!surface) {
+			return;
+		}
+		const bounds = surface.getBoundingClientRect();
+		palette = {
+			screenX: bounds.left + 24,
+			screenY: bounds.bottom - 24,
+			graph: { x: 40, y: 40 },
+			source: null
 		};
 	}
 
@@ -327,8 +379,24 @@
 		if (!palette) {
 			return;
 		}
-		graphStore.addNode(schema, palette.graph.x, palette.graph.y);
+		const nodeId = graphStore.addNode(schema, palette.graph.x, palette.graph.y);
+		connectSource(palette.source, nodeId, schema);
 		palette = null;
+	}
+
+	/// A node created by dropping an edge takes that edge on the first input that
+	/// will have it, and none at all if the type suits no input it has.
+	function connectSource(source: PendingEdge | null, nodeId: string, schema: NodeSchema): void {
+		if (source === null) {
+			return;
+		}
+		for (let port = 0; port < schema.inputs.length; port += 1) {
+			const request = requestFor(source, { nodeId, port });
+			if (graphStore.canConnect(engineClient.registry, request)) {
+				graphStore.connect(request);
+				return;
+			}
+		}
 	}
 
 	/// A key pressed while typing belongs to the field, not to the editor.
@@ -356,7 +424,7 @@
 		}
 		if (event.key === 'Tab') {
 			event.preventDefault();
-			palette = { screenX: 24, screenY: 24, graph: { x: 40, y: 40 } };
+			openPaletteAtCorner();
 			return;
 		}
 		if (event.key === 'Delete' || event.key === 'Backspace') {
@@ -373,8 +441,6 @@
 	role="application"
 	aria-label="Node graph editor"
 	bind:this={surface}
-	bind:clientWidth={surfaceWidth}
-	bind:clientHeight={surfaceHeight}
 	onpointerdown={beginSurfaceGesture}
 	onpointermove={updateGesture}
 	onpointerup={endGesture}
@@ -435,6 +501,14 @@
 		{/if}
 	</div>
 
+	{#if timingReadout}
+		<div
+			class="pointer-events-none absolute bottom-2 left-2 rounded-sm border border-line bg-elevated px-2 py-1 font-mono text-2xs text-dim"
+		>
+			{timingReadout}
+		</div>
+	{/if}
+
 	{#if graphStore.nodes.length === 0 && !palette}
 		<div
 			class="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-faint"
@@ -447,8 +521,6 @@
 		<NodePalette
 			screenX={palette.screenX}
 			screenY={palette.screenY}
-			{surfaceWidth}
-			{surfaceHeight}
 			onPick={insertNode}
 			onDismiss={() => (palette = null)}
 		/>

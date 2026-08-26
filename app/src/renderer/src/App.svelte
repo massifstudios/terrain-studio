@@ -42,7 +42,7 @@
 	$effect(() => {
 		const progress = engineClient.progress;
 		if (progress) {
-			nodeStatusStore.markEvaluating(progress.nodeId);
+			nodeStatusStore.markEvaluating(progress.nodeId, progress.fraction);
 		}
 	});
 </script>

@@ -10,6 +10,7 @@
 		outputPortPosition,
 		portApproachRadius,
 		portGrowth,
+		portSnapRadius,
 		portSpacing,
 		type Point
 	} from './graph-geometry';
@@ -104,13 +105,14 @@
 		return portGrowth(distanceBetween(portPosition(side, index), cursor), portApproachRadius);
 	}
 
-	/// White marks a port the pointer can act on: one it has come close enough to
-	/// grab, or one the edge in flight is allowed to land on.
+	/// White marks a port a drop would actually land on: legal for the edge in
+	/// flight, and near enough for the release to snap to it. Grabbing a port is
+	/// the hover state, which the browser's own hit test decides.
 	function isPortLit(side: 'input' | 'output', index: number): boolean {
-		if (isPortEligible(side, index)) {
-			return true;
+		if (!cursor || !isPortEligible(side, index)) {
+			return false;
 		}
-		return portScale(side, index) > 1;
+		return distanceBetween(portPosition(side, index), cursor) <= portSnapRadius;
 	}
 
 	function timingLabel(): string {
@@ -149,14 +151,22 @@
 		{/if}
 	</div>
 
-	<div style="height: {nodeThumbnailHeight}px">
+	<div class="relative" style="height: {nodeThumbnailHeight}px">
 		<NodeThumbnailView {thumbnail} isStale={status.state === 'dirty'} />
+		{#if status.state === 'evaluating'}
+			<div class="absolute inset-x-0 bottom-0 h-0.5 bg-input">
+				<div
+					class="h-full bg-amber transition-[width] duration-100"
+					style="width: {status.fraction * 100}%"
+				></div>
+			</div>
+		{/if}
 	</div>
 
 	<div class="relative" style="height: {portRowsHeight}px">
 		{#each inputs as port, index}
 			<button
-				class="absolute flex items-center gap-1 pl-2 text-2xs text-muted"
+				class="group absolute flex items-center gap-1 pl-2 text-2xs text-muted"
 				style="left: -13px; top: {index * portSpacing - portHitPadding}px; height: {portSpacing +
 					portHitPadding * 2}px"
 				title={port.description}
@@ -166,7 +176,7 @@
 				onpointerleave={onPortLeave}
 			>
 				<span
-					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform"
+					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform group-hover:bg-default"
 					class:bg-default={isPortLit('input', index)}
 					class:bg-canvas={port.optional && !isPortLit('input', index)}
 					class:bg-line-strong={!port.optional && !isPortLit('input', index)}
@@ -178,7 +188,7 @@
 
 		{#each outputs as port, index}
 			<button
-				class="absolute flex flex-row-reverse items-center gap-1 pr-2 text-2xs text-muted"
+				class="group absolute flex flex-row-reverse items-center gap-1 pr-2 text-2xs text-muted"
 				style="right: -13px; top: {index * portSpacing - portHitPadding}px; height: {portSpacing +
 					portHitPadding * 2}px"
 				title={port.description}
@@ -186,7 +196,7 @@
 				onpointerup={(event) => onPortPointerUp(event, 'output', index)}
 			>
 				<span
-					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform"
+					class="h-2.5 w-2.5 shrink-0 rounded-full border border-line-strong transition-transform group-hover:bg-default"
 					class:bg-default={isPortLit('output', index)}
 					class:bg-line-strong={!isPortLit('output', index)}
 					style="transform: scale({portScale('output', index)})"

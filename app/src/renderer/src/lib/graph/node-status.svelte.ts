@@ -12,6 +12,8 @@ function stateForTiming(servedFromCache: boolean): NodeState {
 export interface NodeStatus {
 	state: NodeState;
 	milliseconds: number;
+	/// How far through its own work an evaluating node is, 0 to 1.
+	fraction: number;
 }
 
 /// What the node editor draws on each node body: how fresh its result is, how
@@ -23,13 +25,16 @@ class NodeStatusStore {
 	statusOf(nodeId: string): NodeStatus {
 		const found = this.statuses[nodeId];
 		if (!found) {
-			return { state: 'dirty', milliseconds: 0 };
+			return { state: 'dirty', milliseconds: 0, fraction: 0 };
 		}
 		return found;
 	}
 
-	markEvaluating(nodeId: string): void {
-		this.statuses = { ...this.statuses, [nodeId]: { state: 'evaluating', milliseconds: 0 } };
+	markEvaluating(nodeId: string, fraction: number): void {
+		this.statuses = {
+			...this.statuses,
+			[nodeId]: { state: 'evaluating', milliseconds: 0, fraction }
+		};
 	}
 
 	markAllDirty(): void {
@@ -41,13 +46,14 @@ class NodeStatusStore {
 		for (const timing of outcome.timings) {
 			statuses[timing.nodeId] = {
 				state: stateForTiming(timing.servedFromCache),
-				milliseconds: timing.milliseconds
+				milliseconds: timing.milliseconds,
+				fraction: 1
 			};
 		}
 		for (const message of outcome.errors) {
 			const nodeId = message.slice(0, message.indexOf(':'));
 			if (nodeId) {
-				statuses[nodeId] = { state: 'failed', milliseconds: 0 };
+				statuses[nodeId] = { state: 'failed', milliseconds: 0, fraction: 0 };
 			}
 		}
 		this.statuses = statuses;
