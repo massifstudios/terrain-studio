@@ -1,0 +1,232 @@
+#version 450
+
+/*
+ * One droplet per invocation, for one batch of the rainfall.
+ *
+ * Mirrors `runDroplet` in erosion_nodes.cpp. Every droplet in a batch reads
+ * the same frozen surface and writes only into the fixed-point grids, so none
+ * of them can see another's work and the batch cannot depend on scheduling.
+ * A droplet's seed comes from its own index rather than from its position in
+ * the dispatch, which is why the GPU may hand them out differently from the
+ * CPU's lanes and still land on the same terrain.
+ */
+
+#extension GL_GOOGLE_include_directive : require
+#include "erosion_common.glsl"
+
+layout(local_size_x = 64) in;
+
+struct BrushSample {
+    int offsetRow;
+    int offsetColumn;
+    float weight;
+};
+
+layout(std430, binding = 0) readonly buffer Surface { float surface[]; };
+layout(std430, binding = 1) buffer Delta { int delta[]; };
+layout(std430, binding = 2) buffer Wear { int wear[]; };
+layout(std430, binding = 3) buffer Deposit { int deposit[]; };
+layout(std430, binding = 4) buffer Flow { int flow[]; };
+layout(std430, binding = 5) readonly buffer Brush { BrushSample brushSamples[]; };
+
+layout(push_constant) uniform Settings {
+    int size;
+    int lifetime;
+    float water;
+    float inertia;
+    float capacityFactor;
+    float minimumSlope;
+    float erosionRate;
+    float depositionRate;
+    float evaporation;
+    float gravity;
+    int brushSampleCount;
+    uint seedLow;
+    uint seedHigh;
+    uint firstDropletLow;
+    uint firstDropletHigh;
+    uint dropletCount;
+} settings;
+
+const float maximumDropletSpeed = 4.0;
+
+struct SurfacePoint {
+    float height;
+    float alongRows;
+    float alongColumns;
+};
+
+struct Droplet {
+    float row;
+    float column;
+    float directionRow;
+    float directionColumn;
+    float speed;
+    float water;
+    float sediment;
+};
+
+uint64_t combine(uint low, uint high) {
+    return uint64_t(low) | (uint64_t(high) << 32);
+}
+
+void addToGrid(int which, int index, float meters) {
+    int units = terrainRoundToInt(meters * unitsPerMeter);
+    if (units == 0) {
+        return;
+    }
+    if (which == 0) {
+        atomicAdd(delta[index], units);
+        return;
+    }
+    if (which == 1) {
+        atomicAdd(wear[index], units);
+        return;
+    }
+    if (which == 2) {
+        atomicAdd(deposit[index], units);
+        return;
+    }
+    atomicAdd(flow[index], units);
+}
+
+SurfacePoint surfaceAt(float row, float column) {
+    int baseRow = min(int(row), settings.size - 2);
+    int baseColumn = min(int(column), settings.size - 2);
+    precise float rowFraction = row - float(baseRow);
+    precise float columnFraction = column - float(baseColumn);
+
+    int upper = baseRow * settings.size + baseColumn;
+    int lower = upper + settings.size;
+    precise float northWest = surface[upper];
+    precise float northEast = surface[upper + 1];
+    precise float southWest = surface[lower];
+    precise float southEast = surface[lower + 1];
+
+    SurfacePoint point;
+    point.alongColumns = (northEast - northWest) * (1.0 - rowFraction)
+                         + (southEast - southWest) * rowFraction;
+    point.alongRows = (southWest - northWest) * (1.0 - columnFraction)
+                      + (southEast - northEast) * columnFraction;
+    point.height = northWest * (1.0 - columnFraction) * (1.0 - rowFraction)
+                   + northEast * columnFraction * (1.0 - rowFraction)
+                   + southWest * (1.0 - columnFraction) * rowFraction
+                   + southEast * columnFraction * rowFraction;
+    return point;
+}
+
+/// Erosion and deposition use the same footprint deliberately: a droplet that
+/// takes from a disc but gives back to one cell builds a spike in every hollow.
+void applyOverBrush(int row, int column, float signedAmount, int tally) {
+    for (int sample = 0; sample < settings.brushSampleCount; ++sample) {
+        int targetRow = row + brushSamples[sample].offsetRow;
+        int targetColumn = column + brushSamples[sample].offsetColumn;
+        if (!isInsideGrid(targetRow, targetColumn, settings.size)) {
+            continue;
+        }
+        int index = targetRow * settings.size + targetColumn;
+        addToGrid(0, index, signedAmount * brushSamples[sample].weight);
+        addToGrid(tally, index, abs(signedAmount) * brushSamples[sample].weight);
+    }
+}
+
+float carryingCapacity(Droplet droplet, float deltaHeight) {
+    return largerOf(-deltaHeight * droplet.speed * droplet.water * settings.capacityFactor,
+                    settings.minimumSlope * settings.capacityFactor);
+}
+
+float sedimentToDrop(Droplet droplet, float capacity, float deltaHeight) {
+    if (deltaHeight > 0.0) {
+        // Uphill: the droplet is climbing out of a hollow and fills it instead.
+        return smallerOf(deltaHeight, droplet.sediment);
+    }
+    return (droplet.sediment - capacity) * settings.depositionRate;
+}
+
+void settleOrBite(inout Droplet droplet, float deltaHeight, int fromRow, int fromColumn) {
+    precise float capacity = carryingCapacity(droplet, deltaHeight);
+    if (deltaHeight > 0.0 || droplet.sediment > capacity) {
+        precise float dropped = sedimentToDrop(droplet, capacity, deltaHeight);
+        droplet.sediment = droplet.sediment - dropped;
+        applyOverBrush(fromRow, fromColumn, dropped, 2);
+        return;
+    }
+
+    precise float taken =
+        smallerOf((capacity - droplet.sediment) * settings.erosionRate, -deltaHeight);
+    droplet.sediment = droplet.sediment + taken;
+    applyOverBrush(fromRow, fromColumn, -taken, 1);
+}
+
+bool moveDownhill(inout Droplet droplet, out float fromRow, out float fromColumn,
+                  out SurfacePoint here) {
+    here = surfaceAt(droplet.row, droplet.column);
+    droplet.directionRow =
+        droplet.directionRow * settings.inertia - here.alongRows * (1.0 - settings.inertia);
+    droplet.directionColumn =
+        droplet.directionColumn * settings.inertia - here.alongColumns * (1.0 - settings.inertia);
+
+    precise float length = terrainSquareRoot(droplet.directionRow * droplet.directionRow
+                                             + droplet.directionColumn * droplet.directionColumn);
+    if (length < 1.0e-6) {
+        return false;
+    }
+
+    fromRow = droplet.row;
+    fromColumn = droplet.column;
+    droplet.row = droplet.row + terrainDivide(droplet.directionRow, length);
+    droplet.column = droplet.column + terrainDivide(droplet.directionColumn, length);
+    return !(droplet.row < 0.0 || droplet.column < 0.0
+             || droplet.row >= float(settings.size - 1)
+             || droplet.column >= float(settings.size - 1));
+}
+
+bool stepDroplet(inout Droplet droplet) {
+    float fromRow = 0.0;
+    float fromColumn = 0.0;
+    SurfacePoint here;
+    if (!moveDownhill(droplet, fromRow, fromColumn, here)) {
+        return false;
+    }
+
+    precise float deltaHeight = surfaceAt(droplet.row, droplet.column).height - here.height;
+    settleOrBite(droplet, deltaHeight, int(fromRow), int(fromColumn));
+
+    // A droplet reaches a terminal velocity. Without the cap its carrying
+    // capacity climbs for its whole life, until one droplet can drop a
+    // mountain's worth of sediment into a single hollow.
+    precise float slowed = largerOf(droplet.speed * droplet.speed - deltaHeight * settings.gravity,
+                                    0.0);
+    droplet.speed = smallerOf(terrainSquareRoot(slowed), maximumDropletSpeed);
+    droplet.water = droplet.water * (1.0 - settings.evaporation);
+    addToGrid(3, int(droplet.row) * settings.size + int(droplet.column), droplet.water);
+    return true;
+}
+
+void runDroplet(uint64_t seed) {
+    uint64_t state = seed;
+    Droplet droplet;
+    droplet.directionRow = 0.0;
+    droplet.directionColumn = 0.0;
+    droplet.speed = 1.0;
+    droplet.sediment = 0.0;
+    droplet.water = settings.water;
+    droplet.row = terrainRandomUnitFloat(state) * float(settings.size - 2);
+    droplet.column = terrainRandomUnitFloat(state) * float(settings.size - 2);
+
+    for (int step = 0; step < settings.lifetime; ++step) {
+        if (!stepDroplet(droplet)) {
+            return;
+        }
+    }
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= settings.dropletCount) {
+        return;
+    }
+    uint64_t droplet = combine(settings.firstDropletLow, settings.firstDropletHigh)
+                       + uint64_t(index);
+    runDroplet(terrainSeedForLane(combine(settings.seedLow, settings.seedHigh), droplet));
+}

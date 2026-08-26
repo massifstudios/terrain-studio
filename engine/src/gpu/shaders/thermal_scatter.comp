@@ -1,0 +1,109 @@
+#version 450
+
+/*
+ * One pass of thermal slumping: every cell works out how far each downhill
+ * neighbour lies below the angle of repose and hands that share of its
+ * unstable material over.
+ *
+ * Mirrors `scatterSlump` in erosion_nodes.cpp. Cells write into each other, so
+ * the arrival grid is integer fixed point and the additions are atomic —
+ * integer addition is associative and float addition is not, which is what
+ * keeps the answer independent of the order the hardware happened to run in.
+ */
+
+#extension GL_GOOGLE_include_directive : require
+#include "erosion_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) readonly buffer Surface { float surface[]; };
+layout(std430, binding = 1) readonly buffer Available { float available[]; };
+layout(std430, binding = 2) buffer Delta { int delta[]; };
+
+layout(push_constant) uniform Settings {
+    int size;
+    float talusDropMeters;
+    float rate;
+    /// Bedrock slumping moves whatever is unstable; a sediment layer may only
+    /// move its own depth, so the rock underneath stays where it is.
+    int hasAvailable;
+} settings;
+
+struct SlumpExcess {
+    float perDirection[8];
+    float total;
+    float largest;
+};
+
+void addToDelta(int index, float meters) {
+    int units = terrainRoundToInt(meters * unitsPerMeter);
+    if (units == 0) {
+        return;
+    }
+    atomicAdd(delta[index], units);
+}
+
+SlumpExcess excessAround(int row, int column) {
+    SlumpExcess excess;
+    for (int direction = 0; direction < 8; ++direction) {
+        excess.perDirection[direction] = 0.0;
+    }
+    excess.total = 0.0;
+    excess.largest = 0.0;
+
+    precise float centre = surface[row * settings.size + column];
+    for (int direction = 0; direction < 8; ++direction) {
+        int neighbourAtRow = row + neighbourOffsets[direction].x;
+        int neighbourAtColumn = column + neighbourOffsets[direction].y;
+        if (!isInsideGrid(neighbourAtRow, neighbourAtColumn, settings.size)) {
+            continue;
+        }
+        precise float drop = centre - surface[neighbourAtRow * settings.size + neighbourAtColumn];
+        precise float over = drop - thresholdFor(direction, settings.talusDropMeters);
+        if (over <= 0.0) {
+            continue;
+        }
+        excess.perDirection[direction] = over;
+        excess.total = excess.total + over;
+        excess.largest = largerOf(excess.largest, over);
+    }
+    return excess;
+}
+
+void handOverToNeighbours(int row, int column, SlumpExcess excess, float moved) {
+    for (int direction = 0; direction < 8; ++direction) {
+        if (excess.perDirection[direction] <= 0.0) {
+            continue;
+        }
+        int target = (row + neighbourOffsets[direction].x) * settings.size + column
+                     + neighbourOffsets[direction].y;
+        addToDelta(target, terrainDivide(moved * excess.perDirection[direction], excess.total));
+    }
+}
+
+void scatterSlump(int row, int column) {
+    int index = row * settings.size + column;
+    SlumpExcess excess = excessAround(row, column);
+    if (excess.total <= 0.0) {
+        return;
+    }
+
+    // Half the steepest excess keeps a step from overshooting into a hole.
+    precise float moved = excess.largest * 0.5 * settings.rate;
+    if (settings.hasAvailable != 0) {
+        moved = smallerOf(moved, available[index]);
+    }
+    if (moved <= 0.0) {
+        return;
+    }
+    addToDelta(index, -moved);
+    handOverToNeighbours(row, column, excess, moved);
+}
+
+void main() {
+    uint cell = gl_GlobalInvocationID.x;
+    if (cell >= uint(settings.size) * uint(settings.size)) {
+        return;
+    }
+    scatterSlump(int(cell) / settings.size, int(cell) % settings.size);
+}
