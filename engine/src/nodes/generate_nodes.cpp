@@ -2,6 +2,7 @@
 #include <cmath>
 
 #include "node_support.h"
+#include "shape_support.h"
 #include "terrain/noise.h"
 
 namespace terrain::nodes {
@@ -219,12 +220,127 @@ const TerrainNodeDescriptor voronoiDescriptor = {
     6,
     &evaluateVoronoi};
 
+/* -------------------------------------------------------------- Pattern -- */
+
+const TerrainEnumOption patternKinds[] = {{"checker", "Checker", 0},
+                                          {"stripes", "Stripes", 1},
+                                          {"grid", "Grid", 2},
+                                          {"bricks", "Bricks", 3},
+                                          {"dots", "Dots", 4}};
+
+const TerrainParameterDescriptor patternParameters[] = {
+    {"featureSize", "Feature size", "Ground distance across one tile of the pattern", "m",
+     TerrainParameterType_Float, 500.0, 1.0, 100000.0, "", nullptr, 0},
+    {"pattern", "Pattern", "Which repeating figure is drawn", "", TerrainParameterType_Enum, 0.0,
+     0.0, 4.0, "", patternKinds, 5},
+    {"rotation", "Rotation", "How far the pattern is turned clockwise", "deg",
+     TerrainParameterType_Float, 0.0, 0.0, 360.0, "", nullptr, 0},
+    {"lineWidth", "Line width", "Width of a grid or brick line, or the diameter of a dot", "m",
+     TerrainParameterType_Float, 50.0, 0.0, 100000.0, "", nullptr, 0},
+    {"softness", "Softness", "How far the edges of the figure fade out", "m",
+     TerrainParameterType_Float, 10.0, 0.0, 100000.0, "", nullptr, 0},
+    {"amplitude", "Amplitude", "Height of the raised part of the pattern", "m",
+     TerrainParameterType_Float, 100.0, -12000.0, 12000.0, "", nullptr, 0},
+    {"offset", "Offset", "Added to every cell once the pattern is drawn", "m",
+     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0}};
+
+void evaluatePattern(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const WorldFrame frame = worldFrameFor(api, context);
+    const ShapePlacement placement =
+        placementFrom(frame, 0.5, 0.5, api->parameterNumber(context, 2));
+    const double featureSizeMeters = api->parameterNumber(context, 0);
+    const auto kind = static_cast<PatternKind>(static_cast<int>(api->parameterNumber(context, 1)));
+    const double lineWidthMeters = api->parameterNumber(context, 3);
+    const double softnessMeters = api->parameterNumber(context, 4);
+    const float amplitude = static_cast<float>(api->parameterNumber(context, 5));
+    const float offset = static_cast<float>(api->parameterNumber(context, 6));
+    float* output = api->outputField(context, 0);
+
+    forEachRowRange(api, context, frame.size, [&](int firstRow, int lastRow) {
+        for (int row = firstRow; row < lastRow; ++row) {
+            float* line = output + static_cast<std::size_t>(row) * frame.size;
+            for (int column = 0; column < frame.size; ++column) {
+                const LocalPoint point =
+                    placement.localPoint(frame.eastingAt(column), frame.northingAt(row));
+                const double distance =
+                    patternDistance(kind, point, featureSizeMeters, lineWidthMeters);
+                line[column] = insideWeight(distance, softnessMeters) * amplitude + offset;
+            }
+        }
+    });
+}
+
+const TerrainNodeDescriptor patternDescriptor = {
+    "Pattern",
+    "Generate",
+    "Repeating geometry: checkers, stripes, a grid, brickwork or dots",
+    1,
+    nullptr,
+    0,
+    noiseOutputs,
+    1,
+    patternParameters,
+    7,
+    &evaluatePattern};
+
+/* ---------------------------------------------------------------- Noise -- */
+
+const TerrainParameterDescriptor whiteNoiseParameters[] = {
+    {"seed", "Seed", "Varies this node alone, on top of the graph seed", "",
+     TerrainParameterType_Seed, 0.0, 0.0, 4294967295.0, "", nullptr, 0},
+    {"amplitude", "Amplitude", "How far a cell may stray either side of the offset", "m",
+     TerrainParameterType_Float, 5.0, 0.0, 12000.0, "", nullptr, 0},
+    {"offset", "Offset", "The value every cell varies around", "m", TerrainParameterType_Float,
+     0.0, -12000.0, 12000.0, "", nullptr, 0}};
+
+/**
+ * One independent draw per cell, so unlike every other generator this one has
+ * no feature size and its result changes with the graph resolution. That is
+ * what makes it useful: it is the grain you multiply into a mask, not a shape.
+ */
+void evaluateWhiteNoise(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const int size = api->width(context);
+    const std::uint64_t seed = terrainSeedForLane(
+        api->randomSeed(context),
+        static_cast<std::uint64_t>(api->parameterNumber(context, 0)));
+    const float amplitude = static_cast<float>(api->parameterNumber(context, 1));
+    const float offset = static_cast<float>(api->parameterNumber(context, 2));
+    float* output = api->outputField(context, 0);
+
+    forEachRowRange(api, context, size, [&](int firstRow, int lastRow) {
+        for (int row = firstRow; row < lastRow; ++row) {
+            float* line = output + static_cast<std::size_t>(row) * size;
+            for (int column = 0; column < size; ++column) {
+                std::uint64_t state = terrainSeedForLane(
+                    seed, static_cast<std::uint64_t>(row) * size + column);
+                const float unit = terrainRandomUnitFloat(&state);
+                line[column] = (unit * 2.0f - 1.0f) * amplitude + offset;
+            }
+        }
+    });
+}
+
+const TerrainNodeDescriptor whiteNoiseDescriptor = {
+    "Noise",
+    "Generate",
+    "An independent draw in every cell: grain, rather than a landform",
+    1,
+    nullptr,
+    0,
+    noiseOutputs,
+    1,
+    whiteNoiseParameters,
+    3,
+    &evaluateWhiteNoise};
+
 }  // namespace
 
 void registerGenerateNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
     api.registerNode(registry, &perlinDescriptor);
     api.registerNode(registry, &ridgedDescriptor);
     api.registerNode(registry, &voronoiDescriptor);
+    api.registerNode(registry, &patternDescriptor);
+    api.registerNode(registry, &whiteNoiseDescriptor);
 }
 
 }  // namespace terrain::nodes
