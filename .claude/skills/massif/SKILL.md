@@ -1,6 +1,6 @@
 ---
 name: massif
-description: Author, inspect and build Terrain Studio graphs from the terminal with the `massif` command — writing terrain node graphs as DSL text, checking them, and running full-resolution builds without the Electron app. Use whenever the task involves a `.massifgraph` file, terrain nodes, erosion or heightfield export in this repository.
+description: Author, inspect and build Terrain Studio graphs from the terminal with the `massif` command — writing terrain node graphs as `.massifgraph` JSON, checking them against the registry, and running full-resolution builds without the Electron app. Use whenever the task involves a `.massifgraph` file, terrain nodes, erosion or heightfield export in this repository.
 ---
 
 # Building terrain with `massif`
@@ -36,68 +36,91 @@ bun cli/src/massif.ts describe <Type>    # one type: ports, units, ranges, defau
 bun cli/src/massif.ts registry           # the same thing as JSON
 ```
 
-`nodes` prints each type as the call you would write:
+`nodes` prints each type as a signature:
 `HydraulicErosion(In, Mask) -> Out, Wear, Deposit, Flow`. Inputs are inside the
-parentheses in the order they must be given; outputs come after the arrow.
+parentheses, outputs after the arrow, and both are in port-index order — which is
+what `to_port` and `from_port` mean in the file.
 
 A type name that `nodes` does not list does not exist. Do not invent one, and do
 not assume a node from another terrain tool has an equivalent here.
 
-## The DSL
-
-A graph is a list of statements, one node each:
-
-```
-program   = { statement }
-statement = name "=" typeName "(" [ arguments ] ")"
-arguments = argument { "," argument }
-argument  = input | parameter
-input     = name [ "." outputPort ] | "_"
-parameter = name ":" value
-value     = number | string | "true" | "false" | enumOptionName
-```
-
-```
-dem    = ImportDEM(path: "valley.massifdem")
-slope  = SlopeMask(dem, minimumSlope: 25, maximumSlope: 55)
-eroded = HydraulicErosion(dem, slope, density: 2, capacity: 1.5)
-out    = Export(eroded, path: "refined.massifdem")
-```
-
-Rules that bite if you forget them:
-
-- **A node must be defined before it is named.** That is what makes a cycle
-  impossible to write rather than merely rejected.
-- **Inputs are positional and come first**, then named parameters. `_` leaves an
-  input unconnected; a trailing run of `_` can be left off entirely.
-- `name.PortName` picks a named output; a bare `name` means the first one.
-- `#` runs to the end of the line. Newlines mean nothing, so a statement may
-  span lines.
-- Only parameters you write are set; the rest come from the registry's defaults.
-  Printing a graph back leaves out everything still at its default.
-
 ## Editing a graph
 
 ```
-bun cli/src/massif.ts print <graph>                 # the graph as DSL
-bun cli/src/massif.ts apply <graph> --from <file>   # replace it from a DSL file
+bun cli/src/massif.ts print <graph>                 # the graph as JSON
+bun cli/src/massif.ts apply <graph> --from <file>   # replace it from a JSON file
 ... | bun cli/src/massif.ts apply <graph>           # or from stdin
 bun cli/src/massif.ts validate <graph>              # types, edges and ports
 ```
 
-`apply` replaces the **whole** graph. To change one line, `print` it first, edit
-the text, and apply the result — otherwise everything you left out disappears.
+There is no DSL. The JSON `apply` reads is the whole `.massifgraph` document,
+exactly as `print` writes it — settings, node positions and preview included.
+Nothing is carried over from the file being replaced, so what you write is what
+the editor opens. `apply` refuses a document with an unknown node type or a bad
+edge before it writes anything, and creates the file if it is not there yet.
 
-`apply` keeps the position of every node the file already had and lays out new
-ones by dependency depth, so applying a graph does not shuffle the editor. It
-also keeps the settings; those have their own command:
+To change one thing, `print` the graph, edit that JSON, and apply it back.
+Settings also have their own command, which leaves the rest of the file alone:
 
 ```
 bun cli/src/massif.ts set <graph> --resolution 1024 --seed 7 --world-size 20000
 bun cli/src/massif.ts set <graph> --preview-node eroded
 ```
 
-A graph file that does not exist yet is created by the first `apply`.
+`print` and `set` read and write the file without the engine, so they work even
+where the addon has not been built. `apply` and `validate` need it, because the
+registry is what says whether the document makes sense.
+
+## The file on disk
+
+A `.massifgraph` is plain JSON, tab-indented, one object per file:
+
+```json
+{
+	"version": 1,
+	"settings": {
+		"resolution": 1024,
+		"world_size_meters": 20000,
+		"seed": 7,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "eroded",
+	"nodes": [
+		{ "id": "dem", "type": "ImportDEM", "x": 0, "y": 0,
+		  "parameters": { "maximum_altitude": 4000, "path": "valley.massifdem" } }
+	],
+	"edges": [
+		{ "from_node_id": "dem", "from_port": 0, "to_node_id": "eroded", "to_port": 0 }
+	]
+}
+```
+
+What the format guarantees, and what it costs you:
+
+- **Every key is snake_case, parameter names included.** The registry reports
+  `maximumAltitude`; the file says `maximum_altitude`. The conversion is
+  mechanical and its own inverse, so a parameter name with an underscore already
+  in it would not survive the round trip.
+- **Ports are indices, not names.** `from_port` and `to_port` are positions in
+  the node's output and input lists — the order `massif describe` prints them.
+- **The order is canonical.** Nodes sort by id, edges by destination then
+  source, parameter keys alphabetically. Moving a node in the editor does not
+  reorder the file, so a diff shows only what changed. A node the editor made
+  carries every parameter, default or not, so a later change to a default cannot
+  quietly alter a saved graph.
+- **`version` is checked before anything else**, and only `1` loads. A file
+  that fails validation says which field, not that the whole thing is wrong.
+- **Every field is required, positions included.** Writing a graph from nothing
+  means choosing `x` and `y` yourself; roughly 240 apart across and 200 down,
+  left to right in the order the data flows, reads the way the editor lays out.
+- **Parameters you leave out stay out.** The engine evaluates a missing one at
+  its registry default, so a hand-written node only needs the parameters it
+  actually changes — and the file keeps it that way until the editor rewrites
+  the node.
 
 ## Building
 
@@ -133,8 +156,9 @@ whether to reload or overwrite, and changes nothing until they answer — so a
 
 ## Working style
 
-1. `nodes`, then `describe` the few types you intend to use.
-2. `print` the graph if one already exists.
-3. Write the whole DSL and `apply` it.
+1. `nodes`, then `describe` the few types you intend to use — the port order in
+   the signature is what the edges' port indices refer to.
+2. `print` the graph if one already exists, and edit that JSON.
+3. Write the whole document and `apply` it.
 4. `validate`, then `build` at a low `--resolution` first.
 5. Only then build at full resolution — an 8192 erosion is minutes, not seconds.

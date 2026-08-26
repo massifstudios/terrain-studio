@@ -1,7 +1,6 @@
 #include "terrain/thumbnail.h"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 
 #include "terrain/formats/hillshade.h"
@@ -10,34 +9,20 @@
 namespace terrain {
 namespace {
 
-struct RampStop {
-    double red;
-    double green;
-    double blue;
-};
+/// A mask is quantised to flat grey steps: no hue, so it can never be read as
+/// a shaded surface, and banded lightness so a threshold shows its own edge.
+/// The 2D viewport's mask drape uses the same step count and range in GLSL;
+/// change one and change both.
+constexpr int maskStepCount = 8;
+constexpr double darkestMaskStep = 0.08;
+constexpr double lightestMaskStep = 0.94;
 
-/// Viridis, sampled at nine stops. Perceptually uniform in lightness, so a
-/// mask reads as a magnitude rather than as a picture. The 2D viewport's
-/// mask drape carries the same stops in GLSL; change one and change both.
-constexpr std::array<RampStop, 9> maskRamp = {{{0.267, 0.005, 0.329},
-                                               {0.283, 0.141, 0.458},
-                                               {0.254, 0.265, 0.530},
-                                               {0.207, 0.372, 0.553},
-                                               {0.164, 0.471, 0.558},
-                                               {0.128, 0.567, 0.551},
-                                               {0.135, 0.659, 0.518},
-                                               {0.267, 0.749, 0.441},
-                                               {0.993, 0.906, 0.144}}};
-
-RampStop sampleRamp(double position) {
-    const double scaled = std::clamp(position, 0.0, 1.0) * (maskRamp.size() - 1);
-    const std::size_t low = static_cast<std::size_t>(scaled);
-    const std::size_t high = std::min(low + 1, maskRamp.size() - 1);
-    const double fraction = scaled - low;
-
-    return RampStop{maskRamp[low].red + (maskRamp[high].red - maskRamp[low].red) * fraction,
-                    maskRamp[low].green + (maskRamp[high].green - maskRamp[low].green) * fraction,
-                    maskRamp[low].blue + (maskRamp[high].blue - maskRamp[low].blue) * fraction};
+double maskStep(double position) {
+    const double clamped = std::clamp(position, 0.0, 1.0);
+    const double index =
+        std::min(std::floor(clamped * maskStepCount), static_cast<double>(maskStepCount - 1));
+    const double band = index / (maskStepCount - 1);
+    return darkestMaskStep + (lightestMaskStep - darkestMaskStep) * band;
 }
 
 std::uint8_t toByte(double channel) {
@@ -51,11 +36,11 @@ ThumbnailImage renderMaskThumbnail(const Heightfield& small, int size) {
     ThumbnailImage image{size, std::vector<std::uint8_t>(
                                    static_cast<std::size_t>(size) * size * 4, 255)};
     for (std::size_t index = 0; index < small.sampleCount(); ++index) {
-        const RampStop colour = sampleRamp((small.data()[index] - lowest) / relief);
+        const std::uint8_t grey = toByte(maskStep((small.data()[index] - lowest) / relief));
         std::uint8_t* pixel = image.rgba.data() + index * 4;
-        pixel[0] = toByte(colour.red);
-        pixel[1] = toByte(colour.green);
-        pixel[2] = toByte(colour.blue);
+        pixel[0] = grey;
+        pixel[1] = grey;
+        pixel[2] = grey;
     }
     return image;
 }

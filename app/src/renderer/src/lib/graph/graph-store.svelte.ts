@@ -22,6 +22,14 @@ import {
 import type { GraphProject } from '$shared/massifgraph';
 import { defaultParameters } from '$shared/registry-schema';
 
+/// A preview node named by a graph that no longer holds it is no preview at all.
+function survivingPreviewNodeId(project: GraphProject, surviving: Set<string>): string | null {
+	if (project.previewNodeId === null || !surviving.has(project.previewNodeId)) {
+		return null;
+	}
+	return project.previewNodeId;
+}
+
 /**
  * The single source of truth for the graph. The node editor renders this and
  * emits mutations; no editor component holds graph state of its own. Every
@@ -109,16 +117,17 @@ class GraphStore {
 		this.#touch();
 	}
 
-	/// The whole graph at once, as the code view hands it over. Selection and
-	/// preview survive for whatever nodes the new text still names.
-	replaceContents(nodes: GraphNodeDocument[], edges: GraphEdgeDocument[]): void {
-		const surviving = new Set(nodes.map((node) => node.id));
-		this.nodes = nodes;
-		this.edges = edges;
+	/// The whole project at once, as the code view hands it over: the text holds
+	/// the settings and the preview too, so an edit to either takes effect. The
+	/// file it was loaded from does not change, and neither does its being
+	/// unsaved.
+	replaceProject(project: GraphProject): void {
+		const surviving = new Set(project.graph.nodes.map((node) => node.id));
+		this.settings = project.graph.settings;
+		this.nodes = project.graph.nodes;
+		this.edges = project.graph.edges;
 		this.selectedNodeIds = this.selectedNodeIds.filter((id) => surviving.has(id));
-		if (this.previewNodeId !== null && !surviving.has(this.previewNodeId)) {
-			this.previewNodeId = null;
-		}
+		this.previewNodeId = survivingPreviewNodeId(project, surviving);
 		this.#touch();
 	}
 

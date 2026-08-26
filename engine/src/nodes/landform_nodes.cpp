@@ -44,13 +44,70 @@ GroundPoint warpedBy(const DomainWarp& warp, double eastingMeters, double northi
                        northingMeters + alongNorth * warp.amountMeters};
 }
 
-/// Crags, faded in by how high the underlying shape already stands, so a peak
-/// breaks up while its apron stays smooth.
+/// Crags, cut into the flanks and faded out as the shape nears its own
+/// summit, so the slopes break up while the peak stays a single peak.
 float cragged(float shaped, float ridges, float detailStrength) {
-    return shaped * (1.0f - detailStrength + detailStrength * ridges);
+    const float flank = 1.0f - shaped * shaped;
+    return shaped * (1.0f - detailStrength * flank * (1.0f - ridges));
 }
 
-const noise::FractalOptions ridgeOptions{6, 0.5f, 2.0f};
+const noise::FractalOptions spurOptions{3, 0.5f, 2.0f};
+
+/**
+ * The rock between the spurs. It falls off faster than 1/f, because a 1/f
+ * spectrum is equally rough at every scale and buries a landform under bumps
+ * of every size at once.
+ */
+const noise::FractalOptions rockOptions{3, 0.4f, 2.0f};
+
+float ridgesAt(const GroundPoint& point, float featureSizeMeters, std::uint64_t seed,
+               const noise::FractalOptions& options) {
+    return noise::ridged(static_cast<float>(point.eastingMeters) / featureSizeMeters,
+                         static_cast<float>(point.northingMeters) / featureSizeMeters, seed,
+                         options, 1.0f);
+}
+
+/**
+ * The ridged field the crags are cut from: coarse ridges read from a domain
+ * stretched down the slope, and finer ones read from the ground itself.
+ *
+ * Stretching every scale at once combs the whole surface into strands. Spurs
+ * are directional only at the large scale; the rock between them is not, and
+ * it is that isotropic band which keeps the slope from looking brushed.
+ */
+float craggyField(const GroundPoint& stretched, const GroundPoint& ground,
+                  float featureSizeMeters, std::uint64_t seed) {
+    const float spurs =
+        ridgesAt(stretched, featureSizeMeters, terrainSeedForLane(seed, 1), spurOptions);
+    const float rock =
+        ridgesAt(ground, featureSizeMeters * 0.35f, terrainSeedForLane(seed, 2), rockOptions);
+    return spurs * 0.65f + rock * 0.35f;
+}
+
+/**
+ * Where the ridged detail is read from around a summit: the ground point
+ * pulled radially toward a fixed ring about the centre.
+ *
+ * Damping how fast the reading position moves outward, while leaving its
+ * motion around the centre alone, stretches every noise feature along the
+ * slope. That is what makes a spur: a ridge that runs from the summit down to
+ * the foot, with a gully beside it. Because the ring keeps a finite radius,
+ * the spurs converge on the peak in a bounded number rather than collapsing
+ * into infinite frequency there.
+ */
+GroundPoint spurReadPoint(const GroundPoint& ground, const ShapePlacement& placement,
+                          double radiusMeters, float elongation) {
+    const double east = ground.eastingMeters - placement.centreEastingMeters;
+    const double north = ground.northingMeters - placement.centreNorthingMeters;
+    const double distance = std::hypot(east, north);
+    if (distance < 1.0e-6) {
+        return GroundPoint{placement.centreEastingMeters, placement.centreNorthingMeters};
+    }
+    const double ringRadiusMeters = radiusMeters * 0.5;
+    const double pulled = distance * (1.0 - elongation) + ringRadiusMeters * elongation;
+    return GroundPoint{placement.centreEastingMeters + east * pulled / distance,
+                       placement.centreNorthingMeters + north * pulled / distance};
+}
 
 /* ------------------------------------------------------------- Mountain -- */
 
@@ -74,7 +131,10 @@ const TerrainParameterDescriptor mountainParameters[] = {
     {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
      TerrainParameterType_Float, 600.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the mountain sits at", "m",
-     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0}};
+     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
+    {"spurElongation", "Spur length",
+     "How far the detail is drawn out into spurs running from the summit to the foot", "",
+     TerrainParameterType_Float, 0.6, 0.0, 0.95, "", nullptr, 0}};
 
 void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
@@ -89,6 +149,7 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
     const float detailStrength = static_cast<float>(api->parameterNumber(context, 7));
     const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 8));
     const float baseAltitude = static_cast<float>(api->parameterNumber(context, 9));
+    const float spurElongation = static_cast<float>(api->parameterNumber(context, 10));
 
     DomainWarp warp;
     warp.eastingSeed = terrainSeedForLane(seed, 1);
@@ -109,10 +170,9 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
                     placement.localPoint(ground.eastingMeters, ground.northingMeters);
                 const float base = radialProfileValue(RadialProfile::Smooth,
                                                       point.distanceFromCentre(), radiusMeters);
-                const float ridges = noise::ridged(
-                    static_cast<float>(ground.eastingMeters) / featureSizeMeters,
-                    static_cast<float>(ground.northingMeters) / featureSizeMeters, detailSeed,
-                    ridgeOptions, 1.0f);
+                const float ridges = craggyField(
+                    spurReadPoint(ground, placement, radiusMeters, spurElongation), ground,
+                    featureSizeMeters, detailSeed);
                 const float relief =
                     cragged(std::pow(base, peakSharpness), ridges, detailStrength);
                 line[column] = relief * height + baseAltitude;
@@ -131,7 +191,7 @@ const TerrainNodeDescriptor mountainDescriptor = {
     landformOutputs,
     1,
     mountainParameters,
-    10,
+    11,
     &evaluateMountain};
 
 /* -------------------------------------------------------- MountainRange -- */
@@ -166,7 +226,10 @@ const TerrainParameterDescriptor rangeParameters[] = {
     {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
      TerrainParameterType_Float, 700.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the range sits at", "m",
-     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0}};
+     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
+    {"spurElongation", "Spur length",
+     "How far the detail is drawn out into ribs running down the flanks of the spine", "",
+     TerrainParameterType_Float, 0.6, 0.0, 0.95, "", nullptr, 0}};
 
 struct RangePeak {
     double eastingMeters = 0.0;
@@ -246,6 +309,26 @@ float spineRelief(const std::vector<RangePeak>& peaks, const GroundPoint& ground
     return radialProfileValue(RadialProfile::Smooth, nearest, halfWidthMeters) * saddleHeight;
 }
 
+/**
+ * The range's answer to `spurReadPoint`: the ground point pulled toward the
+ * spine across the range rather than toward a summit. Damping the across-spine
+ * coordinate stretches the noise the same way, so its features become ribs
+ * running down the flanks and over the crest, instead of crumple laid over the
+ * whole chain.
+ */
+GroundPoint ribReadPoint(const GroundPoint& ground, const ShapePlacement& placement,
+                         const RangeAxis& axis, float elongation) {
+    const double east = ground.eastingMeters - placement.centreEastingMeters;
+    const double north = ground.northingMeters - placement.centreNorthingMeters;
+    const double along = east * axis.alongEast + north * axis.alongNorth;
+    const double across =
+        (east * axis.acrossEast + north * axis.acrossNorth) * (1.0 - elongation);
+    return GroundPoint{placement.centreEastingMeters + axis.alongEast * along
+                           + axis.acrossEast * across,
+                       placement.centreNorthingMeters + axis.alongNorth * along
+                           + axis.acrossNorth * across};
+}
+
 void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
     const ShapePlacement placement = placementFrom(frame, api->parameterNumber(context, 0),
@@ -260,10 +343,12 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
     const float detailStrength = static_cast<float>(api->parameterNumber(context, 12));
     const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 13));
     const float baseAltitude = static_cast<float>(api->parameterNumber(context, 14));
+    const float spurElongation = static_cast<float>(api->parameterNumber(context, 15));
 
+    const RangeAxis axis = axisFor(api->parameterNumber(context, 2));
     const std::vector<RangePeak> peaks = spineFrom(
-        placement, axisFor(api->parameterNumber(context, 2)), api->parameterNumber(context, 3),
-        widthMeters, static_cast<int>(api->parameterNumber(context, 5)),
+        placement, axis, api->parameterNumber(context, 3), widthMeters,
+        static_cast<int>(api->parameterNumber(context, 5)),
         static_cast<float>(api->parameterNumber(context, 7)), terrainSeedForLane(seed, 4));
 
     DomainWarp warp;
@@ -284,10 +369,9 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
                 const float shaped =
                     std::max(peakRelief(peaks, ground, peakSharpness),
                              spineRelief(peaks, ground, spineHalfWidth, saddleHeight));
-                const float ridges = noise::ridged(
-                    static_cast<float>(ground.eastingMeters) / featureSizeMeters,
-                    static_cast<float>(ground.northingMeters) / featureSizeMeters, detailSeed,
-                    ridgeOptions, 1.0f);
+                const float ridges =
+                    craggyField(ribReadPoint(ground, placement, axis, spurElongation), ground,
+                                featureSizeMeters, detailSeed);
                 line[column] = cragged(shaped, ridges, detailStrength) * height + baseAltitude;
             }
         }
@@ -304,7 +388,7 @@ const TerrainNodeDescriptor mountainRangeDescriptor = {
     landformOutputs,
     1,
     rangeParameters,
-    15,
+    16,
     &evaluateMountainRange};
 
 }  // namespace

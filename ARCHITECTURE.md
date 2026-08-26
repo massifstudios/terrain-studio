@@ -137,8 +137,8 @@ a change that would break a plugin breaks the built-ins first.
 
 The registry copies everything a descriptor points at, so a plugin may free
 its own storage the moment registration returns. `NodeRegistry::toJson()` is
-what the palette, the property panel, the DSL and the serializer read; none
-of them knows any node type by name.
+what the palette, the property panel, the code view and the serializer read;
+none of them knows any node type by name.
 
 ### One resolution per graph
 
@@ -423,57 +423,50 @@ slower than the CPU it replaced.
   allowed to write files. Without it, building straight after a preview serves
   the exporters from cache and puts nothing on disk.
 
-## 11. The DSL
+## 11. The code view
 
-The code view is the same graph as text. The grammar in full:
+The code view is the same graph as text, and the text is the `.massifgraph`
+document — the file of §7, serialized and parsed by the same module that saves
+and loads. **There is no second language for a graph.** A DSL would be a
+third spelling of the same data, drifting from both the file and the editor, and
+every node type would have to be expressible in it; JSON already round-trips
+whatever a plugin registered.
 
-```
-program   = { statement }
-statement = name "=" typeName "(" [ arguments ] ")"
-arguments = argument { "," argument }
-argument  = input | parameter
-input     = name [ "." outputPort ] | "_"
-parameter = name ":" value
-value     = number | string | "true" | "false" | enumOptionName
-```
-
-`#` runs to the end of the line. Whitespace, including newlines, is
-insignificant — a statement may span lines, because `)` followed by
-`name =` is unambiguous.
-
-```
-dem    = ImportDEM(path: "diffusion.massifdem")
-slope  = SlopeMask(dem, minimumSlope: 25, maximumSlope: 55)
-eroded = HydraulicErosion(dem, slope, density: 2, capacity: 1.5)
-trees  = GrowthMask(eroded, eroded.Flow)
-forest = Scatter(trees, eroded, spacing: 14)
-out    = ExportPoints(forest, format: json)
+```json
+{
+	"version": 1,
+	"settings": { "resolution": 1024, "world_size_meters": 20000, "seed": 7, ... },
+	"preview_node_id": "eroded",
+	"nodes": [
+		{ "id": "dem", "type": "ImportDEM", "x": 40, "y": 20,
+		  "parameters": { "path": "diffusion.massifdem", ... } }
+	],
+	"edges": [
+		{ "from_node_id": "dem", "from_port": 0, "to_node_id": "eroded", "to_port": 0 }
+	]
+}
 ```
 
-- **The graph is the source of truth; the text is printed and parsed against
-  the registry.** No type name, port name, parameter name or parameter type is
-  written down in the DSL implementation, so a plugin's node reads and writes
+- **The graph is the source of truth; the text is serialized from it and parsed
+  back against the registry.** `parseGraph` checks the shape and the version;
+  `graphComplaints` checks it against the registry. No type name, port name or
+  parameter name is written down in either, so a plugin's node reads and writes
   like a built-in with no change here.
-- **A node must be defined before it is named**, which makes a cycle
-  unwritable rather than merely rejected — there is no second cycle check in
-  the parser. Printing is therefore topological.
-- **Inputs are positional and come before named parameters**, and `_` leaves
-  one unconnected. Naming inputs as well would put port names and parameter
-  names in one namespace, where a collision would be silent. A trailing run of
-  unconnected inputs is simply left off.
-- **Only parameters that differ from the registry default are printed**, and
-  parsing fills the rest back in. The text stays readable, and a changed
-  default cannot silently alter a graph that was saved with the old one.
-- **An unknown type name is refused, and the message asks about plugins.** The
-  DSL is hand-written, so a typo must not quietly become a placeholder node; a
-  project with a missing plugin still prints, but will not apply until the
-  plugin is back.
+- **Ports are indices, and positions are in the text.** The document is the
+  whole graph, so applying it moves nodes as well as rewiring them — nothing is
+  inferred and nothing is laid out.
+- **Every parameter is written, at its default or not.** A changed default
+  cannot silently alter a graph that was saved with the old one.
+- **An unknown type name is refused, and the message asks about plugins.** A
+  typo must not quietly become a placeholder node; a project with a missing
+  plugin still prints, but will not apply until the plugin is back.
+- **Nothing is applied until the whole document is good.** A half-typed edit
+  parses as broken JSON and is reported, not applied, so the graph cannot be
+  emptied by a keystroke.
 - **The text is authoritative only while it has focus.** Every keystroke that
-  parses is applied to the graph immediately; leaving the box prints the graph
-  again, which is where the text is tidied. Reprinting under the cursor would
-  fight the typing.
-- **Node positions are not in the text.** A node the editor already knows keeps
-  its position; new nodes are laid out by dependency depth into columns.
+  parses cleanly is applied to the graph immediately; leaving the box serializes
+  the graph again, which is where the text is tidied. Reprinting under the
+  cursor would fight the typing.
 
 ## 12. Plugins
 
@@ -566,8 +559,7 @@ out    = ExportPoints(forest, format: json)
 
 ## 14. The command line
 
-`cli/` is `massif`: the same engine, the same graph file and the same DSL, with
-no window. It exists so that a build can run in CI, and so that a program — an
+`cli/` is `massif`: the same engine and the same graph file, with no window. It exists so that a build can run in CI, and so that a program — an
 agent, a script, a render farm — can author a graph without anything having to
 speak a protocol. `.claude/skills/massif/` is the author-facing page.
 
@@ -579,12 +571,16 @@ speak a protocol. `.claude/skills/massif/` is the author-facing page.
 - **It runs on the addon, not on a second engine.** `cli/src/engine.ts` loads
   the very binary the utilityProcess loads, so there is no build of the engine
   that only the command line exercises.
-- **The DSL and the serializer are the app's, imported as they stand.** Nothing
-  in `cli/` parses or prints a graph itself, so text written by the command and
-  text written by the code view cannot drift. `app/src/shared/` is therefore
-  shared with the command as well as between Electron's processes, and holds
-  only framework-free logic. The node body metrics live there for the same
-  reason: `apply` lays out new nodes exactly as the code view does.
+- **The serializer and the validator are the app's, imported as they stand.**
+  Nothing in `cli/` parses or prints a graph itself, so a file written by the
+  command and a file written by the app cannot drift, and `apply` refuses
+  exactly what the code view refuses. `app/src/shared/` is therefore shared with
+  the command as well as between Electron's processes, and holds only
+  framework-free logic.
+- **`apply` replaces the file, it does not merge into it.** The document holds
+  the settings, the positions and the preview, so there is nothing left for the
+  command to carry over from what was there before — what the caller wrote is
+  what the editor opens.
 - **The addon's surface is declared once**, in `app/src/shared/engine-addon.ts`,
   so the host and the command cannot describe different functions.
 - **Nothing in `cli/` names a node type.** `nodes` and `describe` read the

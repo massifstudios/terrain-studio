@@ -32,8 +32,8 @@ the repo.
   and raise it.
 - **Never modify anything under `../massif/`.** It is context, not workspace.
 - **Nodes are registered, not enumerated.** Adding a node is one C++
-  registration; palette, property panel, DSL and serializer pick it up from
-  the registry. If adding a node requires a frontend edit, the registry is
+  registration; palette, property panel, code view and serializer pick it up
+  from the registry. If adding a node requires a frontend edit, the registry is
   broken — fix that instead.
 - **The registry is the plugin boundary.** Custom nodes load from shared
   libraries against a stable, versioned C ABI (the SDK header in
@@ -110,8 +110,8 @@ After completing all requested changes, and before committing:
    need one; pure refactors and comment/style edits do not. If you decide no
    new test is needed, say so in one sentence. Engine tests are Catch2 in
    `engine/tests/`; frontend logic tests use `bun test`, and cover pure
-   logic only (DSL round-trip, serialization, schema mapping) — no E2E or
-   screenshot tests.
+   logic only (serialization round-trip, graph validation, schema mapping) — no
+   E2E or screenshot tests.
 2. Run `task test` regardless of whether you wrote a new test. It must run
    both the engine suite and the frontend suite.
 3. If tests fail, fix the code until they pass. Never delete, skip, weaken,

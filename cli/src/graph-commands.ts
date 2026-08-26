@@ -1,23 +1,21 @@
 /**
- * Reading and rewriting the graph as text. The DSL is the whole editing
- * surface: a caller writes statements, this parses them against the registry
- * and lays out whatever is new, and the result is a `.massifgraph` the editor
- * opens without knowing where it came from.
+ * Reading and rewriting the graph. The `.massifgraph` JSON is the whole editing
+ * surface: a caller writes the document, this checks it against the registry,
+ * and the result is a file the editor opens without knowing where it came from.
  */
 
 import { readFileSync } from 'node:fs';
 import type { GraphProject } from '$shared/massifgraph';
+import { parseGraph, serializeGraph } from '$shared/massifgraph';
 import type { RegistrySchema } from '$shared/graph-document';
-import { parseDsl, printDsl } from '$shared/graph-dsl';
-import { laidOut } from '$shared/graph-layout';
-import type { GraphContents } from '$shared/graph-operations';
-import { findNodeSchema } from '$shared/registry-schema';
+import { graphComplaints } from '$shared/graph-validation';
 import { countOf } from './plural';
-import { readProject, readStandardInput, requireProject, writeProject } from './project';
+import { readStandardInput, requireProject, writeProject } from './project';
 
-export function printGraph(registry: RegistrySchema, path: string): void {
-	const project = requireProject(path);
-	process.stdout.write(printDsl(project.graph, registry));
+/// The file as the serializer writes it, so a graph printed and applied back is
+/// the same bytes rather than merely the same meaning.
+export function printGraph(path: string): void {
+	process.stdout.write(serializeGraph(requireProject(path)));
 }
 
 function readSource(fromPath: string | null): string {
@@ -27,87 +25,33 @@ function readSource(fromPath: string | null): string {
 	return readFileSync(fromPath, 'utf8');
 }
 
-/// The preview node is a name in the same namespace, so a rewrite that drops it
-/// drops the preview with it rather than leaving a dangling id behind.
-function survivingPreviewNodeId(project: GraphProject, contents: GraphContents): string | null {
-	const surviving = new Set(contents.nodes.map((node) => node.id));
-	if (project.previewNodeId === null || !surviving.has(project.previewNodeId)) {
-		return null;
+function requireValidGraph(project: GraphProject, registry: RegistrySchema): void {
+	const complaints = graphComplaints(project.graph, registry);
+	if (complaints.length > 0) {
+		throw new Error(complaints.join('\n'));
 	}
-	return project.previewNodeId;
 }
 
 /**
- * Replaces the whole graph with what the text says, keeping the settings and
- * the position of every node the file already had. New nodes are laid out by
- * dependency depth, the same way the editor's code view places them.
+ * Replaces the whole file with the document the text holds — settings, node
+ * positions and preview included. Nothing is carried over from what was there
+ * before, so what the caller wrote is exactly what the editor opens.
  */
-export function applyDsl(registry: RegistrySchema, path: string, fromPath: string | null): void {
-	const project = readProject(path);
-	const parsed = parseDsl(readSource(fromPath), registry);
-	const nodes = laidOut(parsed, registry, project.graph.nodes);
-	writeProject(path, {
-		graph: { settings: project.graph.settings, nodes, edges: parsed.edges },
-		previewNodeId: survivingPreviewNodeId(project, parsed)
-	});
+export function applyGraph(registry: RegistrySchema, path: string, fromPath: string | null): void {
+	const project = parseGraph(readSource(fromPath));
+	requireValidGraph(project, registry);
+	writeProject(path, project);
 	console.error(
-		`Wrote ${countOf(nodes.length, 'node')} and ${countOf(parsed.edges.length, 'edge')} to ${path}`
+		`Wrote ${countOf(project.graph.nodes.length, 'node')} and ` +
+			`${countOf(project.graph.edges.length, 'edge')} to ${path}`
 	);
-}
-
-function unknownTypeComplaints(project: GraphProject, registry: RegistrySchema): string[] {
-	const complaints: string[] = [];
-	for (const node of project.graph.nodes) {
-		if (findNodeSchema(registry, node.typeName) === null) {
-			complaints.push(`${node.id}: no node type '${node.typeName}' — is a plugin missing?`);
-		}
-	}
-	return complaints;
-}
-
-function edgeComplaints(project: GraphProject, registry: RegistrySchema): string[] {
-	const complaints: string[] = [];
-	for (const edge of project.graph.edges) {
-		const complaint = describeEdgeFault(edge, project, registry);
-		if (complaint !== null) {
-			complaints.push(complaint);
-		}
-	}
-	return complaints;
-}
-
-function describeEdgeFault(
-	edge: GraphProject['graph']['edges'][number],
-	project: GraphProject,
-	registry: RegistrySchema
-): string | null {
-	const from = project.graph.nodes.find((node) => node.id === edge.fromNodeId);
-	const to = project.graph.nodes.find((node) => node.id === edge.toNodeId);
-	if (!from || !to) {
-		return `${edge.fromNodeId} -> ${edge.toNodeId}: an end of this edge is not in the graph`;
-	}
-	const output = findNodeSchema(registry, from.typeName)?.outputs[edge.fromPort];
-	const input = findNodeSchema(registry, to.typeName)?.inputs[edge.toPort];
-	if (!output || !input) {
-		return `${edge.fromNodeId} -> ${edge.toNodeId}: this edge uses a port that does not exist`;
-	}
-	if (output.type !== input.type) {
-		return `${edge.fromNodeId} -> ${edge.toNodeId}: ${output.type} cannot feed ${input.type}`;
-	}
-	return null;
 }
 
 /// Throws rather than printing a verdict, so a shell reading the exit code and
 /// a person reading the output learn the same thing.
 export function validateGraph(registry: RegistrySchema, path: string): void {
 	const project = requireProject(path);
-	const complaints = [
-		...unknownTypeComplaints(project, registry),
-		...edgeComplaints(project, registry)
-	];
-	if (complaints.length > 0) {
-		throw new Error(complaints.join('\n'));
-	}
+	requireValidGraph(project, registry);
 	console.error(`${path} is a valid graph of ${countOf(project.graph.nodes.length, 'node')}`);
 }
 

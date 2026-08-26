@@ -8,7 +8,7 @@ namespace terrain {
 /**
  * A transfer curve: an editable mapping from [0, 1] to [0, 1] that a node
  * applies to a normalised field. Stored as text ("x,y;x,y;...") because that
- * is what crosses the plugin ABI, `.massifgraph`, and the DSL unchanged.
+ * is what crosses the plugin ABI and `.massifgraph` unchanged.
  *
  * Interpolation is monotone cubic (Fritsch-Carlson), which follows the points
  * smoothly without the overshoot a natural spline would add — an overshoot

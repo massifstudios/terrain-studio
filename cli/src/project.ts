@@ -5,24 +5,7 @@
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { emptyGraphSettings } from '$shared/graph-document';
 import { parseGraph, serializeGraph, type GraphProject } from '$shared/massifgraph';
-
-export function emptyProject(): GraphProject {
-	return {
-		graph: { settings: emptyGraphSettings(), nodes: [], edges: [] },
-		previewNodeId: null
-	};
-}
-
-/// A file that is not there yet reads as an empty project, so applying a first
-/// graph makes one rather than demanding the file be created first.
-export function readProject(path: string): GraphProject {
-	if (!existsSync(path)) {
-		return emptyProject();
-	}
-	return parseGraph(readFileSync(path, 'utf8'));
-}
 
 export function requireProject(path: string): GraphProject {
 	if (!existsSync(path)) {

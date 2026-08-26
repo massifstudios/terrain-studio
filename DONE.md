@@ -89,47 +89,42 @@ one of ours.
 ## T8 — The graph as code
 
 The bottom panel's second tab is no longer a placeholder. The same graph is
-now readable and editable as a few lines of text.
+now readable and editable as the `.massifgraph` document itself.
 
 **What works**
 
-- Every graph prints as one line per node, names lined up, in the order the
-  data flows:
+- The text in the panel is the file: the same JSON the project saves as, sorted
+  the same way, settings and preview node included.
 
-  ```
-  dem    = ImportDEM(path: "diffusion.massifdem")
-  slope  = SlopeMask(dem, minimumSlope: 25, maximumSlope: 55)
-  eroded = HydraulicErosion(dem, slope, density: 2, capacity: 1.5)
-  out    = Export(eroded, path: "refined.massifdem")
+  ```json
+  { "id": "eroded", "type": "HydraulicErosion", "x": 420, "y": 60,
+    "parameters": { "density": 2, "capacity": 1.5, ... } }
   ```
 
-- Editing the text edits the graph, line by line as you type. Anything that
-  does not read cleanly is refused with the line it went wrong on, and the
-  graph is left alone until it does.
-- Extra outputs are named: `eroded.Flow` takes the water rather than the
-  ground. `_` leaves an input deliberately unconnected.
-- Comments start with `#`, blank lines are free, and a long node can be
-  broken over several lines.
-- Nodes you add in text appear in the graph laid out left to right by what
-  feeds what; nodes you had already placed by hand stay exactly where you put
-  them.
+- Editing the text edits the graph as you type. Anything that does not parse,
+  or that names a node type or a port the engine does not have, is refused with
+  what went wrong, and the graph is left alone until it reads cleanly.
+- Positions and wiring are both in the text, so applying a document moves nodes
+  as well as reconnecting them.
+- There is no second language for a graph: what the app writes to disk is what
+  the panel shows and what `massif apply` takes.
 
 **Where things are**
 
-- `app/src/shared/graph-dsl.ts` — the grammar, reader and writer.
+- `app/src/shared/massifgraph.ts` — the reader and writer.
+- `app/src/shared/graph-validation.ts` — checking a document against the registry.
 - `app/src/renderer/src/lib/graph/CodeView.svelte` — the panel.
-- `ARCHITECTURE.md` §11 — the grammar written out in full.
+- `ARCHITECTURE.md` §11 — the format and the rules around it.
 
 **Useful to know**
 
-- Only settings you have changed are written. Everything left alone is filled
-  back in from the node itself, which keeps the text short and readable.
-- A node has to be written before it can be used, so a loop is not something
-  you can even type.
+- Every parameter is written, whether or not it differs from the node's default,
+  so a later change to a default cannot quietly alter a saved graph.
+- Ports are indices into the lists `massif describe` prints, not names.
 - While your cursor is in the box the text is left exactly as you typed it;
   clicking away tidies it up.
-- The seed, world size and resolutions stay in the top bar — they belong to
-  the project, not to the graph.
+- The seed, world size and resolution are in the document as well as in the top
+  bar — editing either one is the same edit.
 
 ## T7 — Texturing and vegetation
 

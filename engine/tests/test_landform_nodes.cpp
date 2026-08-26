@@ -80,6 +80,34 @@ TEST_CASE("detail roughens the slopes without lifting the summit",
     REQUIRE_FALSE(isConstant(*field));
 }
 
+TEST_CASE("detail leaves the summit alone and bites hardest on the flanks",
+          "[nodes][mountain]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    addPlainMountain(graph, "plain");
+    terrain::GraphNode& rough = addPlainMountain(graph, "rough");
+    rough.parameters["detailStrength"] = ParameterValue{1.0, ""};
+
+    const auto plainField = evaluateNode(graph, "plain");
+    const auto roughField = evaluateNode(graph, "rough");
+    const float atSummit = plainField->at(middle, middle) - roughField->at(middle, middle);
+    const float onFlank = plainField->at(middle, middle + 10) - roughField->at(middle, middle + 10);
+    REQUIRE(atSummit < 20.0f);
+    REQUIRE(onFlank > atSummit);
+}
+
+TEST_CASE("drawing the detail out into spurs changes the slopes", "[nodes][mountain]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& round = addPlainMountain(graph, "round");
+    round.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    round.parameters["spurElongation"] = ParameterValue{0.0, ""};
+    terrain::GraphNode& spurred = addPlainMountain(graph, "spurred");
+    spurred.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    spurred.parameters["spurElongation"] = ParameterValue{0.9, ""};
+
+    REQUIRE(hashField(*evaluateNode(graph, "round"))
+            != hashField(*evaluateNode(graph, "spurred")));
+}
+
 TEST_CASE("a mountain draws the same shape at any thread count",
           "[nodes][mountain][determinism]") {
     Graph graph = squareGraph(resolution, worldSize);
@@ -131,6 +159,20 @@ TEST_CASE("changing the peak count changes the range", "[nodes][mountainrange]")
 
     REQUIRE(hashField(*evaluateNode(graph, "few"))
             != hashField(*evaluateNode(graph, "many")));
+}
+
+TEST_CASE("drawing a range's detail out into ribs changes its flanks",
+          "[nodes][mountainrange]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& round = graph.addNode("round", "MountainRange");
+    round.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    round.parameters["spurElongation"] = ParameterValue{0.0, ""};
+    terrain::GraphNode& ribbed = graph.addNode("ribbed", "MountainRange");
+    ribbed.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    ribbed.parameters["spurElongation"] = ParameterValue{0.9, ""};
+
+    REQUIRE(hashField(*evaluateNode(graph, "round"))
+            != hashField(*evaluateNode(graph, "ribbed")));
 }
 
 TEST_CASE("a range draws the same chain at any thread count",

@@ -73,7 +73,7 @@ struct NodeType {
 };
 
 /**
- * The one place node types come from. Palette, property panel, DSL and
+ * The one place node types come from. Palette, property panel, code view and
  * serializer all read this and nothing else, which is what makes adding a node
  * a single registration. It is also the plugin boundary: built-ins go through
  * exactly the C entry point plugins use.

@@ -2,8 +2,8 @@
 /**
  * `massif` — Terrain Studio's engine from a terminal.
  *
- * The same graph file, the same DSL and the same engine binary the app uses,
- * with no window in the way. Results go to standard output; everything a person
+ * The same graph file and the same engine binary the app uses, with no window
+ * in the way. Results go to standard output; everything a person
  * reads while a command runs goes to standard error, so a pipe carries only the
  * answer.
  */
@@ -11,7 +11,7 @@
 import type { EngineAddon } from '$shared/engine-addon';
 import type { RegistrySchema } from '$shared/graph-document';
 import { buildGraph } from './build-command';
-import { applyDsl, printGraph, setSettings, validateGraph } from './graph-commands';
+import { applyGraph, printGraph, setSettings, validateGraph } from './graph-commands';
 import { openEngine, readRegistry } from './engine';
 import { describeNode, listNodes } from './registry-commands';
 import {
@@ -29,9 +29,9 @@ const usage = `massif — Terrain Studio without a window
   massif describe <TypeName>       one node's ports and parameters
   massif registry                  the whole registry as JSON
 
-  massif print <graph>             the graph as DSL text
+  massif print <graph>             the graph as .massifgraph JSON
   massif apply <graph> [--from <file>]
-                                   replace the graph with DSL, stdin by default
+                                   replace the graph with JSON, stdin by default
   massif validate <graph>          check every type, edge and port
   massif set <graph> [--resolution N] [--seed N] [--world-size M]
                                    [--preview-node <id>]
@@ -45,9 +45,13 @@ The engine binary comes from TERRAIN_ENGINE_ADDON, or from the repository's own
 build. Plugin directories come from TERRAIN_PLUGIN_PATH.
 `;
 
-/// Needs no engine, so it works on a machine where the addon has not been
-/// built.
+/// Reads and writes the file without asking the registry anything, so these
+/// work on a machine where the addon has not been built.
 function runOfflineCommand(parsed: ParsedArguments): boolean {
+	if (parsed.command === 'print') {
+		printGraph(positionalAt(parsed, 0, 'a graph file'));
+		return true;
+	}
 	if (parsed.command !== 'set') {
 		return false;
 	}
@@ -81,12 +85,8 @@ async function runGraphCommand(
 	addon: EngineAddon,
 	registry: RegistrySchema
 ): Promise<boolean> {
-	if (parsed.command === 'print') {
-		printGraph(registry, positionalAt(parsed, 0, 'a graph file'));
-		return true;
-	}
 	if (parsed.command === 'apply') {
-		applyDsl(registry, positionalAt(parsed, 0, 'a graph file'), optionalText(parsed, 'from'));
+		applyGraph(registry, positionalAt(parsed, 0, 'a graph file'), optionalText(parsed, 'from'));
 		return true;
 	}
 	if (parsed.command === 'validate') {

@@ -15,7 +15,7 @@ struct RgbColor {
  * An editable gradient: an ordered set of coloured stops over [0, 1].
  *
  * Stored as text, `"0:#1e2d24;0.5:#8d7b5f;1:#ffffff"`, because that is what
- * crosses the plugin ABI, `.massifgraph`, and the DSL unchanged. Positions are
+ * crosses the plugin ABI and `.massifgraph` unchanged. Positions are
  * in [0, 1] and colours are six-digit hex.
  */
 class ColorRamp {
