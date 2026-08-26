@@ -48,23 +48,25 @@ Rules that hold while working through this list:
 
 ## 1. What Terrain Studio has today
 
-38 registered node types:
+56 registered node types, by the category each one registers under:
 
-**Generate** — `Perlin`, `RidgedNoise`, `Voronoi`, `Constant`, `Gradient`
-**Input** — `Input`, `ImportDEM`, `File`
-**Filter** — `Blur`, `Clamp`, `Curve`, `Filter`, `Terrace`, `Warp`
-**Combine** — `Combine` (Add/Subtract/Multiply/Min/Max), `Lerp`, `Mask`
-**Mask** — `HeightMask`, `SlopeMask`, `AspectMask`, `CurvatureMask`,
-`FlowMask`, `GrowthMask`
-**Simulate** — `HydraulicErosion`, `ThermalErosion`, `Erode`, `Deposit`
-**Scatter** — `Scatter`, `Vegetation`
-**Texture** — `Texture`, `ColorRamp`, `MixColor`, `SplatWeights`
-**Output** — `Output`, `Export`, `ExportColor`, `ExportPNG16`, `ExportPoints`,
-`ExportSplat`
+**Input** — `ImportDEM`, `Constant`, `Gradient`, `RadialGradient`, `Shape`
+**Generate** — `Perlin`, `RidgedNoise`, `Voronoi`, `Pattern`, `Noise`
+**Terrain** — `Mountain`, `MountainRange`
+**Filter** — `Blur`, `Sharpen`, `Clamp`, `Terrace`, `Curve`, `Warp`, `Flip`,
+`Repeat`, `Pixelate`, `Edge`, `Autolevel`, `Equalize`, `Match`, `SoftClip`
+**Combine** — `Add`, `Subtract`, `Multiply`, `Min`, `Max`, `Lerp`, `Compare`
+**Mask** — `HeightMask`, `SlopeMask`, `AspectMask`, `CurvatureMask`, `FlowMask`
+**Erode** — `HydraulicErosion`, `ThermalErosion`, `Deposit`
+**Vegetation** — `GrowthMask`, `Scatter`
+**Texture** — `ColorRamp`, `MixColor`, `SplatWeights`, `Gamma`, `HSL`,
+`RGBSplit`, `RGBMerge`, `ColorThreshold`
+**Output** — `Export`, `ExportPNG16`, `ExportColor`, `ExportSplat`,
+`ExportPoints`
 
-Coverage against Gaea: **31 of 183 covered or partially covered (~17%)**, but
-those 31 sit on the load-bearing machinery (noise, erosion, flow accumulation,
-masking, colour, export), so the remainder is mostly breadth rather than depth.
+Coverage against Gaea: **56 of 183 covered or partially covered (~31%)**. The
+load-bearing machinery — noise, erosion, flow accumulation, masking, colour,
+export — was already there; W1 added the breadth around it.
 
 ---
 
@@ -74,8 +76,8 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 
 | Gaea node | What it does | Status | Notes |
 | --- | --- | --- | --- |
-| Mountain | General-purpose mountain primitive | gap | Highest value node in the family |
-| MountainRange | Full range, shaped for large-scale erosion | gap | Ridge network + fBm skirt |
+| Mountain | General-purpose mountain primitive | have | `Mountain`: domain-warped radial mass with ridged crags |
+| MountainRange | Full range, shaped for large-scale erosion | have | `MountainRange`: jittered summits on a bearing, joined by a saddled ridge |
 | MountainSide | Single slope / mountainside form | gap | Cheap once Mountain exists |
 | Ridge | Rugged ridgeline with fractures and shearing | partial | `RidgedNoise` covers the noise, not the landform |
 | Rugged | Strong rocky surface preserving overall shape | gap | Detail overlay, not a base shape |
@@ -94,7 +96,7 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | Gaea node | What it does | Status | Notes |
 | --- | --- | --- | --- |
 | Perlin | Geo-tuned Perlin fBm | have | |
-| Noise | Single-pixel noise onto terrain | gap | Trivial; white noise + amplitude |
+| Noise | Single-pixel noise onto terrain | have | `Noise`; resolution-dependent by nature, and documented as such |
 | MultiFractal | Multi-noise with wide variation | partial | `RidgedNoise` is one variant; want the family |
 | Cellular | Cell-based patterns | partial | `Voronoi` covers cells/walls/plates |
 | Cellular3D | 3D cellular noise | gap | Sample a 3D lattice at height-driven z |
@@ -104,14 +106,14 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | LineNoise | Distortable line sets for layered ridges | gap | Geometry generator |
 | DotNoise | Dotted / speckled noise | gap | Shares scatter machinery |
 | Cracks | Large cracked patterns | gap | Voronoi edge distance + width falloff |
-| Pattern | Repeatable geometric patterns | gap | Enum of analytic patterns |
+| Pattern | Repeatable geometric patterns | have | `Pattern`: checker, stripes, grid, bricks, dots |
 | WaveShine | Wave-like rippling patterns | gap | Analytic |
 | Constant | Uniform value | have | |
 | LinearGradient | Straight gradient | have | `Gradient` |
-| RadialGradient | Circular gradient | gap | Small |
-| Cone | Conical gradient | gap | Small |
-| Hemisphere | Hemispherical gradient | gap | Small |
-| Shape | Basic geometric shapes | gap | Enum: disc, box, polygon, ring |
+| RadialGradient | Circular gradient | have | `RadialGradient` |
+| Cone | Conical gradient | have | `RadialGradient`, linear profile |
+| Hemisphere | Hemispherical gradient | have | `RadialGradient`, dome profile |
+| Shape | Basic geometric shapes | have | `Shape`: disc, square, ring, regular polygon |
 | Draw | Hand-drawn mountain ranges | host | Needs a canvas parameter type (§4) |
 | File | Load image/data as terrain | have | `ImportDEM` / `File` |
 | Object | Load mesh/object data | host | Needs mesh input (§4) |
@@ -170,7 +172,7 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | Bulbous | Inflates shapes volumetrically | gap | Morphological dilation with falloff |
 | Bomber | Stamps an input across the surface | gap | Core stamping node — unlocks the family |
 | Sand | Medium and small sand patterns | gap | Directional ripple |
-| Grid | Regular grid pattern | gap | Trivial |
+| Grid | Regular grid pattern | have | `Pattern`, grid mode |
 
 ### 2.5 Modify (41) — filters and transforms
 
@@ -182,7 +184,7 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | SlopeWarp | Directional warp along guide slopes | gap | Shares SlopeBlur code |
 | Denoise | General noise removal | gap | Bilateral filter |
 | Median | Median filter, edge preserving | gap | Fixed-radius histogram median |
-| Sharpen | Enhances edges and small structures | gap | Unsharp mask |
+| Sharpen | Enhances edges and small structures | have | `Sharpen`: unsharp mask over the existing blur |
 | Aperture | Expands or compacts every feature | gap | Morphological open/close |
 | Dilate | Dilate pixels | gap | Morphology |
 | Deflate | Removes bulk, leaves fine detail | gap | High-pass |
@@ -192,13 +194,13 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | Curve | Adjusts the height curve | have | |
 | Adjust | Modifier-stack in node form | partial | `Filter` overlaps; brightness/contrast/gamma stack |
 | Clamp | Squash, clip, or extend heights | have | |
-| Clip | Cuts against a threshold | partial | `Clamp` covers most of it |
-| SoftClip | Soft intensity reduction above a threshold | gap | Smoothstep shoulder |
+| Clip | Cuts against a threshold | have | `Clamp`; a separate node would duplicate it |
+| SoftClip | Soft intensity reduction above a threshold | have | `SoftClip`: exponential shoulder, either side |
 | Threshold | Eliminates values above/below | partial | `Clamp` + `HeightMask` |
-| Extend | Stretches elevation beyond current limits | gap | Small |
-| Autolevel | Auto-levels the terrain | gap | Histogram normalisation |
-| Equalize | Balances the histogram | gap | Histogram equalisation |
-| Match | Matches heights to a reference input | gap | Histogram matching |
+| Extend | Stretches elevation beyond current limits | have | `Autolevel`'s explicit floor and ceiling |
+| Autolevel | Auto-levels the terrain | have | `Autolevel`, with percentile ends |
+| Equalize | Balances the histogram | have | `Equalize` |
+| Match | Matches heights to a reference input | have | `Match` |
 | GraphicEQ | Multi-band filter across scales | gap | Needs a Laplacian pyramid |
 | Filter | Profile-based value reshaping | have | |
 | Heal | Reconstructs low-res or 8-bit data | gap | Detail synthesis; hard to do well |
@@ -213,9 +215,9 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | Transform | Move, rotate, scale | gap | Needs a sampling/edge policy decision |
 | Transform3D | Full 3D transform including rotation | gap | Only meaningful with a mesh view |
 | Transpose | Applies a reference terrain's character | gap | Frequency transplant |
-| Flip | Horizontal / vertical flip | gap | Trivial |
+| Flip | Horizontal / vertical flip | have | `Flip` |
 | TriplanarDisplacement | Triplanar-projected displacement | gap | Needs normals |
-| Pixelate | Blocky downsample | gap | Trivial |
+| Pixelate | Blocky downsample | have | `Pixelate`, block size in ground units |
 | Meshify | Faceted mesh-like surface | gap | Planar segmentation |
 
 ### 2.6 Derive (14) — data maps
@@ -235,7 +237,7 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | RockMap | Rock coverage mask | gap | Slope + curvature + noise composite |
 | TextureBase | Material distribution base for colour | partial | `Texture` overlaps |
 | Texturizer | Preset-driven texture masks | skip | Preset wrapper |
-| ColorThreshold | Threshold on colour input | gap | Small, needs colour ports (we have them) |
+| ColorThreshold | Threshold on colour input | have | `ColorThreshold`, on luminance or one channel |
 
 ### 2.7 Colorize (13)
 
@@ -245,10 +247,10 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | SatMap | Satellite-style palettes | partial | `ColorRamp` is the mechanism; presets are Gaea's own data |
 | Tint | Two-colour blend across a range | have | `MixColor` / `ColorRamp` |
 | Splat | RGBA channels into one heightfield | have | `SplatWeights` inverse |
-| RGBSplit | Colour to three heightfields | gap | Trivial |
-| RGBMerge | Three heightfields to colour | gap | Trivial |
-| HSL | Hue/saturation/lightness adjust | gap | Small |
-| Gamma | Gamma adjust | gap | Small |
+| RGBSplit | Colour to three heightfields | have | `RGBSplit` |
+| RGBMerge | Three heightfields to colour | have | `RGBMerge`; an absent channel reads as 0 |
+| HSL | Hue/saturation/lightness adjust | have | `HSL` |
+| Gamma | Gamma adjust | have | `Gamma` |
 | Weathering | Brightens protrusions, darkens crevices | gap | Curvature-driven colour |
 | ColorErosion | Erosion-style colour transport | gap | Reuses erosion transport on colour |
 | WaterColor | Shallow/deep water tinting | gap | Needs a water depth map |
@@ -280,11 +282,11 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 | Mask | Post-hoc masking of an effect | have | |
 | Mixer | Layer-based colour mixing with masking | partial | `MixColor` is single-pair |
 | Layers | Stacked blend operations | gap | Variadic input count |
-| Compare | Diff two heightfields | gap | Inspection aid |
+| Compare | Diff two heightfields | have | `Compare`: unsigned, optionally normalised, reads as a mask |
 | DataExtractor | Extract boundaries, differences, modifier maps | gap | Grab bag; split into real nodes |
-| Edge | Fades terrain edges to nothing | gap | Trivial and immediately useful |
+| Edge | Fades terrain edges to nothing | have | `Edge`, to any value rather than only to zero |
 | Seamless | Makes any input tileable | gap | Mirror/offset blend |
-| Repeat | Tiles a terrain | gap | Trivial |
+| Repeat | Tiles a terrain | have | `Repeat`, with mirroring so the seams close |
 | Accumulator | Merges many masks without clutter | gap | Variadic max/add |
 | Chokepoint | Reconnection helper, no memory cost | skip | Our evaluator caches by content hash |
 | Gate | Forces ancestors to bake | skip | Same |
@@ -300,12 +302,13 @@ masking, colour, export), so the remainder is mostly breadth rather than depth.
 
 ## 3. Where the gap actually is
 
-Of 183 Gaea nodes: **31 covered or partial**, **13 skipped by policy**,
-**12 blocked on host features**, **127 implementable as registrations today**.
+Of 183 Gaea nodes: **56 covered or partial**, **13 skipped by policy**,
+**12 blocked on host features**, **102 implementable as registrations today**.
 
-Of those 127, roughly 40 are near-trivial (analytic shapes, channel maths,
-single-pass filters) and about 15 are genuinely hard (Rivers, Lake, Glacier,
-Sea, Heal, Stratify, Erosion2, Snow, Lichtenberg, Meshify).
+Of those 102, roughly 15 are still near-trivial and about 15 are genuinely hard
+(Rivers, Lake, Glacier, Sea, Heal, Stratify, Erosion2, Snow, Lichtenberg,
+Meshify). W1 took most of the cheap breadth; what is left is mostly machinery
+first, nodes second.
 
 ---
 
@@ -341,17 +344,17 @@ first; they are engine-internal helpers, not nodes.
 | # | Machinery | Nodes it unlocks |
 | --- | --- | --- |
 | M1 | Extended noise library — cellular 2D/3D, Gabor, drift, line, multifractal family | 10 primitives |
-| M2 | Analytic shape rasteriser — cone, hemisphere, radial, disc, polygon, ring | 6 primitives |
+| M2 | Analytic shape rasteriser — cone, hemisphere, radial, disc, polygon, ring | 6 primitives — **landed**, `engine/src/nodes/shape_support.h` |
 | M3 | Deterministic stamp compositor — instance list, per-instance seed, blend modes | Bomber, Stones, RockNoise, Pockmarks, CraterField, Outcrops, Debris, DotNoise, Whorl |
 | M4 | Exact Euclidean distance transform (Felzenszwalb) | Distance, BlobRemover, Island, Sand, Scree, coastal falloff |
-| M5 | Histogram toolkit — CDF, equalise, match, normalise | Autolevel, Equalize, Match, Adjust, Extend |
+| M5 | Histogram toolkit — CDF, equalise, match, normalise | Autolevel, Equalize, Match, Adjust, Extend — **landed**, `terrain/histogram.h` |
 | M6 | Morphology — dilate, erode, open, close with a shaped structuring element | Dilate, Deflate, Aperture, Bulbous, BlobRemover |
 | M7 | Guided-warp sampler — offset field, bilinear fetch, edge policy | DirectionalWarp, SlopeWarp, SlopeBlur, Swirl, Transform, Seamless, Repeat, Flip |
 | M8 | Laplacian / mip pyramid | GraphicEQ, VariableBlur, Deflate, Sharpen, Hillify |
 | M9 | Strata engine — band table, per-band jitter, dip angle | Stratify, FractalTerraces, Sandstone, Shear, Steps, Contours |
 | M10 | Depression handling — priority flood, fill and breach | Lake, Rivers, HydroFix, Anastomosis, Sea |
 | M11 | Horizon scan (multi-azimuth ray march) | Occlusion, AO, Shade, LightX, Sunlight |
-| M12 | Colour utilities — channel split/merge, HSL, gamma, palette sampling | 8 colorize nodes |
+| M12 | Colour utilities — channel split/merge, HSL, gamma, palette sampling | 8 colorize nodes — **landed** bar palette sampling, `terrain/color_space.h` |
 
 M3, M4, and M7 have the best unlock-per-effort ratio. M10 and M11 are the two
 that need real algorithmic care.
@@ -364,17 +367,37 @@ Waves are ordered so each one is shippable on its own and leaves the graph
 strictly more useful. Each wave: build the machinery, register the nodes, land
 the tests in the same change.
 
-### W1 — Cheap breadth (≈25 nodes)
+### W1 — Cheap breadth — **landed**
 
 Machinery: **M2**, **M5**, **M12**.
 
-Nodes: RadialGradient, Cone, Hemisphere, Shape, Grid, Pattern, Noise, Flip,
-Pixelate, Repeat, Edge, Extend, Autolevel, Equalize, Match, SoftClip, Clip,
-Threshold, Gamma, HSL, RGBSplit, RGBMerge, ColorThreshold, Sharpen, Compare.
+Landed as 20 registrations covering the 25 Gaea entries, plus `Mountain` and
+`MountainRange` pulled forward from W4. No new SDK surface; the palette,
+property panel and command line picked all of it up from the registry with no
+frontend edit.
 
-Every one is a single-pass, closed-form filter. No new SDK surface. This wave
-roughly doubles the node count and is the fastest way to make the palette feel
-complete.
+Registered: `RadialGradient`, `Shape`, `Pattern`, `Noise`, `Flip`, `Repeat`,
+`Pixelate`, `Edge`, `Autolevel`, `Equalize`, `Match`, `SoftClip`, `Sharpen`,
+`Compare`, `Gamma`, `HSL`, `RGBSplit`, `RGBMerge`, `ColorThreshold`, and the
+two landforms.
+
+Five Gaea entries did not become nodes of their own, because each would have
+duplicated one that already exists:
+
+- **Cone** and **Hemisphere** are `RadialGradient` profiles. The three differ
+  only in the falloff curve.
+- **Grid** is a `Pattern` mode, alongside checkers, stripes, bricks and dots.
+- **Extend** is `Autolevel` with its floor and ceiling set explicitly, which is
+  what that node's target parameters are.
+- **Clip** is `Clamp`, and **Threshold** is `Clamp` feeding `HeightMask`.
+  Neither adds a capability.
+
+`Mountain` and `MountainRange` both draw an analytic mass and then domain-warp
+the ground it is read from — a circle stays a circle however much detail is
+laid over it, so the silhouette has to be what breaks. Ridged crags fade in by
+how high the shape already stands. A range derives each summit's jitter from
+its own index rather than from a running generator, so changing the peak count
+leaves the summits that were already there in place.
 
 ### W2 — Filter depth (≈12 nodes)
 
@@ -405,13 +428,12 @@ accumulation.
 
 Machinery: **M4**, plus W3's stamping.
 
-Nodes: Mountain, MountainRange, MountainSide, Ridge, Rugged, Plates, Slump,
-Uplift, Crater, CraterField, Volcano, Distance, BlobRemover, Bulbous, Fold,
-Origami, Shatter, Sand, DuneSea.
+Nodes: MountainSide, Ridge, Rugged, Plates, Slump, Uplift, Crater, CraterField,
+Volcano, Distance, BlobRemover, Bulbous, Fold, Origami, Shatter, Sand, DuneSea.
 
-Mountain and MountainRange are the two highest-value nodes in the entire
-list — they are what makes a blank graph productive. Prioritise them within
-the wave.
+Mountain and MountainRange were the two highest-value nodes in the entire list
+— they are what makes a blank graph productive — so they landed with W1 rather
+than waiting for this wave. MountainSide is cheap on top of `Mountain`.
 
 ### W5 — Water (≈8 nodes)
 
@@ -485,8 +507,13 @@ Applies to each node as it lands, not as a later pass:
 6. Resolution independence: parameters in ground units, not cells, wherever
    the feature has a physical size.
 
-## 8. Nearest first step
+## 8. Nearest next step
 
-W1 as a single wave. It is 25 nodes of closed-form maths, needs no SDK change,
-carries almost no determinism risk, and takes coverage from ~17% to ~30%. W8's
-H1–H3 is the best second target because it unblocks automation everywhere else.
+W1 is done, along with Mountain and MountainRange; coverage stands at ~31%.
+
+Next is W8's **H1–H3** — scalar ports, graph variables, an expression
+evaluator. They are one coherent piece of work, they are independent of every
+other wave, and they unblock parameter automation across the whole palette,
+which is worth more than any further node count. W2 can run alongside it: M7,
+the guided-warp sampler, is the single highest unlock-per-effort item left, and
+`SlopeBlur` and `SlopeWarp` fall straight out of it.
