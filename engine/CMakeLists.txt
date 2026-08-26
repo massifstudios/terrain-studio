@@ -7,7 +7,27 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(TERRAIN_ENGINE_BUILD_TESTS "Build the engine test binary" ON)
 
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+include(CMakeDependentOption)
+include(EmbedShaders)
+include(FetchContent)
+
 find_package(ZLIB REQUIRED)
+
+# Vulkan is resolved at runtime, so only the headers are a build dependency;
+# a machine with no loader still builds, and erodes on the CPU.
+cmake_dependent_option(TERRAIN_ENGINE_ENABLE_VULKAN
+    "Build the Vulkan compute backend for erosion" ON "TERRAIN_GLSLC" OFF)
+
+if(TERRAIN_ENGINE_ENABLE_VULKAN)
+    FetchContent_Declare(
+        VulkanHeaders
+        GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git
+        GIT_TAG v1.4.313
+        GIT_SHALLOW ON
+    )
+    FetchContent_MakeAvailable(VulkanHeaders)
+endif()
 
 add_library(terrain_engine STATIC
     src/version.cpp
@@ -55,10 +75,34 @@ target_include_directories(terrain_engine PUBLIC
 
 target_link_libraries(terrain_engine PRIVATE ZLIB::ZLIB ${CMAKE_DL_LIBS})
 
+if(TERRAIN_ENGINE_ENABLE_VULKAN)
+    target_sources(terrain_engine PRIVATE
+        src/gpu/vulkan_api.cpp
+        src/gpu/vulkan_device.cpp
+        src/gpu/float_parity.cpp
+    )
+    target_link_libraries(terrain_engine PRIVATE Vulkan::Headers)
+    target_compile_definitions(terrain_engine PRIVATE TERRAIN_WITH_VULKAN=1)
+    target_include_directories(terrain_engine PRIVATE src/gpu)
+    terrain_embed_shaders(terrain_engine SHADERS src/gpu/shaders/float_parity.comp)
+
+    add_executable(terrain_gpu_probe tools/gpu_probe.cpp)
+    target_link_libraries(terrain_gpu_probe PRIVATE terrain_engine Vulkan::Headers ${CMAKE_DL_LIBS})
+    target_include_directories(terrain_gpu_probe PRIVATE src/gpu)
+    target_compile_features(terrain_gpu_probe PRIVATE cxx_std_20)
+endif()
+
 target_compile_features(terrain_engine PUBLIC cxx_std_20)
 target_compile_definitions(terrain_engine PRIVATE
     TERRAIN_ENGINE_VERSION="${PROJECT_VERSION}"
 )
+
+# A contracted multiply-add rounds once where the GPU's rounds twice, or the
+# other way about. The erosion result has to match on both, so the host is
+# denied the contraction the shaders cannot be given.
+if(NOT MSVC)
+    target_compile_options(terrain_engine PRIVATE -ffp-contract=off)
+endif()
 
 # The bridge links the engine into a shared .node module.
 set_target_properties(terrain_engine PROPERTIES POSITION_INDEPENDENT_CODE ON)

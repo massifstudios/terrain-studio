@@ -1,0 +1,61 @@
+#version 450
+
+/*
+ * Evaluates one arithmetic routine over a list of float bit patterns, so the
+ * host can compare the device's answer against its own bit for bit.
+ *
+ * This shader is the gate on the whole GPU erosion path. A device is only
+ * trusted with a terrain after it has reproduced the CPU exactly here, which
+ * is a stronger statement than any capability bit: no vendor exposes control
+ * over 32-bit denormal handling, so the only honest way to know is to look.
+ */
+
+#extension GL_GOOGLE_include_directive : require
+#include "exact_math.glsl"
+
+layout(local_size_x = 256) in;
+
+layout(std430, binding = 0) readonly buffer FirstOperands { uint firstOperands[]; };
+layout(std430, binding = 1) readonly buffer SecondOperands { uint secondOperands[]; };
+layout(std430, binding = 2) writeonly buffer Results { uint results[]; };
+
+layout(push_constant) uniform Settings {
+    uint operation;
+    uint firstPattern;
+    uint isSequential;
+    uint count;
+} settings;
+
+const uint operationReciprocal = 0;
+const uint operationSquareRoot = 1;
+const uint operationDivide = 2;
+const uint operationRoundToInt = 3;
+
+float firstOperandAt(uint index) {
+    if (settings.isSequential != 0) {
+        return uintBitsToFloat(settings.firstPattern + index);
+    }
+    return uintBitsToFloat(firstOperands[index]);
+}
+
+uint evaluate(uint index) {
+    float first = firstOperandAt(index);
+    if (settings.operation == operationReciprocal) {
+        return floatBitsToUint(terrainReciprocal(first));
+    }
+    if (settings.operation == operationSquareRoot) {
+        return floatBitsToUint(terrainSquareRoot(first));
+    }
+    if (settings.operation == operationRoundToInt) {
+        return uint(terrainRoundToInt(first));
+    }
+    return floatBitsToUint(terrainDivide(first, uintBitsToFloat(secondOperands[index])));
+}
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= settings.count) {
+        return;
+    }
+    results[index] = evaluate(index);
+}
