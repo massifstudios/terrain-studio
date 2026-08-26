@@ -6,7 +6,8 @@
 	const tones: Record<string, StatusTone> = {
 		starting: 'amber',
 		ready: 'green',
-		crashed: 'red'
+		crashed: 'amber',
+		unavailable: 'red'
 	};
 
 	const label = $derived.by(() => {
@@ -17,7 +18,10 @@
 			return 'Engine ready';
 		}
 		if (engineClient.status === 'crashed') {
-			return 'Engine crashed';
+			return 'Engine crashed — restarting';
+		}
+		if (engineClient.status === 'unavailable') {
+			return 'Engine will not start';
 		}
 		return 'Engine starting';
 	});

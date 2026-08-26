@@ -63,7 +63,7 @@ class EngineClient {
 
 	#handleStatus(status: EngineStatus): void {
 		this.status = status;
-		if (status === 'crashed') {
+		if (status === 'crashed' || status === 'unavailable') {
 			this.#dropPort();
 		}
 	}

@@ -10,6 +10,7 @@ import {
 	canConnect,
 	inDependencyOrder,
 	nextNodeId,
+	outputNodeIds,
 	placeholderSchema,
 	reachesDownstream,
 	withConnection,
@@ -45,7 +46,11 @@ const registry: RegistrySchema = {
 		schema('Constant', [], [port('Out', 'field')]),
 		schema('Blur', [port('In', 'field')], [port('Out', 'field')]),
 		schema('ColorRamp', [port('In', 'field')], [port('Out', 'color')]),
-		schema('MixColor', [port('A', 'color')], [port('Out', 'color')])
+		schema('MixColor', [port('A', 'color')], [port('Out', 'color')]),
+		{
+			...schema('Export', [port('In', 'field')], [port('Out', 'field')]),
+			category: 'Output'
+		}
 	]
 };
 
@@ -177,6 +182,28 @@ describe('dependency order', () => {
 		};
 
 		expect(inDependencyOrder(looped)).toHaveLength(3);
+	});
+});
+
+describe('what a build evaluates', () => {
+	test('every writing node, and nothing else', () => {
+		const contents = chain();
+		contents.nodes.push(node('export1', 'Export'), node('export2', 'Export'));
+		contents.edges.push(
+			{ fromNodeId: 'blur2', fromPort: 0, toNodeId: 'export1', toPort: 0 },
+			{ fromNodeId: 'blur1', fromPort: 0, toNodeId: 'export2', toPort: 0 }
+		);
+
+		expect(outputNodeIds(contents, registry)).toEqual(['export1', 'export2']);
+	});
+
+	test('nothing at all when the graph writes nothing', () => {
+		expect(outputNodeIds(chain(), registry)).toEqual([]);
+	});
+
+	test('a node whose type is not installed is never built', () => {
+		const contents = { nodes: [node('mystery1', 'Speckle')], edges: [] };
+		expect(outputNodeIds(contents, registry)).toEqual([]);
 	});
 });
 

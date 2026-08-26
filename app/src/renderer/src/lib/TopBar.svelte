@@ -3,9 +3,9 @@
 	import ArrowsClockwise from 'phosphor-svelte/lib/ArrowsClockwise';
 	import FloppyDisk from 'phosphor-svelte/lib/FloppyDisk';
 	import FolderOpen from 'phosphor-svelte/lib/FolderOpen';
-	import Play from 'phosphor-svelte/lib/Play';
 	import { graphStore } from '$lib/graph/graph-store.svelte';
 	import { parseGraph, serializeGraph } from '$shared/massifgraph';
+	import BuildControl from './BuildControl.svelte';
 	import EngineStatusIndicator from './EngineStatusIndicator.svelte';
 	import PluginIndicator from './PluginIndicator.svelte';
 
@@ -102,7 +102,7 @@
 			/>
 		</label>
 
-		<Button size="sm" variant="primary" icon={Play} disabled>Build</Button>
+		<BuildControl />
 		<PluginIndicator />
 		<EngineStatusIndicator />
 	</div>

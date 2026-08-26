@@ -444,7 +444,42 @@ out    = ExportPoints(forest, format: json)
   evaluates it, and checks it is deterministic across thread counts. A second
   throwaway plugin declaring a future ABI version pins the refusal path.
 
-## 13. Code style
+## 13. Build and recovery
+
+- **A build is every node in the `Output` category, evaluated one at a time.**
+  The category is the registry's own grouping, not a list of type names, so a
+  plugin's writer is built exactly like a built-in one. Exporters share almost
+  all of their upstream work, and the cache means the second one of a pair
+  costs milliseconds — so there is nothing to gain from running them at once,
+  and a clear reason not to: two full-resolution branches at 8192 would double
+  the peak memory.
+- **The build resolution replaces the preview one for that run only.** It is a
+  session preference; the project file carries the graph's own resolution and
+  nothing about how you last built it.
+- **A build stops at the first failure** rather than writing half a set of
+  files. Cancelling is the same path: the engine is told to cancel, the
+  current node returns, and the loop ends.
+- **Previews are paused for the duration.** A preview at 512 running beside a
+  build would only evict the cached results the build is filling in. The last
+  preview request is kept and runs when the build lets go.
+- **Only a build writes files**, which the engine decides from `isFinalBuild`
+  in the evaluation options — never the UI, and never a node deciding for
+  itself.
+- **A crashed engine is relaunched by the main process**, up to four times in
+  a row; a fifth crash leaves the status at `unavailable` rather than looping
+  forever, which is what a plugin faulting on load would otherwise do. A
+  successful launch resets the count.
+- **Every renderer that had a port is handed a fresh one when the new engine
+  reports ready.** The old port died with the process. The renderer adopts the
+  new one and asks the engine to describe itself again, which is how the
+  registry and the plugin list come back. A window that never asked for a port
+  is left alone.
+- **In-flight requests fail rather than hang** when the engine goes: the
+  request ledger rejects everything outstanding, and both the preview runner
+  and the build runner treat a rejection as "nothing to draw" rather than
+  letting it escape as an unhandled rejection.
+
+## 14. Code style
 
 `CLAUDE.md` is authoritative. Engine C++: `PascalCase` types, `camelCase`
 functions and variables, `snake_case` file names. TypeScript/Svelte:

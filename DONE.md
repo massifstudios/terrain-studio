@@ -1,5 +1,43 @@
 # Done
 
+## T10 — Build, and standing back up
+
+The tool is finished: what you preview, you can now produce.
+
+**What works**
+
+- **Build.** One button takes the graph you have been previewing at 512 and
+  runs it at the resolution you chose, writing every file the graph asks for
+  — the DEM and its preview image, splat maps, colour maps, point sets. It
+  shows which output it is on and what the engine is chewing on, and it can
+  be cancelled at any point.
+- A build stops at the first thing that goes wrong rather than leaving you
+  with half a set of files, and says what it was.
+- Previews hold still while a build runs, and pick up again by themselves
+  afterwards. Nothing has to be clicked twice.
+- If the engine falls over, the app does not. It says so, starts a new one,
+  and the graph, the palette and the plugins come back on their own. If it
+  cannot start at all after a few tries it says that instead of flickering
+  forever.
+
+**Where things are**
+
+- `app/src/renderer/src/lib/build-runner.svelte.ts` — what a build does.
+- `app/src/main/engine-connection.ts` — supervising and relaunching the
+  engine.
+
+**Useful to know**
+
+- A build runs every node in the **Output** group. If a graph has none, the
+  build says so rather than appearing to succeed silently.
+- Exporters that share their upstream work only pay for it once — a second
+  export off the same terrain takes milliseconds.
+- The build resolution is a setting of your session, not of the project. The
+  file remembers the graph, not how you last built it.
+- Every colour in the interface comes from the shared design system. The one
+  exception is the window's own background before the page has painted, which
+  Electron needs before any stylesheet exists.
+
 ## T9 — Plugins
 
 Terrain Studio can now be extended without touching it. Someone else's node

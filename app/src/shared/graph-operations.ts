@@ -209,6 +209,22 @@ export function inDependencyOrder(contents: GraphContents): GraphNodeDocument[] 
 	return ordered;
 }
 
+/// The category a node declares when it writes files. It is the registry's own
+/// grouping rather than a list of type names, so a plugin's writer is built
+/// exactly like a built-in one.
+export const outputCategory = 'Output';
+
+/// What a Build evaluates: every writing node, in dependency order so that the
+/// work two exporters share is done once and served from cache the second time.
+export function outputNodeIds(
+	contents: GraphContents,
+	registry: RegistrySchema | null
+): string[] {
+	return inDependencyOrder(contents)
+		.filter((node) => findNodeSchema(registry, node.typeName)?.category === outputCategory)
+		.map((node) => node.id);
+}
+
 export function withParameter(
 	nodes: GraphNodeDocument[],
 	nodeId: string,

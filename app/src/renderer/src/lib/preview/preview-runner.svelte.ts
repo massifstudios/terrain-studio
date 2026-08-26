@@ -20,6 +20,7 @@ class PreviewRunner {
 	#pending: ReturnType<typeof setTimeout> | null = null;
 	#generation = 0;
 	#requested: { graph: GraphDocument; nodeId: string | null } | null = null;
+	#isPaused = false;
 
 	/// The caller passes a snapshot so the reactive read happens where the edit
 	/// was made, not later inside the debounce.
@@ -27,6 +28,17 @@ class PreviewRunner {
 		this.#requested = { graph, nodeId };
 		if (this.#pending !== null) {
 			clearTimeout(this.#pending);
+		}
+		this.#pending = setTimeout(() => this.#run(), debounceMilliseconds);
+	}
+
+	/// Held while a build runs: a build owns the engine, and a preview at 512
+	/// alongside it would only evict the very results the build is filling the
+	/// cache with. The last request is kept and runs once the build lets go.
+	setPaused(paused: boolean): void {
+		this.#isPaused = paused;
+		if (paused || this.#requested === null) {
+			return;
 		}
 		this.#pending = setTimeout(() => this.#run(), debounceMilliseconds);
 	}
@@ -61,12 +73,22 @@ class PreviewRunner {
 		return null;
 	}
 
-	async #evaluate(graph: GraphDocument, nodeId: string): Promise<EvaluateResult> {
-		return engineClient.evaluate({ graph, nodeId, outputPort: 0, thumbnailResolution });
+	/// Null when the engine went away mid-evaluation. Nothing is drawn and
+	/// nothing throws; the crash is reported by the status indicator, and the
+	/// next request will find a restarted engine.
+	async #evaluate(graph: GraphDocument, nodeId: string): Promise<EvaluateResult | null> {
+		try {
+			return await engineClient.evaluate({ graph, nodeId, outputPort: 0, thumbnailResolution });
+		} catch {
+			return null;
+		}
 	}
 
 	async #run(): Promise<void> {
 		this.#pending = null;
+		if (this.#isPaused) {
+			return;
+		}
 		const requested = this.#requested;
 		if (!engineClient.isReady || !requested || requested.nodeId === null) {
 			previewState.field = null;
@@ -84,6 +106,10 @@ class PreviewRunner {
 		const nodeId = requested.nodeId;
 		const outcome = await this.#evaluate(graph, nodeId);
 		if (generation !== this.#generation) {
+			return;
+		}
+		if (outcome === null) {
+			this.isEvaluating = false;
 			return;
 		}
 
@@ -124,7 +150,7 @@ class PreviewRunner {
 			return;
 		}
 		const surface = await this.#evaluate(graph, surfaceNodeId);
-		if (generation !== this.#generation) {
+		if (generation !== this.#generation || surface === null) {
 			return;
 		}
 		previewState.field = surface.field;

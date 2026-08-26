@@ -7,10 +7,19 @@ import { delimiter, join } from 'node:path';
 import { app, MessageChannelMain, utilityProcess, type UtilityProcess, type WebContents } from 'electron';
 import type { EngineStatus } from '../shared/engine-protocol';
 
+/// How long to wait before relaunching a crashed engine, and how many crashes
+/// in a row are allowed before the app stops trying. A plugin that faults on
+/// load would otherwise crash forever at full speed.
+const restartDelayMilliseconds = 750;
+const restartAttemptLimit = 4;
+
 let engineProcess: UtilityProcess | null = null;
 let engineStatus: EngineStatus = 'starting';
 let shuttingDown = false;
+let consecutiveCrashes = 0;
+let restartTimer: ReturnType<typeof setTimeout> | null = null;
 const statusListeners = new Set<WebContents>();
+const connectedRenderers = new Set<WebContents>();
 
 function resolveAddonPath(): string {
 	const override = process.env.TERRAIN_ENGINE_ADDON;
@@ -58,22 +67,57 @@ export function startEngine(): void {
 	});
 
 	engineProcess.on('message', (message: { status?: string }) => {
-		if (message.status === 'ready') {
-			setStatus('ready');
+		if (message.status !== 'ready') {
+			return;
 		}
+		consecutiveCrashes = 0;
+		setStatus('ready');
+		reconnectRenderers();
 	});
 
 	// A deliberate shutdown also fires 'exit'; only an unasked-for one is a crash.
 	engineProcess.on('exit', () => {
 		engineProcess = null;
 		if (!shuttingDown) {
-			setStatus('crashed');
+			handleCrash();
 		}
 	});
 }
 
+function handleCrash(): void {
+	consecutiveCrashes += 1;
+	if (consecutiveCrashes > restartAttemptLimit) {
+		setStatus('unavailable');
+		return;
+	}
+	setStatus('crashed');
+	restartTimer = setTimeout(restartEngine, restartDelayMilliseconds);
+}
+
+function restartEngine(): void {
+	restartTimer = null;
+	if (shuttingDown) {
+		return;
+	}
+	startEngine();
+}
+
+/// A renderer's port died with the process it led to, so every window that had
+/// one is handed a fresh one. The renderer adopts it and asks the engine to
+/// describe itself again, which is how the registry and the plugin list come
+/// back. A window that never asked for a port is left alone.
+function reconnectRenderers(): void {
+	for (const contents of connectedRenderers) {
+		connectRenderer(contents);
+	}
+}
+
 export function stopEngine(): void {
 	shuttingDown = true;
+	if (restartTimer !== null) {
+		clearTimeout(restartTimer);
+		restartTimer = null;
+	}
 	if (!engineProcess) {
 		return;
 	}
@@ -83,15 +127,21 @@ export function stopEngine(): void {
 
 export function trackStatus(contents: WebContents): void {
 	statusListeners.add(contents);
-	contents.once('destroyed', () => statusListeners.delete(contents));
+	contents.once('destroyed', () => forget(contents));
 	contents.send('engine:status', engineStatus);
 }
 
+function forget(contents: WebContents): void {
+	statusListeners.delete(contents);
+	connectedRenderers.delete(contents);
+}
+
 export function connectRenderer(contents: WebContents): void {
-	if (!engineProcess) {
+	if (!engineProcess || contents.isDestroyed()) {
 		return;
 	}
 	const channel = new MessageChannelMain();
 	engineProcess.postMessage(null, [channel.port1]);
 	contents.postMessage('engine:port', null, [channel.port2]);
+	connectedRenderers.add(contents);
 }

@@ -10,6 +10,8 @@ function createWindow(): BrowserWindow {
 		minWidth: 1100,
 		minHeight: 700,
 		show: false,
+		// Painted before the page is, so it cannot come from a design-system
+		// token; it is the system's `--bg` written out, and changes with it.
 		backgroundColor: '#141416',
 		autoHideMenuBar: true,
 		webPreferences: {

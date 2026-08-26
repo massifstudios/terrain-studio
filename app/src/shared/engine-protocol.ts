@@ -140,7 +140,9 @@ export function isProgressEvent(message: EngineOutbound): message is EngineProgr
 	return (message as EngineProgressEvent).event === 'progress';
 }
 
-export type EngineStatus = 'starting' | 'ready' | 'crashed';
+/// `crashed` is temporary — the main process is already relaunching.
+/// `unavailable` means it crashed on launch too often to keep trying.
+export type EngineStatus = 'starting' | 'ready' | 'crashed' | 'unavailable';
 
 /** Channel name of the `window.postMessage` hop that hands the port to the page. */
 export const enginePortChannel = 'engine:port';
