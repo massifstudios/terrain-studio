@@ -41,6 +41,7 @@ add_executable(terrain_engine_tests
     test_evaluator.cpp
     test_curve.cpp
     test_noise.cpp
+    test_histogram.cpp
     test_nodes.cpp
     test_erosion.cpp
     test_erosion_gpu.cpp

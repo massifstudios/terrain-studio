@@ -42,6 +42,8 @@ add_library(terrain_engine STATIC
     src/hash.cpp
     src/curve.cpp
     src/color_ramp.cpp
+    src/color_space.cpp
+    src/histogram.cpp
     src/noise.cpp
     src/json_writer.cpp
     src/resample.cpp
@@ -60,6 +62,7 @@ add_library(terrain_engine STATIC
     src/formats/texture_maps.cpp
     src/formats/point_files.cpp
     src/nodes/node_support.cpp
+    src/nodes/shape_support.cpp
     src/nodes/builtin_nodes.cpp
     src/nodes/input_nodes.cpp
     src/nodes/generate_nodes.cpp
