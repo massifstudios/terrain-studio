@@ -26,7 +26,8 @@
 	} from './hillshade';
 	import { applyDrape, buildPointMarkers, colorTexture, maskTexture } from './drapes';
 	import { previewState } from './preview-state.svelte';
-	import { buildTerrainGeometry, cellAtGroundPosition, spanMetersOf } from './terrain-mesh';
+	import { pickHeightfieldCell } from './heightfield-pick';
+	import { buildTerrainGeometry, spanMetersOf } from './terrain-mesh';
 
 	let container = $state<HTMLDivElement | null>(null);
 
@@ -114,7 +115,7 @@
 
 	function reportCursor(event: PointerEvent): void {
 		const field = previewState.field;
-		if (!mesh || !field || !renderer) {
+		if (!field || !renderer) {
 			return;
 		}
 		const bounds = renderer.domElement.getBoundingClientRect();
@@ -123,12 +124,11 @@
 			-((event.clientY - bounds.top) / bounds.height) * 2 + 1
 		);
 		raycaster.setFromCamera(pointer, camera);
-		const [hit] = raycaster.intersectObject(mesh);
-		if (!hit) {
+		const cell = pickHeightfieldCell(field, raycaster.ray);
+		if (!cell) {
 			previewState.clearCursor();
 			return;
 		}
-		const cell = cellAtGroundPosition(field, hit.point.x, hit.point.z);
 		previewState.setCursorCell(cell.row, cell.column);
 	}
 
