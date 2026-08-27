@@ -292,10 +292,15 @@ float sampleBilinearClamped(const float* field, int size, float row, float colum
 }
 
 /**
- * The two displacement components both come from the warp field, read a third
- * of the grid apart. One field cannot supply two independent offsets, and a
- * fixed large shift decorrelates them far better than using the field twice
- * would, without needing a second input the artist has to wire up.
+ * The two displacement components both come from the warp field, the second
+ * read from the field turned a quarter turn. One field cannot supply two
+ * independent offsets, and a rotation decorrelates them everywhere but the
+ * single cell at the centre, which is the one place the turn holds still.
+ *
+ * Reading the second component at a cyclic shift instead would be cheaper to
+ * describe and wrong: a warp field has no reason to be periodic, so wherever
+ * the shift wrapped it would jump from one edge of the field to the other and
+ * lay a seam straight across the grid.
  */
 void evaluateWarp(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const int size = api->width(context);
@@ -305,18 +310,16 @@ void evaluateWarp(const TerrainContextApi* api, TerrainEvaluationContext* contex
     const float amountCells =
         static_cast<float>(api->parameterNumber(context, 0) / api->cellSizeMeters(context));
     const FieldRange range = fieldRange(warp, count);
-    const int shift = size / 3;
 
     std::vector<float> warped(count);
     forEachRowRange(api, context, size, [&](int firstRow, int lastRow) {
         for (int row = firstRow; row < lastRow; ++row) {
-            const int shiftedRow = (row + shift) % size;
             for (int column = 0; column < size; ++column) {
                 const std::size_t index = static_cast<std::size_t>(row) * size + column;
-                const std::size_t shiftedIndex =
-                    static_cast<std::size_t>(shiftedRow) * size + (column + shift) % size;
+                const std::size_t turnedIndex =
+                    static_cast<std::size_t>(size - 1 - column) * size + row;
                 const float alongColumns = range.normalise(warp[index]) * 2.0f - 1.0f;
-                const float alongRows = range.normalise(warp[shiftedIndex]) * 2.0f - 1.0f;
+                const float alongRows = range.normalise(warp[turnedIndex]) * 2.0f - 1.0f;
                 warped[index] = sampleBilinearClamped(input, size, row + alongRows * amountCells,
                                                       column + alongColumns * amountCells);
             }

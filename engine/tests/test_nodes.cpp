@@ -196,6 +196,46 @@ TEST_CASE("a warp with an amount actually displaces", "[nodes][filter]") {
     REQUIRE(hashField(*evaluateNode(graph, "warp")) != hashField(*evaluateNode(graph, "ramp")));
 }
 
+TEST_CASE("a warp lays no seam across the field", "[nodes][filter]") {
+    // A warp needs two displacement components and is given one field, so it
+    // reads that field a second time from somewhere else. Read it at a cyclic
+    // shift and the wrap jumps from one edge of the field to the other, which
+    // draws a discontinuity clean across the grid at the shift distance.
+    Graph graph = northwardRamp(0.0, 100.0);
+    terrain::GraphNode& noise = graph.addNode("noise", "Perlin");
+    noise.parameters["featureSize"] = ParameterValue{2000.0, ""};
+    noise.parameters["octaves"] = ParameterValue{2.0, ""};
+    terrain::GraphNode& warp = graph.addNode("warp", "Warp");
+    warp.parameters["amount"] = ParameterValue{400.0, ""};
+    graph.connect("ramp", 0, "warp", 0);
+    graph.connect("noise", 0, "warp", 1);
+
+    const auto field = evaluateNode(graph, "warp");
+    REQUIRE(field != nullptr);
+
+    std::vector<double> rowBend(resolution, 0.0);
+    std::vector<double> columnBend(resolution, 0.0);
+    double totalBend = 0.0;
+    for (int row = 1; row < resolution - 1; ++row) {
+        for (int column = 1; column < resolution - 1; ++column) {
+            const double bend = std::abs(field->at(column + 1, row) + field->at(column - 1, row)
+                                         + field->at(column, row + 1) + field->at(column, row - 1)
+                                         - 4.0 * field->at(column, row));
+            rowBend[row] += bend;
+            columnBend[column] += bend;
+            totalBend += bend;
+        }
+    }
+
+    // No single line may bend far harder than the field does on average. The
+    // seam this guards against stood over twenty times the mean.
+    const double meanLine = totalBend / (resolution - 2);
+    for (int line = 1; line < resolution - 1; ++line) {
+        REQUIRE(rowBend[line] < meanLine * 8.0);
+        REQUIRE(columnBend[line] < meanLine * 8.0);
+    }
+}
+
 /* ---------------------------------------------------------------- Masks -- */
 
 TEST_CASE("a slope mask measures the angle of the ground", "[nodes][mask]") {
