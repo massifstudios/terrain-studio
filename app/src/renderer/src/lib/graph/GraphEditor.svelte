@@ -18,7 +18,7 @@
 		type PortTarget
 	} from '$shared/graph-geometry';
 	import { graphStore } from './graph-store.svelte';
-	import { nodeStatusStore, type NodeStatus } from './node-status.svelte';
+	import { nodeStatusStore } from './node-status.svelte';
 	import GraphNodeView from './GraphNodeView.svelte';
 	import NodePalette from './NodePalette.svelte';
 	import { findNodeSchema } from '$shared/registry-schema';
@@ -124,16 +124,6 @@
 		return edgePath(start, pendingEdge.cursor);
 	});
 
-	/// What the previewed node cost, in the corner of the editor: the node bodies
-	/// say the same thing in six-pixel type, and this one is readable.
-	const timingReadout = $derived.by(() => {
-		const nodeId = graphStore.previewNodeId;
-		if (nodeId === null) {
-			return null;
-		}
-		return `${nodeId} · ${timingText(nodeStatusStore.statusOf(nodeId))}`;
-	});
-
 	/* ------------------------------------------------------------ errors -- */
 
 	const shownErrorLimit = 3;
@@ -159,16 +149,6 @@
 			offsetY: bounds.height / 2 - centreY * view.scale
 		};
 		graphStore.select([nodeId]);
-	}
-
-	function timingText(status: NodeStatus): string {
-		if (status.state === 'evaluating') {
-			return `${Math.round(status.fraction * 100)}%`;
-		}
-		if (status.state === 'evaluated') {
-			return `${status.milliseconds.toFixed(1)} ms`;
-		}
-		return status.state;
 	}
 
 	/* ------------------------------------------------------- interaction -- */
@@ -550,14 +530,6 @@
 		{/each}
 		{#if hiddenErrorCount > 0}
 			<span class="px-2 text-2xs text-red">and {hiddenErrorCount} more</span>
-		{/if}
-
-		{#if timingReadout}
-			<div
-				class="pointer-events-none rounded-sm border border-line bg-elevated px-2 py-1 font-mono text-2xs text-dim"
-			>
-				{timingReadout}
-			</div>
 		{/if}
 	</div>
 
