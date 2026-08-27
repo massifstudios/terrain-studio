@@ -1,0 +1,204 @@
+{
+	"version": 1,
+	"settings": {
+		"resolution": 1024,
+		"world_size_meters": 20000,
+		"seed": 7,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "polished",
+	"nodes": [
+		{
+			"id": "carved",
+			"type": "HydraulicErosion",
+			"x": 1200,
+			"y": 120,
+			"parameters": {
+				"capacity": 2,
+				"density": 3,
+				"deposition_rate": 0.25,
+				"erosion_rate": 0.35,
+				"lifetime": 96,
+				"radius": 45,
+				"seed": 5
+			}
+		},
+		{
+			"id": "crests",
+			"type": "RidgedNoise",
+			"x": 0,
+			"y": 0,
+			"parameters": {
+				"amplitude": 1100,
+				"feature_size": 6000,
+				"octaves": 8,
+				"seed": 1,
+				"sharpness": 1.4
+			}
+		},
+		{
+			"id": "dem_out",
+			"type": "Export",
+			"x": 1680,
+			"y": 40,
+			"parameters": {
+				"label": "Alpine ridge",
+				"path": "terrains/alpine_ridge.massifdem"
+			}
+		},
+		{
+			"id": "detail",
+			"type": "Perlin",
+			"x": 0,
+			"y": 400,
+			"parameters": {
+				"amplitude": 140,
+				"feature_size": 900,
+				"octaves": 6,
+				"seed": 3
+			}
+		},
+		{
+			"id": "massed",
+			"type": "Add",
+			"x": 480,
+			"y": 120,
+			"parameters": {}
+		},
+		{
+			"id": "png_out",
+			"type": "ExportPNG16",
+			"x": 1680,
+			"y": 240,
+			"parameters": {
+				"path": "terrains/alpine_ridge.png"
+			}
+		},
+		{
+			"id": "polished",
+			"type": "ThermalErosion",
+			"x": 1440,
+			"y": 120,
+			"parameters": {
+				"iterations": 20,
+				"strength": 0.35,
+				"talus_angle": 42
+			}
+		},
+		{
+			"id": "settled",
+			"type": "ThermalErosion",
+			"x": 720,
+			"y": 120,
+			"parameters": {
+				"iterations": 60,
+				"strength": 0.6,
+				"talus_angle": 38
+			}
+		},
+		{
+			"id": "steep",
+			"type": "SlopeMask",
+			"x": 960,
+			"y": 320,
+			"parameters": {
+				"falloff": 8,
+				"maximum_slope": 75,
+				"minimum_slope": 18
+			}
+		},
+		{
+			"id": "warp_field",
+			"type": "Perlin",
+			"x": 0,
+			"y": 200,
+			"parameters": {
+				"amplitude": 1,
+				"feature_size": 3000,
+				"octaves": 3,
+				"seed": 11
+			}
+		},
+		{
+			"id": "warped",
+			"type": "Warp",
+			"x": 240,
+			"y": 60,
+			"parameters": {
+				"amount": 450
+			}
+		}
+	],
+	"edges": [
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "carved",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "steep",
+			"from_port": 0,
+			"to_node_id": "carved",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "polished",
+			"from_port": 0,
+			"to_node_id": "dem_out",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "warped",
+			"from_port": 0,
+			"to_node_id": "massed",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "detail",
+			"from_port": 0,
+			"to_node_id": "massed",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "polished",
+			"from_port": 0,
+			"to_node_id": "png_out",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "carved",
+			"from_port": 0,
+			"to_node_id": "polished",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "massed",
+			"from_port": 0,
+			"to_node_id": "settled",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "steep",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "crests",
+			"from_port": 0,
+			"to_node_id": "warped",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "warp_field",
+			"from_port": 0,
+			"to_node_id": "warped",
+			"to_port": 1
+		}
+	]
+}
