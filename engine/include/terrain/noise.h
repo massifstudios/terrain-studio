@@ -34,6 +34,18 @@ float fractalPerlin(float x, float y, std::uint64_t seed, const FractalOptions& 
 float ridged(float x, float y, std::uint64_t seed, const FractalOptions& options,
              float sharpness);
 
+/**
+ * A connected network of ridges, built from warped cell walls: 1 on a crest,
+ * falling away into the catchment on either side. Returns [0, 1].
+ *
+ * Folded gradient noise cannot serve here. Its creases close into isolated
+ * loops, and because gradient noise is exactly zero at every lattice corner
+ * the fold is exactly 1 there, which lays a regular grid of dots over the
+ * result. The walls of a cell diagram always join, and what they enclose is a
+ * catchment — the structure a drainage divide actually has.
+ */
+float ridgeNetwork(float x, float y, std::uint64_t seed, const FractalOptions& options);
+
 struct VoronoiSample {
     /// Distance to the nearest feature point, in noise units.
     float nearestDistance = 0.0f;

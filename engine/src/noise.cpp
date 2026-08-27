@@ -51,6 +51,17 @@ float randomUnitFromHash(std::uint64_t hash) {
     return static_cast<float>(hash >> 40) * (1.0f / 16777216.0f);
 }
 
+/// How steeply a cell wall falls away into the catchment beside it, per unit
+/// of the gap between the nearest and second nearest feature point. Below
+/// about 1.5 the catchments never reach their floor; well above it they
+/// flatten into plates with creases between them.
+constexpr float ridgeFalloff = 1.6f;
+
+/// How far a sample is nudged before the cells are drawn, in cell widths. A
+/// cell diagram meets its neighbours in straight edges, and a straight edge is
+/// the one thing no mountain crest has.
+constexpr float wallWarpCellWidths = 0.4f;
+
 }  // namespace
 
 float perlin(float x, float y, std::uint64_t seed) {
@@ -102,6 +113,39 @@ float ridged(float x, float y, std::uint64_t seed, const FractalOptions& options
         const std::uint64_t octaveSeed = terrainSeedForLane(seed, static_cast<std::uint64_t>(octave));
         float signal = 1.0f - std::abs(perlin(x * frequency, y * frequency, octaveSeed));
         signal = std::pow(signal, std::max(sharpness, 0.01f));
+        signal *= std::clamp(carriedWeight, 0.0f, 1.0f);
+        carriedWeight = signal * 2.0f;
+
+        total += signal * amplitude;
+        amplitudeSum += amplitude;
+        amplitude *= options.gain;
+        frequency *= options.lacunarity;
+    }
+    return std::clamp(total / std::max(amplitudeSum, 1.0e-6f), 0.0f, 1.0f);
+}
+
+float ridgeNetwork(float x, float y, std::uint64_t seed, const FractalOptions& options) {
+    float total = 0.0f;
+    float amplitude = 1.0f;
+    float amplitudeSum = 0.0f;
+    float frequency = 1.0f;
+    float carriedWeight = 1.0f;
+
+    for (int octave = 0; octave < std::max(options.octaves, 1); ++octave) {
+        const std::uint64_t octaveSeed =
+            terrainSeedForLane(seed, static_cast<std::uint64_t>(octave));
+        const float sampleX = x * frequency;
+        const float sampleY = y * frequency;
+        const float warpX = perlin(sampleX, sampleY, terrainSeedForLane(octaveSeed, 101));
+        const float warpY = perlin(sampleX, sampleY, terrainSeedForLane(octaveSeed, 102));
+        const VoronoiSample cells = voronoi(sampleX + warpX * wallWarpCellWidths,
+                                            sampleY + warpY * wallWarpCellWidths, octaveSeed,
+                                            1.0f);
+
+        const float wallGap = cells.secondDistance - cells.nearestDistance;
+        float signal = std::clamp(1.0f - wallGap * ridgeFalloff, 0.0f, 1.0f);
+        // Each octave is weighted by the one above it, so fine ridges branch
+        // off the coarse network instead of covering the catchments evenly.
         signal *= std::clamp(carriedWeight, 0.0f, 1.0f);
         carriedWeight = signal * 2.0f;
 

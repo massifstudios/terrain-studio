@@ -44,44 +44,58 @@ GroundPoint warpedBy(const DomainWarp& warp, double eastingMeters, double northi
                        northingMeters + alongNorth * warp.amountMeters};
 }
 
-/// Crags, cut into the flanks and faded out as the shape nears its own
-/// summit, so the slopes break up while the peak stays a single peak.
+/**
+ * The catchments, cut out from under the mass and left alone over the last
+ * stretch below the summit so the peak stays a single peak.
+ *
+ * The fade is deliberately narrow. Relief in a real range does not shrink as
+ * you climb; it runs at full depth right up to the crest and stops only at the
+ * summit itself. Fading it across the whole flank instead is what turns a
+ * mountain into a smooth dome wearing a crumpled skirt.
+ */
 float cragged(float shaped, float ridges, float detailStrength) {
-    const float flank = 1.0f - shaped * shaped;
-    return shaped * (1.0f - detailStrength * flank * (1.0f - ridges));
+    const float summitFade = std::clamp((1.0f - shaped) * 8.0f, 0.0f, 1.0f);
+    return shaped * (1.0f - detailStrength * summitFade * (1.0f - ridges));
 }
 
-const noise::FractalOptions spurOptions{3, 0.5f, 2.0f};
+/// The main divides, read from a domain stretched down the slope.
+const noise::FractalOptions spurOptions{4, 0.5f, 2.0f};
 
 /**
- * The rock between the spurs. It falls off faster than 1/f, because a 1/f
- * spectrum is equally rough at every scale and buries a landform under bumps
- * of every size at once.
+ * The gullies within a catchment. They fall off faster than 1/f, because a
+ * 1/f spectrum is equally rough at every scale and buries a landform under
+ * relief of every size at once.
  */
-const noise::FractalOptions rockOptions{3, 0.4f, 2.0f};
+const noise::FractalOptions rockOptions{3, 0.45f, 2.0f};
 
 float ridgesAt(const GroundPoint& point, float featureSizeMeters, std::uint64_t seed,
                const noise::FractalOptions& options) {
-    return noise::ridged(static_cast<float>(point.eastingMeters) / featureSizeMeters,
-                         static_cast<float>(point.northingMeters) / featureSizeMeters, seed,
-                         options, 1.0f);
+    return noise::ridgeNetwork(static_cast<float>(point.eastingMeters) / featureSizeMeters,
+                               static_cast<float>(point.northingMeters) / featureSizeMeters,
+                               seed, options);
 }
 
 /**
- * The ridged field the crags are cut from: coarse ridges read from a domain
- * stretched down the slope, and finer ones read from the ground itself.
+ * The ridge network the catchments are cut from: the main divides read from a
+ * domain stretched down the slope, with finer gullies branching off them.
  *
- * Stretching every scale at once combs the whole surface into strands. Spurs
- * are directional only at the large scale; the rock between them is not, and
- * it is that isotropic band which keeps the slope from looking brushed.
+ * The fine band multiplies the coarse one rather than being added beside it,
+ * so a gully only cuts where a catchment already exists. Adding the two
+ * instead scatters small relief across the divides as well, which reads as
+ * noise laid on a landform rather than as one drainage system.
+ *
+ * Stretching every scale at once combs the whole surface into strands. Divides
+ * are directional only at the large scale; the ground within a catchment is
+ * not, and it is that isotropic band which keeps the slope from looking
+ * brushed.
  */
 float craggyField(const GroundPoint& stretched, const GroundPoint& ground,
                   float featureSizeMeters, std::uint64_t seed) {
-    const float spurs =
+    const float divides =
         ridgesAt(stretched, featureSizeMeters, terrainSeedForLane(seed, 1), spurOptions);
-    const float rock =
-        ridgesAt(ground, featureSizeMeters * 0.35f, terrainSeedForLane(seed, 2), rockOptions);
-    return spurs * 0.65f + rock * 0.35f;
+    const float gullies =
+        ridgesAt(ground, featureSizeMeters * 0.45f, terrainSeedForLane(seed, 2), rockOptions);
+    return divides * (0.7f + 0.3f * gullies);
 }
 
 /**
