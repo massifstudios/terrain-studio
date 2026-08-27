@@ -95,6 +95,42 @@ TEST_CASE("detail leaves the summit alone and bites hardest on the flanks",
     REQUIRE(onFlank > atSummit);
 }
 
+TEST_CASE("detail carves no deeper than the spacing between its ridges allows",
+          "[nodes][mountain]") {
+    // A valley a few hundred metres wide cannot be a kilometre deep; the walls
+    // would stand at an angle no rock holds, and a field of such walls reads
+    // as spikes however the ridges themselves are shaped. So the carve follows
+    // the detail size, and the same detail size cuts the same depth in metres
+    // whether it is cut into a hill or into a giant.
+    constexpr int fineResolution = 256;
+    constexpr double detailSizeMeters = 600.0;
+    constexpr double deepestAllowed = detailSizeMeters * 0.5;
+
+    for (const double height : {1000.0, 8000.0}) {
+        Graph graph = squareGraph(fineResolution, worldSize);
+        terrain::GraphNode& plain = addPlainMountain(graph, "plain");
+        plain.parameters["height"] = ParameterValue{height, ""};
+        plain.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
+        terrain::GraphNode& rough = addPlainMountain(graph, "rough");
+        rough.parameters["height"] = ParameterValue{height, ""};
+        rough.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
+        rough.parameters["detailStrength"] = ParameterValue{1.0, ""};
+
+        const auto plainField = evaluateNode(graph, "plain");
+        const auto roughField = evaluateNode(graph, "rough");
+
+        float deepestCut = 0.0f;
+        for (int row = 0; row < fineResolution; ++row) {
+            for (int column = 0; column < fineResolution; ++column) {
+                deepestCut = std::max(deepestCut,
+                                      plainField->at(column, row) - roughField->at(column, row));
+            }
+        }
+        REQUIRE(deepestCut <= deepestAllowed + 1.0);
+        REQUIRE(deepestCut > deepestAllowed * 0.5);
+    }
+}
+
 TEST_CASE("drawing the detail out into spurs changes the slopes", "[nodes][mountain]") {
     Graph graph = squareGraph(resolution, worldSize);
     terrain::GraphNode& round = addPlainMountain(graph, "round");

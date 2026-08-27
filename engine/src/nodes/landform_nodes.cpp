@@ -52,50 +52,81 @@ GroundPoint warpedBy(const DomainWarp& warp, double eastingMeters, double northi
  * you climb; it runs at full depth right up to the crest and stops only at the
  * summit itself. Fading it across the whole flank instead is what turns a
  * mountain into a smooth dome wearing a crumpled skirt.
+ *
+ * `carveDepth` is the deepest share of the landform's height the catchments may
+ * take, and it is scaled by the mass standing above the point. A carve of one
+ * fixed depth wherever there is ground to take it lays the same relief over
+ * the summit ridges and the outwash at the foot alike, which is an even mat
+ * rather than a mountain.
  */
-float cragged(float shaped, float ridges, float detailStrength) {
+float cragged(float shaped, float ridges, float carveDepth) {
     const float summitFade = std::clamp((1.0f - shaped) * 8.0f, 0.0f, 1.0f);
-    return shaped * (1.0f - detailStrength * summitFade * (1.0f - ridges));
-}
-
-/// The main divides, read from a domain stretched down the slope.
-const noise::FractalOptions spurOptions{4, 0.5f, 2.0f};
-
-/**
- * The gullies within a catchment. They fall off faster than 1/f, because a
- * 1/f spectrum is equally rough at every scale and buries a landform under
- * relief of every size at once.
- */
-const noise::FractalOptions rockOptions{3, 0.45f, 2.0f};
-
-float ridgesAt(const GroundPoint& point, float featureSizeMeters, std::uint64_t seed,
-               const noise::FractalOptions& options) {
-    return noise::ridgeNetwork(static_cast<float>(point.eastingMeters) / featureSizeMeters,
-                               static_cast<float>(point.northingMeters) / featureSizeMeters,
-                               seed, options);
+    return shaped - shaped * carveDepth * summitFade * (1.0f - ridges);
 }
 
 /**
- * The ridge network the catchments are cut from: the main divides read from a
- * domain stretched down the slope, with finer gullies branching off them.
+ * How deep the catchments are cut, as a share of the distance between the
+ * divides on either side of them.
  *
- * The fine band multiplies the coarse one rather than being added beside it,
- * so a gully only cuts where a catchment already exists. Adding the two
- * instead scatters small relief across the divides as well, which reads as
- * noise laid on a landform rather than as one drainage system.
- *
- * Stretching every scale at once combs the whole surface into strands. Divides
- * are directional only at the large scale; the ground within a catchment is
- * not, and it is that isotropic band which keeps the slope from looking
- * brushed.
+ * A valley carved as deep as the mountain is tall, across ground a few hundred
+ * metres wide, leaves walls no rock would stand at, and a field of such walls
+ * reads as spikes however the ridges themselves are shaped. Relief in real
+ * mountains runs at a fraction of the spacing between the divides, so the
+ * depth has to follow the detail size rather than the height.
  */
-float craggyField(const GroundPoint& stretched, const GroundPoint& ground,
-                  float featureSizeMeters, std::uint64_t seed) {
-    const float divides =
-        ridgesAt(stretched, featureSizeMeters, terrainSeedForLane(seed, 1), spurOptions);
-    const float gullies =
-        ridgesAt(ground, featureSizeMeters * 0.45f, terrainSeedForLane(seed, 2), rockOptions);
-    return divides * (0.7f + 0.3f * gullies);
+constexpr float reliefToSpacing = 0.5f;
+
+constexpr int ridgeOctaveCount = 4;
+
+/// Each octave doubles in frequency and halves in depth, so every network
+/// carves in proportion to how far apart its own ridges are. Any shallower
+/// fall-off buries the main valleys under gullies as deep as they are; any
+/// steeper one fades the fine ground out before it reaches a readable size.
+constexpr float ridgeLacunarity = 2.0f;
+constexpr float ridgeGain = 1.0f / ridgeLacunarity;
+
+/// How much of an octave's stretch the next finer one keeps.
+constexpr float elongationRelease = 0.4f;
+
+/// A carve depth in the [0, 1] the shaping profile works in.
+float carveDepthFor(float detailStrength, float featureSizeMeters, float heightMeters) {
+    if (heightMeters < 1.0f) {
+        return 0.0f;
+    }
+    return detailStrength * featureSizeMeters * reliefToSpacing / heightMeters;
+}
+
+/**
+ * The ridge network the catchments are cut from, with the stretch that draws
+ * the ridges into spurs released as the octaves get finer.
+ *
+ * A spur is a large-scale fact. The main ridges of a massif run from the crest
+ * down to the foot, but the gullies cut into their flanks do not all run one
+ * way. Stretching every octave alike combs the whole surface into parallel
+ * strands, which reads as brushed cloth rather than as rock — so each octave
+ * asks for its own reading position, at its own share of the stretch.
+ */
+template <typename ReadPointFor>
+float craggyField(const ReadPointFor& readPointFor, float featureSizeMeters, float elongation,
+                  std::uint64_t seed) {
+    float total = 0.0f;
+    float amplitude = 1.0f;
+    float amplitudeSum = 0.0f;
+    float octaveScale = 1.0f / featureSizeMeters;
+    float octaveElongation = elongation;
+
+    for (int octave = 0; octave < ridgeOctaveCount; ++octave) {
+        const GroundPoint read = readPointFor(octaveElongation);
+        total += noise::ridgeOctave(static_cast<float>(read.eastingMeters) * octaveScale,
+                                    static_cast<float>(read.northingMeters) * octaveScale,
+                                    terrainSeedForLane(seed, static_cast<std::uint64_t>(octave)))
+                 * amplitude;
+        amplitudeSum += amplitude;
+        amplitude *= ridgeGain;
+        octaveScale *= ridgeLacunarity;
+        octaveElongation *= elongationRelease;
+    }
+    return total / amplitudeSum;
 }
 
 /**
@@ -143,7 +174,7 @@ const TerrainParameterDescriptor mountainParameters[] = {
     {"detailStrength", "Detail", "How much ridged detail is cut into the slopes", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
     {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
-     TerrainParameterType_Float, 600.0, 1.0, 100000.0, "", nullptr, 0},
+     TerrainParameterType_Float, 1200.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the mountain sits at", "m",
      TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
@@ -164,6 +195,7 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
     const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 8));
     const float baseAltitude = static_cast<float>(api->parameterNumber(context, 9));
     const float spurElongation = static_cast<float>(api->parameterNumber(context, 10));
+    const float carveDepth = carveDepthFor(detailStrength, featureSizeMeters, height);
 
     DomainWarp warp;
     warp.eastingSeed = terrainSeedForLane(seed, 1);
@@ -184,11 +216,13 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
                     placement.localPoint(ground.eastingMeters, ground.northingMeters);
                 const float base = radialProfileValue(RadialProfile::Smooth,
                                                       point.distanceFromCentre(), radiusMeters);
-                const float ridges = craggyField(
-                    spurReadPoint(ground, placement, radiusMeters, spurElongation), ground,
-                    featureSizeMeters, detailSeed);
+                const auto readPointFor = [&](float elongation) {
+                    return spurReadPoint(ground, placement, radiusMeters, elongation);
+                };
+                const float ridges = craggyField(readPointFor, featureSizeMeters, spurElongation,
+                                                 detailSeed);
                 const float relief =
-                    cragged(std::pow(base, peakSharpness), ridges, detailStrength);
+                    cragged(std::pow(base, peakSharpness), ridges, carveDepth);
                 line[column] = relief * height + baseAltitude;
             }
         }
@@ -238,12 +272,31 @@ const TerrainParameterDescriptor rangeParameters[] = {
     {"detailStrength", "Detail", "How much ridged detail is cut into the slopes", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
     {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
-     TerrainParameterType_Float, 700.0, 1.0, 100000.0, "", nullptr, 0},
+     TerrainParameterType_Float, 1600.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the range sits at", "m",
      TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
      "How far the detail is drawn out into ribs running down the flanks of the spine", "",
      TerrainParameterType_Float, 0.6, 0.0, 0.95, "", nullptr, 0}};
+
+/**
+ * Two overlapping shapes joined without a crease.
+ *
+ * Taking the higher of two smooth domes leaves the gradient discontinuous
+ * along the line where they cross, and a range built by folding five domes
+ * together that way is a set of plates with seams between them. Easing across
+ * a band of relief removes the seam, and unlike a conventional smooth union it
+ * never stands higher than the taller of the two, so a range still reaches
+ * exactly the height it was given.
+ */
+float blendedMaximum(float first, float second, float band) {
+    const float weight = std::clamp(0.5f + 0.5f * (first - second) / band, 0.0f, 1.0f);
+    const float eased = weight * weight * (3.0f - 2.0f * weight);
+    return second + (first - second) * eased;
+}
+
+/// How much relief the summits and the spine are eased together over.
+constexpr float massifBlendBand = 0.2f;
 
 struct RangePeak {
     double eastingMeters = 0.0;
@@ -295,15 +348,25 @@ std::vector<RangePeak> spineFrom(const ShapePlacement& placement, const RangeAxi
     return peaks;
 }
 
+float peakValue(const RangePeak& peak, const GroundPoint& ground, float peakSharpness) {
+    const double distance = std::hypot(ground.eastingMeters - peak.eastingMeters,
+                                       ground.northingMeters - peak.northingMeters);
+    const float base = radialProfileValue(RadialProfile::Smooth, distance, peak.radiusMeters);
+    return std::pow(base, peakSharpness) * peak.heightFraction;
+}
+
 float peakRelief(const std::vector<RangePeak>& peaks, const GroundPoint& ground,
                  float peakSharpness) {
-    float highest = 0.0f;
-    for (const RangePeak& peak : peaks) {
-        const double distance = std::hypot(ground.eastingMeters - peak.eastingMeters,
-                                           ground.northingMeters - peak.northingMeters);
-        const float base =
-            radialProfileValue(RadialProfile::Smooth, distance, peak.radiusMeters);
-        highest = std::max(highest, std::pow(base, peakSharpness) * peak.heightFraction);
+    if (peaks.empty()) {
+        return 0.0f;
+    }
+    // The fold starts on the first summit rather than on zero, because easing
+    // against a floor no summit stands on would pull the foot of the range
+    // down wherever its relief is shallower than the blending band.
+    float highest = peakValue(peaks.front(), ground, peakSharpness);
+    for (std::size_t index = 1; index < peaks.size(); ++index) {
+        highest = blendedMaximum(highest, peakValue(peaks[index], ground, peakSharpness),
+                                 massifBlendBand);
     }
     return highest;
 }
@@ -358,6 +421,7 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
     const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 13));
     const float baseAltitude = static_cast<float>(api->parameterNumber(context, 14));
     const float spurElongation = static_cast<float>(api->parameterNumber(context, 15));
+    const float carveDepth = carveDepthFor(detailStrength, featureSizeMeters, height);
 
     const RangeAxis axis = axisFor(api->parameterNumber(context, 2));
     const std::vector<RangePeak> peaks = spineFrom(
@@ -381,12 +445,15 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
                 const GroundPoint ground =
                     warpedBy(warp, frame.eastingAt(column), frame.northingAt(row));
                 const float shaped =
-                    std::max(peakRelief(peaks, ground, peakSharpness),
-                             spineRelief(peaks, ground, spineHalfWidth, saddleHeight));
-                const float ridges =
-                    craggyField(ribReadPoint(ground, placement, axis, spurElongation), ground,
-                                featureSizeMeters, detailSeed);
-                line[column] = cragged(shaped, ridges, detailStrength) * height + baseAltitude;
+                    blendedMaximum(peakRelief(peaks, ground, peakSharpness),
+                                   spineRelief(peaks, ground, spineHalfWidth, saddleHeight),
+                                   massifBlendBand);
+                const auto readPointFor = [&](float elongation) {
+                    return ribReadPoint(ground, placement, axis, elongation);
+                };
+                const float ridges = craggyField(readPointFor, featureSizeMeters, spurElongation,
+                                                 detailSeed);
+                line[column] = cragged(shaped, ridges, carveDepth) * height + baseAltitude;
             }
         }
     });

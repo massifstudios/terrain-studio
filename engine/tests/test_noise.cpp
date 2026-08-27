@@ -72,23 +72,24 @@ TEST_CASE("ridged noise is one-sided", "[noise]") {
     REQUIRE(highest > 0.5f);
 }
 
-TEST_CASE("the ridge network stays inside its range and reaches a crest", "[noise]") {
-    FractalOptions options;
-    options.octaves = 4;
-
+TEST_CASE("a ridge octave spans crest to catchment floor", "[noise]") {
     float highest = 0.0f;
-    for (int step = 0; step < 2000; ++step) {
+    float lowest = 1.0f;
+    for (int step = 0; step < 4000; ++step) {
         const float position = step * 0.011f;
-        const float value =
-            terrain::noise::ridgeNetwork(position, position * 1.3f, seed, options);
+        const float value = terrain::noise::ridgeOctave(position, position * 1.3f, seed);
         REQUIRE(value >= 0.0f);
         REQUIRE(value <= 1.0f);
         highest = std::max(highest, value);
+        lowest = std::min(lowest, value);
     }
-    REQUIRE(highest > 0.5f);
+    // A crest the ground never falls away from is a plateau, and a floor the
+    // walls never rise from is a plain.
+    REQUIRE(highest > 0.9f);
+    REQUIRE(lowest < 0.1f);
 }
 
-TEST_CASE("the ridge network is not pinned to the noise lattice", "[noise]") {
+TEST_CASE("a ridge octave is not pinned to the noise lattice", "[noise]") {
     // Folding gradient noise about zero puts a crest on every lattice corner,
     // because gradient noise is exactly zero there. Summed over octaves that
     // lays a regular grid of dots over whatever it is cut into. A cellular
@@ -102,10 +103,9 @@ TEST_CASE("the ridge network is not pinned to the noise lattice", "[noise]") {
             REQUIRE(terrain::noise::ridged(static_cast<float>(x), static_cast<float>(y), seed,
                                            options, 1.0f)
                     == Approx(1.0));
-            lowestOnLattice =
-                std::min(lowestOnLattice,
-                         terrain::noise::ridgeNetwork(static_cast<float>(x),
-                                                      static_cast<float>(y), seed, options));
+            lowestOnLattice = std::min(lowestOnLattice,
+                                       terrain::noise::ridgeOctave(static_cast<float>(x),
+                                                                   static_cast<float>(y), seed));
         }
     }
     REQUIRE(lowestOnLattice < 0.5f);

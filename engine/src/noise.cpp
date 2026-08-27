@@ -51,11 +51,9 @@ float randomUnitFromHash(std::uint64_t hash) {
     return static_cast<float>(hash >> 40) * (1.0f / 16777216.0f);
 }
 
-/// How steeply a cell wall falls away into the catchment beside it, per unit
-/// of the gap between the nearest and second nearest feature point. Below
-/// about 1.5 the catchments never reach their floor; well above it they
-/// flatten into plates with creases between them.
-constexpr float ridgeFalloff = 1.6f;
+/// How far from a cell wall the catchment beside it reaches its floor,
+/// measured in the gap between the nearest and second nearest feature point.
+constexpr float catchmentReach = 0.55f;
 
 /// How far a sample is nudged before the cells are drawn, in cell widths. A
 /// cell diagram meets its neighbours in straight edges, and a straight edge is
@@ -124,37 +122,23 @@ float ridged(float x, float y, std::uint64_t seed, const FractalOptions& options
     return std::clamp(total / std::max(amplitudeSum, 1.0e-6f), 0.0f, 1.0f);
 }
 
-float ridgeNetwork(float x, float y, std::uint64_t seed, const FractalOptions& options) {
-    float total = 0.0f;
-    float amplitude = 1.0f;
-    float amplitudeSum = 0.0f;
-    float frequency = 1.0f;
-    float carriedWeight = 1.0f;
+/**
+ * The fall-off from the wall is smoothed rather than linear. The gap between
+ * the two nearest feature points has a kink at the wall — it grows away from
+ * the wall in both directions — so reading it straight leaves a knife edge
+ * along every crest, and a landscape of knife edges is a landscape of spikes.
+ * Smoothing flattens the derivative at the wall, which rounds the crest, and
+ * flattens it again at full reach, which gives the catchment a floor.
+ */
+float ridgeOctave(float x, float y, std::uint64_t seed) {
+    const float warpX = perlin(x, y, terrainSeedForLane(seed, 101));
+    const float warpY = perlin(x, y, terrainSeedForLane(seed, 102));
+    const VoronoiSample cells = voronoi(x + warpX * wallWarpCellWidths,
+                                        y + warpY * wallWarpCellWidths, seed, 1.0f);
 
-    for (int octave = 0; octave < std::max(options.octaves, 1); ++octave) {
-        const std::uint64_t octaveSeed =
-            terrainSeedForLane(seed, static_cast<std::uint64_t>(octave));
-        const float sampleX = x * frequency;
-        const float sampleY = y * frequency;
-        const float warpX = perlin(sampleX, sampleY, terrainSeedForLane(octaveSeed, 101));
-        const float warpY = perlin(sampleX, sampleY, terrainSeedForLane(octaveSeed, 102));
-        const VoronoiSample cells = voronoi(sampleX + warpX * wallWarpCellWidths,
-                                            sampleY + warpY * wallWarpCellWidths, octaveSeed,
-                                            1.0f);
-
-        const float wallGap = cells.secondDistance - cells.nearestDistance;
-        float signal = std::clamp(1.0f - wallGap * ridgeFalloff, 0.0f, 1.0f);
-        // Each octave is weighted by the one above it, so fine ridges branch
-        // off the coarse network instead of covering the catchments evenly.
-        signal *= std::clamp(carriedWeight, 0.0f, 1.0f);
-        carriedWeight = signal * 2.0f;
-
-        total += signal * amplitude;
-        amplitudeSum += amplitude;
-        amplitude *= options.gain;
-        frequency *= options.lacunarity;
-    }
-    return std::clamp(total / std::max(amplitudeSum, 1.0e-6f), 0.0f, 1.0f);
+    const float wallGap = cells.secondDistance - cells.nearestDistance;
+    const float acrossCatchment = std::clamp(wallGap / catchmentReach, 0.0f, 1.0f);
+    return 1.0f - acrossCatchment * acrossCatchment * (3.0f - 2.0f * acrossCatchment);
 }
 
 VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
