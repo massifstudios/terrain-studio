@@ -1,0 +1,127 @@
+{
+	"version": 1,
+	"settings": {
+		"resolution": 1024,
+		"world_size_meters": 8000,
+		"seed": 7,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "settled",
+	"nodes": [
+		{
+			"id": "peak",
+			"type": "Mountain",
+			"x": 0,
+			"y": 0,
+			"parameters": {
+				"radius": 3000,
+				"height": 1600,
+				"feature_size": 2400,
+				"detail_strength": 0.8,
+				"peak_sharpness": 1.6,
+				"irregularity": 0.45,
+				"spur_elongation": 0.6,
+				"base_altitude": 0,
+				"centre_east": 0.5,
+				"centre_north": 0.5,
+				"seed": 0
+			}
+		},
+		{
+			"id": "warp_field",
+			"type": "Perlin",
+			"x": 0,
+			"y": 240,
+			"parameters": {
+				"amplitude": 1,
+				"feature_size": 2500,
+				"octaves": 3,
+				"seed": 11
+			}
+		},
+		{
+			"id": "warped",
+			"type": "Warp",
+			"x": 240,
+			"y": 0,
+			"parameters": {
+				"amount": 260
+			}
+		},
+		{
+			"id": "coarse",
+			"type": "HydraulicErosion",
+			"x": 480,
+			"y": 0,
+			"parameters": {
+				"radius": 120,
+				"density": 3,
+				"lifetime": 120,
+				"capacity": 1.5,
+				"erosion_rate": 0.3,
+				"deposition_rate": 0.35,
+				"seed": 3
+			}
+		},
+		{
+			"id": "high",
+			"type": "HeightMask",
+			"x": 720,
+			"y": 240,
+			"parameters": {
+				"minimum_altitude": 500,
+				"maximum_altitude": 1800,
+				"falloff": 300
+			}
+		},
+		{
+			"id": "fine",
+			"type": "HydraulicErosion",
+			"x": 960,
+			"y": 0,
+			"parameters": {
+				"radius": 45,
+				"density": 4,
+				"lifetime": 96,
+				"capacity": 2.5,
+				"erosion_rate": 0.45,
+				"deposition_rate": 0.2,
+				"seed": 5
+			}
+		},
+		{
+			"id": "settled",
+			"type": "ThermalErosion",
+			"x": 1200,
+			"y": 0,
+			"parameters": {
+				"talus_angle": 36,
+				"iterations": 80,
+				"strength": 0.6
+			}
+		},
+		{
+			"id": "png_out",
+			"type": "ExportPNG16",
+			"x": 1440,
+			"y": 0,
+			"parameters": {
+				"path": "terrains/gaea_style_peak.png"
+			}
+		}
+	],
+	"edges": [
+		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "fine", "to_port": 0 },
+		{ "from_node_id": "high", "from_port": 0, "to_node_id": "fine", "to_port": 1 },
+		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "high", "to_port": 0 },
+		{ "from_node_id": "settled", "from_port": 0, "to_node_id": "png_out", "to_port": 0 },
+		{ "from_node_id": "fine", "from_port": 0, "to_node_id": "settled", "to_port": 0 },
+		{ "from_node_id": "warped", "from_port": 0, "to_node_id": "coarse", "to_port": 0 },
+		{ "from_node_id": "peak", "from_port": 0, "to_node_id": "warped", "to_port": 0 },
+		{ "from_node_id": "warp_field", "from_port": 0, "to_node_id": "warped", "to_port": 1 }
+	]
+}
