@@ -13,75 +13,51 @@
 	"preview_node_id": "settled",
 	"nodes": [
 		{
-			"id": "range_main",
-			"type": "MountainRange",
-			"x": 0,
+			"id": "coarse",
+			"type": "HydraulicErosion",
+			"x": 1200,
 			"y": 0,
 			"parameters": {
-				"centre_east": 0.5,
-				"centre_north": 0.5,
-				"bearing": 70,
-				"length": 80000,
-				"width": 24000,
-				"peak_count": 15,
-				"height": 3600,
-				"height_variation": 0.35,
-				"saddle_height": 0.6,
-				"peak_sharpness": 1.6,
-				"irregularity": 0.7,
-				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"base_altitude": 0,
-				"spur_elongation": 0.6,
-				"seed": 0
+				"capacity": 1.5,
+				"density": 3,
+				"deposition_rate": 0.35,
+				"erosion_rate": 0.3,
+				"lifetime": 940,
+				"radius": 120,
+				"seed": 3
 			}
 		},
 		{
-			"id": "range_north",
-			"type": "MountainRange",
-			"x": 0,
+			"id": "color_out",
+			"type": "ExportColor",
+			"x": 3120,
 			"y": 200,
 			"parameters": {
-				"centre_east": 0.45,
-				"centre_north": 0.78,
-				"bearing": 80,
-				"length": 70000,
-				"width": 16000,
-				"peak_count": 11,
-				"height": 2800,
-				"height_variation": 0.4,
-				"saddle_height": 0.55,
-				"peak_sharpness": 1.6,
-				"irregularity": 0.6,
-				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"base_altitude": 0,
-				"spur_elongation": 0.6,
-				"seed": 1
+				"path": "terrains/gaea_style_range_color.png"
 			}
 		},
 		{
-			"id": "range_south",
-			"type": "MountainRange",
-			"x": 0,
-			"y": 400,
+			"id": "colored",
+			"type": "MixColor",
+			"x": 2880,
+			"y": 200,
 			"parameters": {
-				"centre_east": 0.55,
-				"centre_north": 0.2,
-				"bearing": 60,
-				"length": 70000,
-				"width": 14000,
-				"peak_count": 11,
-				"height": 2400,
-				"height_variation": 0.4,
-				"saddle_height": 0.55,
-				"peak_sharpness": 1.6,
-				"irregularity": 0.6,
-				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"base_altitude": 0,
-				"spur_elongation": 0.6,
-				"seed": 2
+				"amount": 0
+			}
+		},
+		{
+			"id": "fine",
+			"type": "HydraulicErosion",
+			"x": 1680,
+			"y": 0,
+			"parameters": {
+				"capacity": 2.5,
+				"density": 4,
+				"deposition_rate": 0.2,
+				"erosion_rate": 0.45,
+				"lifetime": 750,
+				"radius": 45,
+				"seed": 5
 			}
 		},
 		{
@@ -90,19 +66,152 @@
 			"x": 240,
 			"y": 400,
 			"parameters": {
+				"amplitude": 900,
 				"feature_size": 14000,
 				"octaves": 6,
-				"amplitude": 900,
 				"offset": 0,
 				"seed": 21
 			}
 		},
 		{
-			"id": "ranges_a",
-			"type": "Max",
-			"x": 240,
+			"id": "gentle",
+			"type": "SlopeMask",
+			"x": 2160,
+			"y": 1000,
+			"parameters": {
+				"falloff": 10,
+				"maximum_slope": 28,
+				"minimum_slope": 0
+			}
+		},
+		{
+			"id": "green",
+			"type": "SatMap",
+			"x": 2160,
+			"y": 400,
+			"parameters": {
+				"index": 0,
+				"library": 1,
+				"reverse": 0,
+				"spread": 0
+			}
+		},
+		{
+			"id": "high",
+			"type": "HeightMask",
+			"x": 1440,
+			"y": 200,
+			"parameters": {
+				"falloff": 400,
+				"maximum_altitude": 4500,
+				"minimum_altitude": 1200
+			}
+		},
+		{
+			"id": "low_ground",
+			"type": "HeightMask",
+			"x": 2160,
+			"y": 800,
+			"parameters": {
+				"falloff": 500,
+				"maximum_altitude": 1400,
+				"minimum_altitude": -1000
+			}
+		},
+		{
+			"id": "lowland",
+			"type": "Multiply",
+			"x": 2400,
+			"y": 800,
+			"parameters": {}
+		},
+		{
+			"id": "massif",
+			"type": "Add",
+			"x": 720,
 			"y": 0,
 			"parameters": {}
+		},
+		{
+			"id": "png_out",
+			"type": "ExportPNG16",
+			"x": 2160,
+			"y": 0,
+			"parameters": {
+				"path": "terrains/gaea_style_range.png"
+			}
+		},
+		{
+			"id": "range_main",
+			"type": "MountainRange",
+			"x": 0,
+			"y": 0,
+			"parameters": {
+				"base_altitude": 0,
+				"bearing": 70,
+				"centre_east": 0.5,
+				"centre_north": 0.5,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"height": 3600,
+				"height_variation": 0.35,
+				"irregularity": 0.7,
+				"length": 80000,
+				"peak_count": 15,
+				"peak_sharpness": 1.6,
+				"saddle_height": 0.6,
+				"seed": 0,
+				"spur_elongation": 0.6,
+				"width": 24000
+			}
+		},
+		{
+			"id": "range_north",
+			"type": "MountainRange",
+			"x": 0,
+			"y": 200,
+			"parameters": {
+				"base_altitude": 0,
+				"bearing": 80,
+				"centre_east": 0.45,
+				"centre_north": 0.78,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"height": 2800,
+				"height_variation": 0.4,
+				"irregularity": 0.6,
+				"length": 70000,
+				"peak_count": 11,
+				"peak_sharpness": 1.6,
+				"saddle_height": 0.55,
+				"seed": 1,
+				"spur_elongation": 0.6,
+				"width": 16000
+			}
+		},
+		{
+			"id": "range_south",
+			"type": "MountainRange",
+			"x": 0,
+			"y": 400,
+			"parameters": {
+				"base_altitude": 0,
+				"bearing": 60,
+				"centre_east": 0.55,
+				"centre_north": 0.2,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"height": 2400,
+				"height_variation": 0.4,
+				"irregularity": 0.6,
+				"length": 70000,
+				"peak_count": 11,
+				"peak_sharpness": 1.6,
+				"saddle_height": 0.55,
+				"seed": 2,
+				"spur_elongation": 0.6,
+				"width": 14000
+			}
 		},
 		{
 			"id": "ranges",
@@ -112,11 +221,66 @@
 			"parameters": {}
 		},
 		{
-			"id": "massif",
-			"type": "Add",
-			"x": 720,
+			"id": "ranges_a",
+			"type": "Max",
+			"x": 240,
 			"y": 0,
 			"parameters": {}
+		},
+		{
+			"id": "rock",
+			"type": "SatMap",
+			"x": 2160,
+			"y": 200,
+			"parameters": {
+				"index": 2,
+				"library": 0,
+				"reverse": 0,
+				"spread": 0
+			}
+		},
+		{
+			"id": "rock_green",
+			"type": "MixColor",
+			"x": 2640,
+			"y": 200,
+			"parameters": {
+				"amount": 0
+			}
+		},
+		{
+			"id": "settled",
+			"type": "ThermalErosion",
+			"x": 1920,
+			"y": 0,
+			"parameters": {
+				"strength": 0.6,
+				"talus_angle": 36,
+				"travel": 70
+			}
+		},
+		{
+			"id": "snow",
+			"type": "SatMap",
+			"x": 2160,
+			"y": 600,
+			"parameters": {
+				"index": 1,
+				"library": 3,
+				"reverse": 0,
+				"spread": 0
+			}
+		},
+		{
+			"id": "snowline",
+			"type": "HeightMask",
+			"x": 2400,
+			"y": 600,
+			"parameters": {
+				"falloff": 400,
+				"maximum_altitude": 9000,
+				"minimum_altitude": 2500
+			}
 		},
 		{
 			"id": "warp_field",
@@ -138,83 +302,182 @@
 			"parameters": {
 				"amount": 600
 			}
-		},
-		{
-			"id": "coarse",
-			"type": "HydraulicErosion",
-			"x": 1200,
-			"y": 0,
-			"parameters": {
-				"radius": 120,
-				"density": 3,
-				"lifetime": 940,
-				"capacity": 1.5,
-				"erosion_rate": 0.3,
-				"deposition_rate": 0.35,
-				"seed": 3
-			}
-		},
-		{
-			"id": "high",
-			"type": "HeightMask",
-			"x": 1440,
-			"y": 200,
-			"parameters": {
-				"minimum_altitude": 1200,
-				"maximum_altitude": 4500,
-				"falloff": 400
-			}
-		},
-		{
-			"id": "fine",
-			"type": "HydraulicErosion",
-			"x": 1680,
-			"y": 0,
-			"parameters": {
-				"radius": 45,
-				"density": 4,
-				"lifetime": 750,
-				"capacity": 2.5,
-				"erosion_rate": 0.45,
-				"deposition_rate": 0.2,
-				"seed": 5
-			}
-		},
-		{
-			"id": "settled",
-			"type": "ThermalErosion",
-			"x": 1920,
-			"y": 0,
-			"parameters": {
-				"talus_angle": 36,
-				"travel": 70,
-				"strength": 0.6
-			}
-		},
-		{
-			"id": "png_out",
-			"type": "ExportPNG16",
-			"x": 2160,
-			"y": 0,
-			"parameters": {
-				"path": "terrains/gaea_style_range.png"
-			}
 		}
 	],
 	"edges": [
-		{ "from_node_id": "range_main", "from_port": 0, "to_node_id": "ranges_a", "to_port": 0 },
-		{ "from_node_id": "range_north", "from_port": 0, "to_node_id": "ranges_a", "to_port": 1 },
-		{ "from_node_id": "ranges_a", "from_port": 0, "to_node_id": "ranges", "to_port": 0 },
-		{ "from_node_id": "range_south", "from_port": 0, "to_node_id": "ranges", "to_port": 1 },
-		{ "from_node_id": "ranges", "from_port": 0, "to_node_id": "massif", "to_port": 0 },
-		{ "from_node_id": "foothills", "from_port": 0, "to_node_id": "massif", "to_port": 1 },
-		{ "from_node_id": "massif", "from_port": 0, "to_node_id": "warped", "to_port": 0 },
-		{ "from_node_id": "warp_field", "from_port": 0, "to_node_id": "warped", "to_port": 1 },
-		{ "from_node_id": "warped", "from_port": 0, "to_node_id": "coarse", "to_port": 0 },
-		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "high", "to_port": 0 },
-		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "fine", "to_port": 0 },
-		{ "from_node_id": "high", "from_port": 0, "to_node_id": "fine", "to_port": 1 },
-		{ "from_node_id": "fine", "from_port": 0, "to_node_id": "settled", "to_port": 0 },
-		{ "from_node_id": "settled", "from_port": 0, "to_node_id": "png_out", "to_port": 0 }
+		{
+			"from_node_id": "warped",
+			"from_port": 0,
+			"to_node_id": "coarse",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "colored",
+			"from_port": 0,
+			"to_node_id": "color_out",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "rock_green",
+			"from_port": 0,
+			"to_node_id": "colored",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow",
+			"from_port": 0,
+			"to_node_id": "colored",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "snowline",
+			"from_port": 0,
+			"to_node_id": "colored",
+			"to_port": 2
+		},
+		{
+			"from_node_id": "coarse",
+			"from_port": 0,
+			"to_node_id": "fine",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "high",
+			"from_port": 0,
+			"to_node_id": "fine",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "gentle",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "green",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "coarse",
+			"from_port": 0,
+			"to_node_id": "high",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "low_ground",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "low_ground",
+			"from_port": 0,
+			"to_node_id": "lowland",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "gentle",
+			"from_port": 0,
+			"to_node_id": "lowland",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "ranges",
+			"from_port": 0,
+			"to_node_id": "massif",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "foothills",
+			"from_port": 0,
+			"to_node_id": "massif",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "png_out",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "ranges_a",
+			"from_port": 0,
+			"to_node_id": "ranges",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "range_south",
+			"from_port": 0,
+			"to_node_id": "ranges",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "range_main",
+			"from_port": 0,
+			"to_node_id": "ranges_a",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "range_north",
+			"from_port": 0,
+			"to_node_id": "ranges_a",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "rock",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "rock",
+			"from_port": 0,
+			"to_node_id": "rock_green",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "green",
+			"from_port": 0,
+			"to_node_id": "rock_green",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "lowland",
+			"from_port": 0,
+			"to_node_id": "rock_green",
+			"to_port": 2
+		},
+		{
+			"from_node_id": "fine",
+			"from_port": 0,
+			"to_node_id": "settled",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "snow",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "snowline",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "massif",
+			"from_port": 0,
+			"to_node_id": "warped",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "warp_field",
+			"from_port": 0,
+			"to_node_id": "warped",
+			"to_port": 1
+		}
 	]
 }
