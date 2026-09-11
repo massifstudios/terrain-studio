@@ -1,14 +1,10 @@
-version: '3'
+version: "3"
 
 vars:
-  ENGINE_BUILD_DIR: '{{.TASKFILE_DIR}}/engine/build'
-  ADDON: '{{.TASKFILE_DIR}}/bridge/build/Release/engine.node'
+  ENGINE_BUILD_DIR: "{{.TASKFILE_DIR}}/engine/build"
+  ADDON: "{{.TASKFILE_DIR}}/bridge/build/Release/engine.node"
 
 tasks:
-  default:
-    cmds:
-      - task --list
-
   install:
     desc: Install JavaScript dependencies for the bridge, the app and the command
     cmds:
@@ -37,38 +33,38 @@ tasks:
 
   bridge:build:
     desc: Build the N-API addon that wraps the engine
-    dir: '{{.TASKFILE_DIR}}/bridge'
+    dir: "{{.TASKFILE_DIR}}/bridge"
     cmds:
       - bunx cmake-js compile --CDCMAKE_BUILD_TYPE=RelWithDebInfo
     sources:
-      - '{{.TASKFILE_DIR}}/bridge/src/**/*'
-      - '{{.TASKFILE_DIR}}/bridge/CMakeLists.txt'
-      - '{{.TASKFILE_DIR}}/engine/src/**/*'
-      - '{{.TASKFILE_DIR}}/engine/include/**/*'
+      - "{{.TASKFILE_DIR}}/bridge/src/**/*"
+      - "{{.TASKFILE_DIR}}/bridge/CMakeLists.txt"
+      - "{{.TASKFILE_DIR}}/engine/src/**/*"
+      - "{{.TASKFILE_DIR}}/engine/include/**/*"
     generates:
-      - '{{.ADDON}}'
+      - "{{.ADDON}}"
 
   app:test:
     desc: Run the frontend logic suite
-    dir: '{{.TASKFILE_DIR}}/app'
+    dir: "{{.TASKFILE_DIR}}/app"
     cmds:
       - bun test
 
   app:check:
     desc: Type-check the Svelte and TypeScript sources
-    dir: '{{.TASKFILE_DIR}}/app'
+    dir: "{{.TASKFILE_DIR}}/app"
     cmds:
       - bun run check
 
   cli:check:
     desc: Type-check the massif command
-    dir: '{{.TASKFILE_DIR}}/cli'
+    dir: "{{.TASKFILE_DIR}}/cli"
     cmds:
       - bunx tsc -p tsconfig.json --noEmit
 
   cli:test:
     desc: Run the massif command's suite
-    dir: '{{.TASKFILE_DIR}}/cli'
+    dir: "{{.TASKFILE_DIR}}/cli"
     cmds:
       - bun test
 
@@ -81,7 +77,7 @@ tasks:
   dev:
     desc: Build the native addon, then run the app with hot reload
     deps: [bridge:build]
-    dir: '{{.TASKFILE_DIR}}/app'
+    dir: "{{.TASKFILE_DIR}}/app"
     cmds:
       - bun run dev
 
@@ -102,7 +98,7 @@ tasks:
   package:
     desc: Produce a distributable Electron package
     deps: [bridge:build]
-    dir: '{{.TASKFILE_DIR}}/app'
+    dir: "{{.TASKFILE_DIR}}/app"
     cmds:
       - bun run package
 
