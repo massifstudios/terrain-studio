@@ -494,11 +494,17 @@ GroundPoint ribReadPoint(const GroundPoint& ground, const ShapePlacement& placem
 
 /// How much of the ridge structure the transverse ridges set, against the
 /// fine gullies laid over them.
-constexpr float transverseShare = 0.6f;
+constexpr float transverseShare = 0.7f;
 
 /// The deepest a valley may be cut, as a share of the mass above its floor.
 /// Cutting to the base leaves walls no rock stands at.
 constexpr float deepestValleyShare = 0.85f;
+
+/// How far the ground may be bent per unit of irregularity, as a share of the
+/// width the bend is drawn at. Past about a quarter the displacement's own
+/// gradient exceeds one and the field folds over itself, which stretches one
+/// side of every fold into a smear and stacks the other into a cliff.
+constexpr double rangeWarpShare = 0.2;
 
 /**
  * Everything about a range that is fixed before the first cell is read. The
@@ -521,7 +527,8 @@ struct RangeLayout {
 
 /**
  * The mass of the range at a point: the crest height at that position along
- * the axis, falling away across the spine as a shaped bell.
+ * the axis, falling straight to the foot across the spine, concave where the
+ * peaks are sharpened.
  */
 float rangeMass(const RangeLayout& layout, const GroundPoint& ground) {
     const double east = ground.eastingMeters - layout.placement.centreEastingMeters;
@@ -529,17 +536,23 @@ float rangeMass(const RangeLayout& layout, const GroundPoint& ground) {
     const double along = east * layout.axis.alongEast + north * layout.axis.alongNorth;
     const float crest =
         crestHeightAlong(layout.peaks, along, layout.saddleHeight, layout.summitSpacingMeters);
-    const float across = radialProfileValue(RadialProfile::Smooth,
+    const float across = radialProfileValue(RadialProfile::Linear,
                                             nearestSegmentDistance(layout.spine, ground),
                                             layout.halfWidthMeters);
     return std::pow(across, layout.peakSharpness) * crest;
 }
 
-/// 1 on a ridge line, 0 on the valley floor between two of them.
+/**
+ * 1 on a ridge line, 0 on the valley floor between two of them. The fall is
+ * steepest at the crest and flattens into the floor, so ridges stand sharp
+ * over broad valleys rather than rolling over into narrow gullies.
+ */
 float transverseRidges(const RangeLayout& layout, const GroundPoint& ground) {
     const double toRidge = std::min(nearestSegmentDistance(layout.spine, ground),
                                     nearestSegmentDistance(layout.branches, ground));
-    return 1.0f - smoothFall(toRidge / layout.valleyReachMeters);
+    const float acrossValley =
+        static_cast<float>(std::clamp(toRidge / layout.valleyReachMeters, 0.0, 1.0));
+    return (1.0f - acrossValley) * (1.0f - acrossValley);
 }
 
 /**
@@ -587,7 +600,8 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
     warp.eastingSeed = terrainSeedForLane(seed, 1);
     warp.northingSeed = terrainSeedForLane(seed, 2);
     warp.featureSizeMeters = static_cast<float>(widthMeters);
-    warp.amountMeters = static_cast<float>(api->parameterNumber(context, 11) * widthMeters * 0.5);
+    warp.amountMeters =
+        static_cast<float>(api->parameterNumber(context, 11) * widthMeters * rangeWarpShare);
     const std::uint64_t detailSeed = terrainSeedForLane(seed, 3);
     float* output = api->outputField(context, 0);
 

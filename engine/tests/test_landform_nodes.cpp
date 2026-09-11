@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <vector>
 
 #include "node_test_support.h"
 
@@ -262,6 +263,35 @@ TEST_CASE("valleys cut a range's flanks deep while its summit keeps its height",
     REQUIRE(deepestShare > 0.5f);
     REQUIRE(carvedField->maximum() > smoothField->maximum() * 0.9f);
     REQUIRE(carvedField->maximum() <= smoothField->maximum());
+}
+
+TEST_CASE("most of a range's flank is valley and the ridge lines are the exception",
+          "[nodes][mountainrange]") {
+    // Ridge lines are thin; the ground between them is where the valleys are
+    // cut. If the median cell kept most of its mass the field would be the
+    // other way up: canyons along the ridge lines and a plateau between them.
+    constexpr int fineResolution = 128;
+    Graph graph = squareGraph(fineResolution, worldSize);
+    addPlainRange(graph, "smooth");
+    terrain::GraphNode& carved = addPlainRange(graph, "carved");
+    carved.parameters["detailStrength"] = ParameterValue{1.0, ""};
+
+    const auto smoothField = evaluateNode(graph, "smooth");
+    const auto carvedField = evaluateNode(graph, "carved");
+
+    std::vector<float> keptShares;
+    for (int row = 0; row < fineResolution; ++row) {
+        for (int column = 0; column < fineResolution; ++column) {
+            const float mass = smoothField->at(column, row);
+            if (mass < 500.0f) {
+                continue;
+            }
+            keptShares.push_back(carvedField->at(column, row) / mass);
+        }
+    }
+    REQUIRE(keptShares.size() > 100);
+    std::sort(keptShares.begin(), keptShares.end());
+    REQUIRE(keptShares[keptShares.size() / 2] < 0.6f);
 }
 
 TEST_CASE("a range's ridges run out across its flanks rather than only along its spine",
