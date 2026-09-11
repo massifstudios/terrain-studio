@@ -49,6 +49,32 @@ terrain::GraphNode& addMask(Graph& graph, const std::string& id, double low, dou
     return mask;
 }
 
+/// A satellite map over a north-facing gradient, so row 0 is the high end.
+Graph satMapOverRamp(double library, double index, double reverse, double spread) {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& ground = graph.addNode("ground", "Gradient");
+    ground.parameters["direction"] = ParameterValue{0.0, ""};
+    ground.parameters["startValue"] = ParameterValue{0.0, ""};
+    ground.parameters["endValue"] = ParameterValue{1000.0, ""};
+
+    terrain::GraphNode& colors = graph.addNode("colors", "SatMap");
+    colors.parameters["library"] = ParameterValue{library, ""};
+    colors.parameters["index"] = ParameterValue{index, ""};
+    colors.parameters["reverse"] = ParameterValue{reverse, ""};
+    colors.parameters["spread"] = ParameterValue{spread, ""};
+    graph.connect("ground", 0, "colors", 0);
+    return graph;
+}
+
+bool channelsWithinUnit(const terrain::ColorField& colors) {
+    for (const float sample : colors.samples()) {
+        if (sample < 0.0f || sample > 1.0f) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 /* ------------------------------------------------------------ ColorRamp -- */
@@ -111,6 +137,73 @@ TEST_CASE("mixing colour maps follows the amount", "[texture][nodes]") {
 }
 
 /* --------------------------------------------------------- SplatWeights -- */
+
+/* --------------------------------------------------------------- SatMap -- */
+
+TEST_CASE("a satmap reads its gradient from the foot of the field to its crest",
+          "[texture][satmap]") {
+    const Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 0.0);
+    const auto colors = evaluateColor(graph, "colors");
+
+    // The first rock gradient runs #2b2724 to #c9c4bd.
+    REQUIRE(colors->at(0, 0)[0] == Approx(0xc9 / 255.0).margin(0.02));
+    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(0x2b / 255.0).margin(0.02));
+}
+
+TEST_CASE("reversing a satmap reads the gradient high ground first", "[texture][satmap]") {
+    const Graph graph = satMapOverRamp(0.0, 0.0, 1.0, 0.0);
+    const auto colors = evaluateColor(graph, "colors");
+
+    REQUIRE(colors->at(0, 0)[0] == Approx(0x2b / 255.0).margin(0.02));
+    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(0xc9 / 255.0).margin(0.02));
+}
+
+TEST_CASE("every satmap library and map paints a usable gradient", "[texture][satmap]") {
+    for (int library = 0; library < 6; ++library) {
+        for (int index = 0; index < 5; ++index) {
+            const Graph graph = satMapOverRamp(library, index, 0.0, 0.0);
+            const auto colors = evaluateColor(graph, "colors");
+            REQUIRE(colors != nullptr);
+            REQUIRE(channelsWithinUnit(*colors));
+            REQUIRE(colors->at(0, 0)[1] != colors->at(resolution - 1, 0)[1]);
+        }
+    }
+}
+
+TEST_CASE("a satmap's map index counts round past the last gradient", "[texture][satmap]") {
+    const auto first = evaluateColor(satMapOverRamp(1.0, 0.0, 0.0, 0.0), "colors");
+    const auto wrapped = evaluateColor(satMapOverRamp(1.0, 4.0, 0.0, 0.0), "colors");
+    REQUIRE(first->at(resolution / 3, 5)[0] == Approx(wrapped->at(resolution / 3, 5)[0]));
+}
+
+TEST_CASE("an equalized satmap gives every colour the same share of ground",
+          "[texture][satmap]") {
+    // A mountain crowds most of its cells near the foot, so over its own range
+    // the high colours barely appear; by rank they take their even share.
+    for (const double spread : {0.0, 1.0}) {
+        Graph graph = squareGraph(resolution, worldSize);
+        graph.addNode("ground", "Mountain");
+        terrain::GraphNode& colors = graph.addNode("colors", "SatMap");
+        colors.parameters["spread"] = ParameterValue{spread, ""};
+        graph.connect("ground", 0, "colors", 0);
+
+        const auto field = evaluateColor(graph, "colors");
+        int brightCells = 0;
+        for (int row = 0; row < resolution; ++row) {
+            for (int column = 0; column < resolution; ++column) {
+                if (field->at(row, column)[0] > 0x8f / 255.0f) {
+                    ++brightCells;
+                }
+            }
+        }
+        const float brightShare = static_cast<float>(brightCells) / (resolution * resolution);
+        if (spread == 0.0) {
+            REQUIRE(brightShare < 0.15f);
+            continue;
+        }
+        REQUIRE(brightShare > 0.25f);
+    }
+}
 
 TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
     Graph graph = squareGraph(resolution, worldSize);
