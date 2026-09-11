@@ -1,8 +1,8 @@
 {
 	"version": 1,
 	"settings": {
-		"resolution": 1024,
-		"world_size_meters": 8000,
+		"resolution": 512,
+		"world_size_meters": 50000,
 		"seed": 7,
 		"georeference": {
 			"coordinate_system": "",
@@ -13,32 +13,119 @@
 	"preview_node_id": "settled",
 	"nodes": [
 		{
-			"id": "peak",
-			"type": "Mountain",
+			"id": "range_main",
+			"type": "MountainRange",
 			"x": 0,
 			"y": 0,
 			"parameters": {
-				"radius": 3000,
-				"height": 1600,
-				"feature_size": 2400,
-				"detail_strength": 0.8,
-				"peak_sharpness": 1.6,
-				"irregularity": 0.45,
-				"spur_elongation": 0.6,
-				"base_altitude": 0,
 				"centre_east": 0.5,
 				"centre_north": 0.5,
+				"bearing": 70,
+				"length": 80000,
+				"width": 24000,
+				"peak_count": 15,
+				"height": 3600,
+				"height_variation": 0.35,
+				"saddle_height": 0.6,
+				"peak_sharpness": 1.6,
+				"irregularity": 0.7,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"base_altitude": 0,
+				"spur_elongation": 0.6,
 				"seed": 0
 			}
 		},
 		{
+			"id": "range_north",
+			"type": "MountainRange",
+			"x": 0,
+			"y": 200,
+			"parameters": {
+				"centre_east": 0.45,
+				"centre_north": 0.78,
+				"bearing": 80,
+				"length": 70000,
+				"width": 16000,
+				"peak_count": 11,
+				"height": 2800,
+				"height_variation": 0.4,
+				"saddle_height": 0.55,
+				"peak_sharpness": 1.6,
+				"irregularity": 0.6,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"base_altitude": 0,
+				"spur_elongation": 0.6,
+				"seed": 1
+			}
+		},
+		{
+			"id": "range_south",
+			"type": "MountainRange",
+			"x": 0,
+			"y": 400,
+			"parameters": {
+				"centre_east": 0.55,
+				"centre_north": 0.2,
+				"bearing": 60,
+				"length": 70000,
+				"width": 14000,
+				"peak_count": 11,
+				"height": 2400,
+				"height_variation": 0.4,
+				"saddle_height": 0.55,
+				"peak_sharpness": 1.6,
+				"irregularity": 0.6,
+				"detail_strength": 0.7,
+				"feature_size": 3000,
+				"base_altitude": 0,
+				"spur_elongation": 0.6,
+				"seed": 2
+			}
+		},
+		{
+			"id": "foothills",
+			"type": "RidgedNoise",
+			"x": 240,
+			"y": 400,
+			"parameters": {
+				"feature_size": 14000,
+				"octaves": 6,
+				"amplitude": 900,
+				"offset": 0,
+				"seed": 21
+			}
+		},
+		{
+			"id": "ranges_a",
+			"type": "Max",
+			"x": 240,
+			"y": 0,
+			"parameters": {}
+		},
+		{
+			"id": "ranges",
+			"type": "Max",
+			"x": 480,
+			"y": 0,
+			"parameters": {}
+		},
+		{
+			"id": "massif",
+			"type": "Add",
+			"x": 720,
+			"y": 0,
+			"parameters": {}
+		},
+		{
 			"id": "warp_field",
 			"type": "Perlin",
-			"x": 0,
-			"y": 240,
+			"x": 720,
+			"y": 200,
 			"parameters": {
 				"amplitude": 1,
-				"feature_size": 2500,
+				"feature_size": 6000,
 				"octaves": 3,
 				"seed": 11
 			}
@@ -46,16 +133,16 @@
 		{
 			"id": "warped",
 			"type": "Warp",
-			"x": 240,
+			"x": 960,
 			"y": 0,
 			"parameters": {
-				"amount": 260
+				"amount": 600
 			}
 		},
 		{
 			"id": "coarse",
 			"type": "HydraulicErosion",
-			"x": 480,
+			"x": 1200,
 			"y": 0,
 			"parameters": {
 				"radius": 120,
@@ -70,18 +157,18 @@
 		{
 			"id": "high",
 			"type": "HeightMask",
-			"x": 720,
-			"y": 240,
+			"x": 1440,
+			"y": 200,
 			"parameters": {
-				"minimum_altitude": 500,
-				"maximum_altitude": 1800,
-				"falloff": 300
+				"minimum_altitude": 1200,
+				"maximum_altitude": 4500,
+				"falloff": 400
 			}
 		},
 		{
 			"id": "fine",
 			"type": "HydraulicErosion",
-			"x": 960,
+			"x": 1680,
 			"y": 0,
 			"parameters": {
 				"radius": 45,
@@ -96,7 +183,7 @@
 		{
 			"id": "settled",
 			"type": "ThermalErosion",
-			"x": 1200,
+			"x": 1920,
 			"y": 0,
 			"parameters": {
 				"talus_angle": 36,
@@ -107,21 +194,27 @@
 		{
 			"id": "png_out",
 			"type": "ExportPNG16",
-			"x": 1440,
+			"x": 2160,
 			"y": 0,
 			"parameters": {
-				"path": "terrains/gaea_style_peak.png"
+				"path": "terrains/gaea_style_range.png"
 			}
 		}
 	],
 	"edges": [
+		{ "from_node_id": "range_main", "from_port": 0, "to_node_id": "ranges_a", "to_port": 0 },
+		{ "from_node_id": "range_north", "from_port": 0, "to_node_id": "ranges_a", "to_port": 1 },
+		{ "from_node_id": "ranges_a", "from_port": 0, "to_node_id": "ranges", "to_port": 0 },
+		{ "from_node_id": "range_south", "from_port": 0, "to_node_id": "ranges", "to_port": 1 },
+		{ "from_node_id": "ranges", "from_port": 0, "to_node_id": "massif", "to_port": 0 },
+		{ "from_node_id": "foothills", "from_port": 0, "to_node_id": "massif", "to_port": 1 },
+		{ "from_node_id": "massif", "from_port": 0, "to_node_id": "warped", "to_port": 0 },
+		{ "from_node_id": "warp_field", "from_port": 0, "to_node_id": "warped", "to_port": 1 },
+		{ "from_node_id": "warped", "from_port": 0, "to_node_id": "coarse", "to_port": 0 },
+		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "high", "to_port": 0 },
 		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "fine", "to_port": 0 },
 		{ "from_node_id": "high", "from_port": 0, "to_node_id": "fine", "to_port": 1 },
-		{ "from_node_id": "coarse", "from_port": 0, "to_node_id": "high", "to_port": 0 },
-		{ "from_node_id": "settled", "from_port": 0, "to_node_id": "png_out", "to_port": 0 },
 		{ "from_node_id": "fine", "from_port": 0, "to_node_id": "settled", "to_port": 0 },
-		{ "from_node_id": "warped", "from_port": 0, "to_node_id": "coarse", "to_port": 0 },
-		{ "from_node_id": "peak", "from_port": 0, "to_node_id": "warped", "to_port": 0 },
-		{ "from_node_id": "warp_field", "from_port": 0, "to_node_id": "warped", "to_port": 1 }
+		{ "from_node_id": "settled", "from_port": 0, "to_node_id": "png_out", "to_port": 0 }
 	]
 }
