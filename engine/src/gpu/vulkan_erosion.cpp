@@ -4,6 +4,7 @@
 
 #include "add_constant_spv.h"
 #include "apply_delta_spv.h"
+#include "apply_net_change_spv.h"
 #include "erosion_backend.h"
 #include "hydraulic_droplet_spv.h"
 #include "thermal_scatter_spv.h"
@@ -26,7 +27,8 @@ struct ThermalSettings {
     std::int32_t hasAvailable = 0;
 };
 
-struct ApplyDeltaSettings {
+/// The one push constant both surface-update shaders take.
+struct CellCountSettings {
     std::int32_t count = 0;
 };
 
@@ -63,12 +65,13 @@ std::uint32_t groupsFor(std::uint64_t items) {
 struct ErosionPipelines {
     VulkanComputePipeline thermalScatter;
     VulkanComputePipeline applyDelta;
+    VulkanComputePipeline applyNetChange;
     VulkanComputePipeline addConstant;
     VulkanComputePipeline hydraulicDroplet;
 
     bool isValid() const {
-        return thermalScatter.isValid() && applyDelta.isValid() && addConstant.isValid()
-               && hydraulicDroplet.isValid();
+        return thermalScatter.isValid() && applyDelta.isValid() && applyNetChange.isValid()
+               && addConstant.isValid() && hydraulicDroplet.isValid();
     }
 };
 
@@ -77,11 +80,13 @@ ErosionPipelines buildPipelines(VulkanDevice& device) {
     pipelines.thermalScatter = device.createPipeline(
         shaders::thermalScatter, sizeof(shaders::thermalScatter), 3, sizeof(ThermalSettings));
     pipelines.applyDelta = device.createPipeline(shaders::applyDelta, sizeof(shaders::applyDelta),
-                                                 2, sizeof(ApplyDeltaSettings));
+                                                 2, sizeof(CellCountSettings));
+    pipelines.applyNetChange = device.createPipeline(
+        shaders::applyNetChange, sizeof(shaders::applyNetChange), 4, sizeof(CellCountSettings));
     pipelines.addConstant = device.createPipeline(
         shaders::addConstant, sizeof(shaders::addConstant), 1, sizeof(AddConstantSettings));
     pipelines.hydraulicDroplet =
-        device.createPipeline(shaders::hydraulicDroplet, sizeof(shaders::hydraulicDroplet), 6,
+        device.createPipeline(shaders::hydraulicDroplet, sizeof(shaders::hydraulicDroplet), 5,
                               sizeof(HydraulicSettings));
     return pipelines;
 }
@@ -144,7 +149,7 @@ private:
     VulkanBinding addToSurfaceBinding_;
     VulkanBinding addToSedimentBinding_;
     ThermalSettings scatterSettings_;
-    ApplyDeltaSettings applySettings_;
+    CellCountSettings applySettings_;
     AddConstantSettings addSettings_;
 };
 
@@ -246,7 +251,7 @@ private:
     VulkanDevice& device_;
     const ErosionPipelines& pipelines_;
     VulkanBuffer surface_;
-    VulkanBuffer delta_;
+    VulkanBuffer appliedUnits_;
     VulkanBuffer wear_;
     VulkanBuffer deposit_;
     VulkanBuffer flow_;
@@ -254,18 +259,19 @@ private:
     VulkanBinding dropletBinding_;
     VulkanBinding applyBinding_;
     HydraulicSettings dropletSettings_;
-    ApplyDeltaSettings applySettings_;
+    CellCountSettings applySettings_;
 };
 
 bool HydraulicRun::prepare(const HydraulicJob& job) {
     const VkDeviceSize cellBytes = job.count * sizeof(std::int32_t);
     surface_ = device_.createBuffer(job.count * sizeof(float));
-    delta_ = device_.createBuffer(cellBytes);
+    appliedUnits_ = device_.createBuffer(cellBytes);
     wear_ = device_.createBuffer(cellBytes);
     deposit_ = device_.createBuffer(cellBytes);
     flow_ = device_.createBuffer(cellBytes);
     brush_ = device_.createBuffer(job.brushSampleCount * sizeof(BrushSample));
-    if (!surface_.isValid() || !delta_.isValid() || !brush_.isValid() || !flow_.isValid()) {
+    if (!surface_.isValid() || !appliedUnits_.isValid() || !brush_.isValid()
+        || !flow_.isValid()) {
         return false;
     }
 
@@ -276,13 +282,14 @@ bool HydraulicRun::prepare(const HydraulicJob& job) {
         return false;
     }
     if (!device_.fillWithZero(wear_) || !device_.fillWithZero(deposit_)
-        || !device_.fillWithZero(flow_)) {
+        || !device_.fillWithZero(flow_) || !device_.fillWithZero(appliedUnits_)) {
         return false;
     }
 
-    dropletBinding_ = device_.createBinding(
-        pipelines_.hydraulicDroplet, {&surface_, &delta_, &wear_, &deposit_, &flow_, &brush_});
-    applyBinding_ = device_.createBinding(pipelines_.applyDelta, {&surface_, &delta_});
+    dropletBinding_ = device_.createBinding(pipelines_.hydraulicDroplet,
+                                            {&surface_, &wear_, &deposit_, &flow_, &brush_});
+    applyBinding_ = device_.createBinding(pipelines_.applyNetChange,
+                                          {&surface_, &wear_, &deposit_, &appliedUnits_});
     if (!dropletBinding_.isValid() || !applyBinding_.isValid()) {
         return false;
     }
@@ -327,7 +334,7 @@ bool HydraulicRun::execute(const HydraulicJob& job, const EvaluationHooks& hooks
         std::vector<VulkanDispatch> dispatches;
         for (std::size_t batch = done; batch < done + span; ++batch) {
             dispatches.push_back({&dropletBinding_, &perBatch[batch], sizeof(HydraulicSettings),
-                                  groupsFor(perBatch[batch].dropletCount), &delta_});
+                                  groupsFor(perBatch[batch].dropletCount), nullptr});
             dispatches.push_back({&applyBinding_, &applySettings_, sizeof(applySettings_),
                                   cellGroups, nullptr});
         }

@@ -16,7 +16,11 @@ void FixedPointGrid::add(std::size_t index, float meters) {
 }
 
 float FixedPointGrid::valueAt(std::size_t index) const {
-    return static_cast<float>(cells_[index]) / unitsPerMeter;
+    return metersFor(cells_[index]);
+}
+
+float FixedPointGrid::metersFor(std::int32_t units) {
+    return static_cast<float>(units) / unitsPerMeter;
 }
 
 void FixedPointGrid::clear() {

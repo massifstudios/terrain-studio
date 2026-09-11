@@ -78,11 +78,11 @@ struct ThermalJob {
  * One hydraulic run.
  *
  * `surface` arrives in cell units and is scratch: the node reads its answer out
- * of `wear` and `deposit`, whose difference is the whole change.
+ * of `wear` and `deposit`, whose difference is the whole change. A backend
+ * folds that difference into its own copy of the surface between batches.
  */
 struct HydraulicJob {
     float* surface = nullptr;
-    std::int32_t* delta = nullptr;
     std::int32_t* wear = nullptr;
     std::int32_t* deposit = nullptr;
     std::int32_t* flow = nullptr;

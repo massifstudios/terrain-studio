@@ -130,6 +130,7 @@ if(TERRAIN_ENGINE_ENABLE_VULKAN)
         src/gpu/shaders/float_parity.comp
         src/gpu/shaders/thermal_scatter.comp
         src/gpu/shaders/apply_delta.comp
+        src/gpu/shaders/apply_net_change.comp
         src/gpu/shaders/add_constant.comp
         src/gpu/shaders/hydraulic_droplet.comp
     )

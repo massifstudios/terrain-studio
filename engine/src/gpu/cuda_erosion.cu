@@ -223,11 +223,16 @@ struct Droplet {
 
 struct HydraulicGrids {
     const float* surface;
-    int* delta;
     int* wear;
     int* deposit;
     int* flow;
     const BrushSample* brush;
+};
+
+/// What one step exchanged with the ground, and which grid records it.
+struct Exchange {
+    float amount;
+    int* tally;
 };
 
 __device__ SurfacePoint surfaceAt(const float* surface, int size, float row, float column) {
@@ -255,10 +260,10 @@ __device__ SurfacePoint surfaceAt(const float* surface, int size, float row, flo
     return point;
 }
 
-__device__ void applyOverBrush(const HydraulicGrids& grids, const HydraulicParameters& settings,
-                               int row, int column, float signedAmount, int* tally) {
+__device__ void applyOverBrush(const BrushSample* brush, const HydraulicParameters& settings,
+                               int row, int column, const Exchange& exchange) {
     for (int which = 0; which < settings.brushSampleCount; ++which) {
-        const BrushSample sample = grids.brush[which];
+        const BrushSample sample = brush[which];
         const int targetRow = row + sample.offsetRow;
         const int targetColumn = column + sample.offsetColumn;
         if (!isInsideGrid(targetRow, targetColumn, settings.size)) {
@@ -266,8 +271,7 @@ __device__ void applyOverBrush(const HydraulicGrids& grids, const HydraulicParam
         }
         const std::size_t index =
             static_cast<std::size_t>(targetRow) * settings.size + targetColumn;
-        addFixed(grids.delta, index, signedAmount * sample.weight);
-        addFixed(tally, index, fabsf(signedAmount) * sample.weight);
+        addFixed(exchange.tally, index, fabsf(exchange.amount) * sample.weight);
     }
 }
 
@@ -285,21 +289,19 @@ __device__ inline float sedimentToDrop(const Droplet& droplet, float capacity, f
     return (droplet.sediment - capacity) * settings.depositionRate;
 }
 
-__device__ void settleOrBite(Droplet& droplet, const HydraulicGrids& grids,
-                             const HydraulicParameters& settings, float deltaHeight, int fromRow,
-                             int fromColumn) {
+__device__ Exchange settleOrBite(Droplet& droplet, const HydraulicGrids& grids,
+                                 const HydraulicParameters& settings, float deltaHeight) {
     const float capacity = carryingCapacity(droplet, deltaHeight, settings);
     if (deltaHeight > 0.0f || droplet.sediment > capacity) {
         const float dropped = sedimentToDrop(droplet, capacity, deltaHeight, settings);
         droplet.sediment -= dropped;
-        applyOverBrush(grids, settings, fromRow, fromColumn, dropped, grids.deposit);
-        return;
+        return Exchange{dropped, grids.deposit};
     }
 
     const float taken =
         smallerOf((capacity - droplet.sediment) * settings.erosionRate, -deltaHeight);
     droplet.sediment += taken;
-    applyOverBrush(grids, settings, fromRow, fromColumn, -taken, grids.wear);
+    return Exchange{taken, grids.wear};
 }
 
 __device__ bool stepDroplet(Droplet& droplet, const HydraulicGrids& grids,
@@ -328,8 +330,11 @@ __device__ bool stepDroplet(Droplet& droplet, const HydraulicGrids& grids,
 
     const float deltaHeight =
         surfaceAt(grids.surface, settings.size, droplet.row, droplet.column).height - here.height;
-    settleOrBite(droplet, grids, settings, deltaHeight, static_cast<int>(fromRow),
-                 static_cast<int>(fromColumn));
+    // One brush pass whichever way the exchange went, so the lanes of a warp
+    // that settled and the lanes that bit walk the brush together.
+    const Exchange exchange = settleOrBite(droplet, grids, settings, deltaHeight);
+    applyOverBrush(grids.brush, settings, static_cast<int>(fromRow), static_cast<int>(fromColumn),
+                   exchange);
 
     droplet.speed = smallerOf(
         sqrtf(largerOf(droplet.speed * droplet.speed - deltaHeight * settings.gravity, 0.0f)),
@@ -365,6 +370,21 @@ __global__ void hydraulicDropletKernel(HydraulicGrids grids, HydraulicParameters
             return;
         }
     }
+}
+
+/// Folds into the surface whatever the droplets moved since the last batch.
+/// Deposit minus wear is the whole change, and integer subtraction is exact,
+/// so the difference from what was already applied is the batch's own sum.
+__global__ void applyNetChangeKernel(float* surface, const int* wear, const int* deposit,
+                                     int* appliedUnits, int count) {
+    const std::size_t index = blockIdx.x * static_cast<std::size_t>(blockDim.x) + threadIdx.x;
+    if (index >= static_cast<std::size_t>(count)) {
+        return;
+    }
+    const long long net = static_cast<long long>(deposit[index]) - wear[index];
+    const long long change = net - appliedUnits[index];
+    appliedUnits[index] = static_cast<int>(net);
+    surface[index] += static_cast<float>(static_cast<int>(change)) / unitsPerMeter;
 }
 
 /* ============================================================ the plumbing == */
@@ -513,14 +533,14 @@ bool runHydraulicOnCuda(const HydraulicJob& job, const EvaluationHooks& hooks) {
     }
 
     DeviceArray<float> surface;
-    DeviceArray<int> delta;
+    DeviceArray<int> appliedUnits;
     DeviceArray<int> wear;
     DeviceArray<int> deposit;
     DeviceArray<int> flow;
     DeviceArray<BrushSample> brush;
-    if (!surface.allocate(job.count) || !delta.allocate(job.count) || !wear.allocateZeroed(job.count)
-        || !deposit.allocateZeroed(job.count) || !flow.allocateZeroed(job.count)
-        || !brush.allocate(job.brushSampleCount)) {
+    if (!surface.allocate(job.count) || !appliedUnits.allocateZeroed(job.count)
+        || !wear.allocateZeroed(job.count) || !deposit.allocateZeroed(job.count)
+        || !flow.allocateZeroed(job.count) || !brush.allocate(job.brushSampleCount)) {
         return false;
     }
     if (!surface.upload(job.surface, job.count)
@@ -530,7 +550,6 @@ bool runHydraulicOnCuda(const HydraulicJob& job, const EvaluationHooks& hooks) {
 
     HydraulicGrids grids;
     grids.surface = surface.get();
-    grids.delta = delta.get();
     grids.wear = wear.get();
     grids.deposit = deposit.get();
     grids.flow = flow.get();
@@ -544,10 +563,10 @@ bool runHydraulicOnCuda(const HydraulicJob& job, const EvaluationHooks& hooks) {
         }
         const std::int64_t last = std::min(first + job.batchSize, job.dropletCount);
         const auto inBatch = static_cast<std::uint32_t>(last - first);
-        cudaMemset(delta.get(), 0, job.count * sizeof(int));
         hydraulicDropletKernel<<<blocksFor(inBatch), blockSize>>>(
             grids, settings, job.seed, static_cast<std::uint64_t>(first), inBatch);
-        applyDeltaKernel<<<blocksFor(job.count), blockSize>>>(surface.get(), delta.get(), count);
+        applyNetChangeKernel<<<blocksFor(job.count), blockSize>>>(
+            surface.get(), wear.get(), deposit.get(), appliedUnits.get(), count);
         reportProgress(hooks, static_cast<float>(first) / job.dropletCount);
     }
 

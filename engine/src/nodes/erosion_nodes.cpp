@@ -359,9 +359,15 @@ struct HydraulicSettings {
     float gravity = 10.0f;
 };
 
+/**
+ * The grids a droplet writes into. There is no separate change grid: every
+ * bite goes into `wear` and every settling into `deposit`, and the surface is
+ * brought up to date between batches from the difference of the two — see
+ * `applyNetChange`. Recording the change a second time would double the
+ * atomics in the brush loop, which is where a hydraulic run spends its time.
+ */
 struct HydraulicGrids {
     const float* height = nullptr;
-    FixedPointGrid* delta = nullptr;
     FixedPointGrid* wear = nullptr;
     FixedPointGrid* deposit = nullptr;
     FixedPointGrid* flow = nullptr;
@@ -400,14 +406,14 @@ SurfacePoint surfaceAt(const float* height, int size, float row, float column) {
 }
 
 /**
- * Moves `signedAmount` of material across the droplet's footprint, and records
- * what happened in `tally` — the wear grid when taking, the deposit grid when
- * leaving. Both directions use the same footprint deliberately: a droplet that
- * takes from a disc but gives back to a single cell builds a spike in every
- * hollow it reaches, because deposition then concentrates what erosion spread.
+ * Spreads `amount` of material across the droplet's footprint into `tally` —
+ * the wear grid when taking, the deposit grid when leaving. Both directions
+ * use the same footprint deliberately: a droplet that takes from a disc but
+ * gives back to a single cell builds a spike in every hollow it reaches,
+ * because deposition then concentrates what erosion spread.
  */
-void applyOverBrush(const HydraulicGrids& grids, const ErosionBrush& brush, int size, int row,
-                    int column, float signedAmount, FixedPointGrid& tally) {
+void applyOverBrush(const ErosionBrush& brush, int size, int row, int column, float amount,
+                    FixedPointGrid& tally) {
     for (const ErosionBrush::Sample& sample : brush.samples()) {
         const int targetRow = row + sample.offsetRow;
         const int targetColumn = column + sample.offsetColumn;
@@ -415,8 +421,7 @@ void applyOverBrush(const HydraulicGrids& grids, const ErosionBrush& brush, int 
             continue;
         }
         const std::size_t index = static_cast<std::size_t>(targetRow) * size + targetColumn;
-        grids.delta->add(index, signedAmount * sample.weight);
-        tally.add(index, std::abs(signedAmount) * sample.weight);
+        tally.add(index, std::abs(amount) * sample.weight);
     }
 }
 
@@ -451,22 +456,25 @@ float sedimentToDrop(const Droplet& droplet, float capacity, float deltaHeight,
     return (droplet.sediment - capacity) * settings.depositionRate;
 }
 
-void settleOrBite(Droplet& droplet, const HydraulicGrids& grids, const ErosionBrush& brush,
-                  const HydraulicSettings& settings, float deltaHeight, int fromRow,
-                  int fromColumn) {
+/// What one step exchanged with the ground, and which grid records it.
+struct Exchange {
+    float amount = 0.0f;
+    FixedPointGrid* tally = nullptr;
+};
+
+Exchange settleOrBite(Droplet& droplet, const HydraulicGrids& grids,
+                      const HydraulicSettings& settings, float deltaHeight) {
     const float capacity = carryingCapacity(droplet, deltaHeight, settings);
     if (deltaHeight > 0.0f || droplet.sediment > capacity) {
         const float dropped = sedimentToDrop(droplet, capacity, deltaHeight, settings);
         droplet.sediment -= dropped;
-        applyOverBrush(grids, brush, settings.size, fromRow, fromColumn, dropped,
-                       *grids.deposit);
-        return;
+        return Exchange{dropped, grids.deposit};
     }
 
     const float taken =
         std::min((capacity - droplet.sediment) * settings.erosionRate, -deltaHeight);
     droplet.sediment += taken;
-    applyOverBrush(grids, brush, settings.size, fromRow, fromColumn, -taken, *grids.wear);
+    return Exchange{taken, grids.wear};
 }
 
 /// One step downhill. Returns false when the droplet has left the grid or has
@@ -496,8 +504,12 @@ bool stepDroplet(Droplet& droplet, const HydraulicGrids& grids, const ErosionBru
 
     const float deltaHeight =
         surfaceAt(grids.height, settings.size, droplet.row, droplet.column).height - here.height;
-    settleOrBite(droplet, grids, brush, settings, deltaHeight, static_cast<int>(fromRow),
-                 static_cast<int>(fromColumn));
+    // Settling and biting share one brush pass rather than a pass each in two
+    // branches: on a GPU the lanes of a warp that took different branches would
+    // otherwise walk the brush twice.
+    const Exchange exchange = settleOrBite(droplet, grids, settings, deltaHeight);
+    applyOverBrush(brush, settings.size, static_cast<int>(fromRow), static_cast<int>(fromColumn),
+                   exchange.amount, *exchange.tally);
 
     // A droplet reaches a terminal velocity. Without the cap it accelerates
     // for its whole life, and its carrying capacity with it, until a single
@@ -637,23 +649,50 @@ static_assert(sizeof(ErosionBrush::Sample) == sizeof(gpu::BrushSample),
               "the brush is uploaded to a device as it stands, so the two layouts are one");
 
 /// The grids a hydraulic run accumulates into, and the surface it walks over.
+/// `appliedUnits` is the net of deposit over wear already folded into the
+/// surface, in fixed-point units, so a batch's own change is what has arrived
+/// since.
 struct HydraulicWorkspace {
     std::vector<float> working;
-    FixedPointGrid delta;
+    std::vector<std::int32_t> appliedUnits;
     FixedPointGrid wear;
     FixedPointGrid deposit;
     FixedPointGrid flow;
 
     explicit HydraulicWorkspace(std::size_t count)
-        : working(count), delta(count), wear(count), deposit(count), flow(count) {}
+        : working(count), appliedUnits(count, 0), wear(count), deposit(count), flow(count) {}
 };
+
+/**
+ * Brings the surface up to date with everything the droplets moved since the
+ * last time. Deposit minus wear is the whole change, and both are integer
+ * grids, so the difference from what was already applied is exactly the sum
+ * of this batch's additions — the same number a dedicated change grid would
+ * have accumulated, without the atomics it would have cost.
+ */
+void applyNetChange(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                    HydraulicWorkspace& workspace, int size) {
+    const std::int32_t* wear = workspace.wear.data();
+    const std::int32_t* deposit = workspace.deposit.data();
+    forEachRowRange(api, context, size, [&](int firstRow, int lastRow) {
+        const gpu::FlushDenormalsToZero denormals;
+        const std::size_t first = static_cast<std::size_t>(firstRow) * size;
+        const std::size_t last = static_cast<std::size_t>(lastRow) * size;
+        for (std::size_t index = first; index < last; ++index) {
+            const std::int64_t net =
+                static_cast<std::int64_t>(deposit[index]) - static_cast<std::int64_t>(wear[index]);
+            const std::int64_t change = net - workspace.appliedUnits[index];
+            workspace.appliedUnits[index] = static_cast<std::int32_t>(net);
+            workspace.working[index] += FixedPointGrid::metersFor(static_cast<std::int32_t>(change));
+        }
+    });
+}
 
 gpu::HydraulicJob hydraulicJobFor(const HydraulicSettings& settings, HydraulicWorkspace& workspace,
                                   const ErosionBrush& brush, std::size_t count,
                                   std::int64_t dropletCount, std::uint64_t seed) {
     gpu::HydraulicJob job;
     job.surface = workspace.working.data();
-    job.delta = workspace.delta.data();
     job.wear = workspace.wear.data();
     job.deposit = workspace.deposit.data();
     job.flow = workspace.flow.data();
@@ -679,17 +718,16 @@ gpu::HydraulicJob hydraulicJobFor(const HydraulicSettings& settings, HydraulicWo
 void runRainfallOnCpu(const TerrainContextApi* api, TerrainEvaluationContext* context,
                       const HydraulicSettings& settings, HydraulicWorkspace& workspace,
                       const ErosionBrush& brush, const gpu::HydraulicJob& job) {
-    const HydraulicGrids grids{workspace.working.data(), &workspace.delta, &workspace.wear,
-                               &workspace.deposit, &workspace.flow};
+    const HydraulicGrids grids{workspace.working.data(), &workspace.wear, &workspace.deposit,
+                               &workspace.flow};
     for (std::int64_t first = 0; first < job.dropletCount; first += job.batchSize) {
         if (api->isCancelled(context) != 0) {
             return;
         }
-        workspace.delta.clear();
         BatchWork work{job.seed, first, std::min(first + job.batchSize, job.dropletCount), &grids,
                        &brush, &settings};
         api->runLanes(context, dropletLaneCount, &runDropletLane, &work);
-        applyDelta(api, context, workspace.working.data(), workspace.delta, settings.size);
+        applyNetChange(api, context, workspace, settings.size);
         api->reportProgress(context, static_cast<float>(first) / job.dropletCount);
     }
 }

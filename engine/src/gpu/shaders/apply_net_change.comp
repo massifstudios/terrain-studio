@@ -1,0 +1,34 @@
+#version 450
+
+/*
+ * Folds into a surface whatever the droplets have moved since the last batch.
+ * Mirrors `applyNetChange` in erosion_nodes.cpp: deposit minus wear is the
+ * whole change, and integer subtraction is exact, so the difference from what
+ * was already applied is precisely this batch's own additions.
+ */
+
+#extension GL_GOOGLE_include_directive : require
+#include "erosion_common.glsl"
+
+layout(local_size_x = 64) in;
+
+layout(std430, binding = 0) buffer Surface { float surface[]; };
+layout(std430, binding = 1) readonly buffer Wear { int wear[]; };
+layout(std430, binding = 2) readonly buffer Deposit { int deposit[]; };
+layout(std430, binding = 3) buffer Applied { int appliedUnits[]; };
+
+layout(push_constant) uniform Settings {
+    int count;
+} settings;
+
+void main() {
+    uint index = gl_GlobalInvocationID.x;
+    if (index >= uint(settings.count)) {
+        return;
+    }
+    int64_t net = int64_t(deposit[index]) - int64_t(wear[index]);
+    int64_t change = net - int64_t(appliedUnits[index]);
+    appliedUnits[index] = int(net);
+    precise float meters = terrainDivide(float(int(change)), unitsPerMeter);
+    surface[index] = surface[index] + meters;
+}

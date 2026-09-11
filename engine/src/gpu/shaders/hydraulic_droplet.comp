@@ -23,11 +23,16 @@ struct BrushSample {
 };
 
 layout(std430, binding = 0) readonly buffer Surface { float surface[]; };
-layout(std430, binding = 1) buffer Delta { int delta[]; };
-layout(std430, binding = 2) buffer Wear { int wear[]; };
-layout(std430, binding = 3) buffer Deposit { int deposit[]; };
-layout(std430, binding = 4) buffer Flow { int flow[]; };
-layout(std430, binding = 5) readonly buffer Brush { BrushSample brushSamples[]; };
+layout(std430, binding = 1) buffer Wear { int wear[]; };
+layout(std430, binding = 2) buffer Deposit { int deposit[]; };
+layout(std430, binding = 3) buffer Flow { int flow[]; };
+layout(std430, binding = 4) readonly buffer Brush { BrushSample brushSamples[]; };
+
+/// Which fixed-point grid an addition goes to. A shader cannot pass a buffer
+/// by reference, so the choice travels as a number.
+const int wearGrid = 0;
+const int depositGrid = 1;
+const int flowGrid = 2;
 
 layout(push_constant) uniform Settings {
     int size;
@@ -75,20 +80,22 @@ void addToGrid(int which, int index, float meters) {
     if (units == 0) {
         return;
     }
-    if (which == 0) {
-        atomicAdd(delta[index], units);
-        return;
-    }
-    if (which == 1) {
+    if (which == wearGrid) {
         atomicAdd(wear[index], units);
         return;
     }
-    if (which == 2) {
+    if (which == depositGrid) {
         atomicAdd(deposit[index], units);
         return;
     }
     atomicAdd(flow[index], units);
 }
+
+/// What one step exchanged with the ground, and which grid records it.
+struct Exchange {
+    float amount;
+    int tally;
+};
 
 SurfacePoint surfaceAt(float row, float column) {
     int baseRow = min(int(row), settings.size - 2);
@@ -125,7 +132,7 @@ SurfacePoint surfaceAt(float row, float column) {
 
 /// Erosion and deposition use the same footprint deliberately: a droplet that
 /// takes from a disc but gives back to one cell builds a spike in every hollow.
-void applyOverBrush(int row, int column, float signedAmount, int tally) {
+void applyOverBrush(int row, int column, Exchange exchange) {
     for (int which = 0; which < settings.brushSampleCount; ++which) {
         int targetRow = row + brushSamples[which].offsetRow;
         int targetColumn = column + brushSamples[which].offsetColumn;
@@ -133,8 +140,7 @@ void applyOverBrush(int row, int column, float signedAmount, int tally) {
             continue;
         }
         int index = targetRow * settings.size + targetColumn;
-        addToGrid(0, index, signedAmount * brushSamples[which].weight);
-        addToGrid(tally, index, abs(signedAmount) * brushSamples[which].weight);
+        addToGrid(exchange.tally, index, abs(exchange.amount) * brushSamples[which].weight);
     }
 }
 
@@ -151,19 +157,18 @@ float sedimentToDrop(Droplet droplet, float capacity, float deltaHeight) {
     return (droplet.sediment - capacity) * settings.depositionRate;
 }
 
-void settleOrBite(inout Droplet droplet, float deltaHeight, int fromRow, int fromColumn) {
+Exchange settleOrBite(inout Droplet droplet, float deltaHeight) {
     precise float capacity = carryingCapacity(droplet, deltaHeight);
     if (deltaHeight > 0.0 || droplet.sediment > capacity) {
         precise float dropped = sedimentToDrop(droplet, capacity, deltaHeight);
         droplet.sediment = droplet.sediment - dropped;
-        applyOverBrush(fromRow, fromColumn, dropped, 2);
-        return;
+        return Exchange(dropped, depositGrid);
     }
 
     precise float taken =
         smallerOf((capacity - droplet.sediment) * settings.erosionRate, -deltaHeight);
     droplet.sediment = droplet.sediment + taken;
-    applyOverBrush(fromRow, fromColumn, -taken, 1);
+    return Exchange(taken, wearGrid);
 }
 
 bool moveDownhill(inout Droplet droplet, out float fromRow, out float fromColumn,
@@ -203,7 +208,10 @@ bool stepDroplet(inout Droplet droplet) {
     }
 
     precise float deltaHeight = surfaceAt(droplet.row, droplet.column).height - here.height;
-    settleOrBite(droplet, deltaHeight, int(fromRow), int(fromColumn));
+    // One brush pass whichever way the exchange went, so the invocations of a
+    // subgroup that settled and those that bit walk the brush together.
+    Exchange exchange = settleOrBite(droplet, deltaHeight);
+    applyOverBrush(int(fromRow), int(fromColumn), exchange);
 
     // A droplet reaches a terminal velocity. Without the cap its carrying
     // capacity climbs for its whole life, until one droplet can drop a
@@ -212,7 +220,7 @@ bool stepDroplet(inout Droplet droplet) {
     precise float slowed = largerOf(kinetic, 0.0);
     droplet.speed = smallerOf(terrainSquareRoot(slowed), maximumDropletSpeed);
     droplet.water = droplet.water * (1.0 - settings.evaporation);
-    addToGrid(3, int(droplet.row) * settings.size + int(droplet.column), droplet.water);
+    addToGrid(flowGrid, int(droplet.row) * settings.size + int(droplet.column), droplet.water);
     return true;
 }
 

@@ -26,6 +26,8 @@ public:
 
     void add(std::size_t index, float meters);
     float valueAt(std::size_t index) const;
+    /// The read back out of fixed point, for a count of units held elsewhere.
+    static float metersFor(std::int32_t units);
     std::size_t size() const { return cells_.size(); }
 
     void clear();
