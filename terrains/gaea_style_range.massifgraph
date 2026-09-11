@@ -1,8 +1,8 @@
 {
 	"version": 1,
 	"settings": {
-		"resolution": 512,
-		"world_size_meters": 50000,
+		"resolution": 2048,
+		"world_size_meters": 16000,
 		"seed": 7,
 		"georeference": {
 			"coordinate_system": "",
@@ -13,9 +13,20 @@
 	"preview_node_id": "settled",
 	"nodes": [
 		{
+			"id": "cliffs",
+			"type": "SlopeMask",
+			"x": 2160,
+			"y": 600,
+			"parameters": {
+				"falloff": 8,
+				"maximum_slope": 90,
+				"minimum_slope": 38
+			}
+		},
+		{
 			"id": "coarse",
 			"type": "HydraulicErosion",
-			"x": 1200,
+			"x": 960,
 			"y": 0,
 			"parameters": {
 				"capacity": 1.5,
@@ -30,7 +41,7 @@
 		{
 			"id": "color_out",
 			"type": "ExportColor",
-			"x": 3120,
+			"x": 3360,
 			"y": 200,
 			"parameters": {
 				"path": "terrains/gaea_style_range_color.png"
@@ -48,7 +59,7 @@
 		{
 			"id": "fine",
 			"type": "HydraulicErosion",
-			"x": 1680,
+			"x": 1440,
 			"y": 0,
 			"parameters": {
 				"capacity": 2.5,
@@ -63,11 +74,11 @@
 		{
 			"id": "foothills",
 			"type": "RidgedNoise",
-			"x": 240,
+			"x": 0,
 			"y": 400,
 			"parameters": {
-				"amplitude": 900,
-				"feature_size": 14000,
+				"amplitude": 350,
+				"feature_size": 5000,
 				"octaves": 6,
 				"offset": 0,
 				"seed": 21
@@ -77,18 +88,39 @@
 			"id": "gentle",
 			"type": "SlopeMask",
 			"x": 2160,
-			"y": 1000,
+			"y": 1600,
 			"parameters": {
-				"falloff": 10,
-				"maximum_slope": 28,
+				"falloff": 8,
+				"maximum_slope": 30,
 				"minimum_slope": 0
 			}
 		},
 		{
 			"id": "green",
+			"type": "MixColor",
+			"x": 2400,
+			"y": 800,
+			"parameters": {
+				"amount": 0
+			}
+		},
+		{
+			"id": "green_a",
 			"type": "SatMap",
 			"x": 2160,
-			"y": 400,
+			"y": 800,
+			"parameters": {
+				"index": 1,
+				"library": 1,
+				"reverse": 0,
+				"spread": 0
+			}
+		},
+		{
+			"id": "green_b",
+			"type": "SatMap",
+			"x": 2160,
+			"y": 1000,
 			"parameters": {
 				"index": 0,
 				"library": 1,
@@ -97,24 +129,34 @@
 			}
 		},
 		{
+			"id": "gullies",
+			"type": "FlowMask",
+			"x": 2880,
+			"y": 600,
+			"parameters": {
+				"concentration": 1.6,
+				"contrast": 1.4
+			}
+		},
+		{
 			"id": "high",
 			"type": "HeightMask",
-			"x": 1440,
+			"x": 1200,
 			"y": 200,
 			"parameters": {
-				"falloff": 400,
+				"falloff": 300,
 				"maximum_altitude": 4500,
-				"minimum_altitude": 1200
+				"minimum_altitude": 900
 			}
 		},
 		{
 			"id": "low_ground",
 			"type": "HeightMask",
 			"x": 2160,
-			"y": 800,
+			"y": 1400,
 			"parameters": {
 				"falloff": 500,
-				"maximum_altitude": 1400,
+				"maximum_altitude": 1500,
 				"minimum_altitude": -1000
 			}
 		},
@@ -122,13 +164,13 @@
 			"id": "lowland",
 			"type": "Multiply",
 			"x": 2400,
-			"y": 800,
+			"y": 1400,
 			"parameters": {}
 		},
 		{
 			"id": "massif",
 			"type": "Add",
-			"x": 720,
+			"x": 480,
 			"y": 0,
 			"parameters": {}
 		},
@@ -148,80 +190,49 @@
 			"y": 0,
 			"parameters": {
 				"base_altitude": 0,
-				"bearing": 70,
+				"bearing": 65,
 				"centre_east": 0.5,
-				"centre_north": 0.5,
-				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"height": 3600,
-				"height_variation": 0.35,
-				"irregularity": 0.7,
-				"length": 80000,
-				"peak_count": 15,
-				"peak_sharpness": 1.6,
-				"saddle_height": 0.6,
+				"centre_north": 0.52,
+				"detail_strength": 0.75,
+				"feature_size": 1400,
+				"height": 3400,
+				"height_variation": 0.3,
+				"irregularity": 0.6,
+				"length": 24000,
+				"peak_count": 5,
+				"peak_sharpness": 1.5,
+				"saddle_height": 0.55,
 				"seed": 0,
-				"spur_elongation": 0.6,
-				"width": 24000
+				"spur_elongation": 0.35,
+				"width": 9000
 			}
 		},
 		{
-			"id": "range_north",
+			"id": "range_side",
 			"type": "MountainRange",
 			"x": 0,
 			"y": 200,
 			"parameters": {
 				"base_altitude": 0,
 				"bearing": 80,
-				"centre_east": 0.45,
-				"centre_north": 0.78,
+				"centre_east": 0.3,
+				"centre_north": 0.22,
 				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"height": 2800,
+				"feature_size": 1200,
+				"height": 2200,
 				"height_variation": 0.4,
 				"irregularity": 0.6,
-				"length": 70000,
-				"peak_count": 11,
-				"peak_sharpness": 1.6,
-				"saddle_height": 0.55,
+				"length": 20000,
+				"peak_count": 5,
+				"peak_sharpness": 1.5,
+				"saddle_height": 0.5,
 				"seed": 1,
-				"spur_elongation": 0.6,
-				"width": 16000
-			}
-		},
-		{
-			"id": "range_south",
-			"type": "MountainRange",
-			"x": 0,
-			"y": 400,
-			"parameters": {
-				"base_altitude": 0,
-				"bearing": 60,
-				"centre_east": 0.55,
-				"centre_north": 0.2,
-				"detail_strength": 0.7,
-				"feature_size": 3000,
-				"height": 2400,
-				"height_variation": 0.4,
-				"irregularity": 0.6,
-				"length": 70000,
-				"peak_count": 11,
-				"peak_sharpness": 1.6,
-				"saddle_height": 0.55,
-				"seed": 2,
-				"spur_elongation": 0.6,
-				"width": 14000
+				"spur_elongation": 0.35,
+				"width": 6000
 			}
 		},
 		{
 			"id": "ranges",
-			"type": "Max",
-			"x": 480,
-			"y": 0,
-			"parameters": {}
-		},
-		{
-			"id": "ranges_a",
 			"type": "Max",
 			"x": 240,
 			"y": 0,
@@ -229,6 +240,15 @@
 		},
 		{
 			"id": "rock",
+			"type": "MixColor",
+			"x": 2400,
+			"y": 200,
+			"parameters": {
+				"amount": 0
+			}
+		},
+		{
+			"id": "rock_dark",
 			"type": "SatMap",
 			"x": 2160,
 			"y": 200,
@@ -249,6 +269,18 @@
 			}
 		},
 		{
+			"id": "rock_scree",
+			"type": "SatMap",
+			"x": 2160,
+			"y": 400,
+			"parameters": {
+				"index": 3,
+				"library": 0,
+				"reverse": 0,
+				"spread": 0
+			}
+		},
+		{
 			"id": "settled",
 			"type": "ThermalErosion",
 			"x": 1920,
@@ -260,10 +292,21 @@
 			}
 		},
 		{
+			"id": "shaded",
+			"type": "HSL",
+			"x": 3120,
+			"y": 200,
+			"parameters": {
+				"hue_shift": 0,
+				"lightness": -0.25,
+				"saturation": 0.9
+			}
+		},
+		{
 			"id": "snow",
 			"type": "SatMap",
 			"x": 2160,
-			"y": 600,
+			"y": 1800,
 			"parameters": {
 				"index": 1,
 				"library": 3,
@@ -272,24 +315,66 @@
 			}
 		},
 		{
-			"id": "snowline",
+			"id": "snow_alt",
 			"type": "HeightMask",
-			"x": 2400,
-			"y": 600,
+			"x": 2160,
+			"y": 2000,
 			"parameters": {
-				"falloff": 400,
+				"falloff": 350,
 				"maximum_altitude": 9000,
-				"minimum_altitude": 2500
+				"minimum_altitude": 2300
+			}
+		},
+		{
+			"id": "snow_gentle",
+			"type": "SlopeMask",
+			"x": 2160,
+			"y": 2200,
+			"parameters": {
+				"falloff": 10,
+				"maximum_slope": 42,
+				"minimum_slope": 0
+			}
+		},
+		{
+			"id": "snowline",
+			"type": "Multiply",
+			"x": 2400,
+			"y": 2000,
+			"parameters": {}
+		},
+		{
+			"id": "talus",
+			"type": "Deposit",
+			"x": 1680,
+			"y": 0,
+			"parameters": {
+				"amount": 40,
+				"settle_angle": 30,
+				"travel": 150
+			}
+		},
+		{
+			"id": "veg_noise",
+			"type": "Perlin",
+			"x": 2160,
+			"y": 1200,
+			"parameters": {
+				"amplitude": 0.5,
+				"feature_size": 900,
+				"octaves": 5,
+				"offset": 0.5,
+				"seed": 31
 			}
 		},
 		{
 			"id": "warp_field",
 			"type": "Perlin",
-			"x": 720,
+			"x": 480,
 			"y": 200,
 			"parameters": {
 				"amplitude": 1,
-				"feature_size": 6000,
+				"feature_size": 2500,
 				"octaves": 3,
 				"seed": 11
 			}
@@ -297,14 +382,20 @@
 		{
 			"id": "warped",
 			"type": "Warp",
-			"x": 960,
+			"x": 720,
 			"y": 0,
 			"parameters": {
-				"amount": 600
+				"amount": 250
 			}
 		}
 	],
 	"edges": [
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "cliffs",
+			"to_port": 0
+		},
 		{
 			"from_node_id": "warped",
 			"from_port": 0,
@@ -312,7 +403,7 @@
 			"to_port": 0
 		},
 		{
-			"from_node_id": "colored",
+			"from_node_id": "shaded",
 			"from_port": 0,
 			"to_node_id": "color_out",
 			"to_port": 0
@@ -354,9 +445,39 @@
 			"to_port": 0
 		},
 		{
-			"from_node_id": "settled",
+			"from_node_id": "green_a",
 			"from_port": 0,
 			"to_node_id": "green",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "green_b",
+			"from_port": 0,
+			"to_node_id": "green",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "veg_noise",
+			"from_port": 0,
+			"to_node_id": "green",
+			"to_port": 2
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "green_a",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "green_b",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "gullies",
 			"to_port": 0
 		},
 		{
@@ -402,33 +523,39 @@
 			"to_port": 0
 		},
 		{
-			"from_node_id": "ranges_a",
-			"from_port": 0,
-			"to_node_id": "ranges",
-			"to_port": 0
-		},
-		{
-			"from_node_id": "range_south",
-			"from_port": 0,
-			"to_node_id": "ranges",
-			"to_port": 1
-		},
-		{
 			"from_node_id": "range_main",
 			"from_port": 0,
-			"to_node_id": "ranges_a",
+			"to_node_id": "ranges",
 			"to_port": 0
 		},
 		{
-			"from_node_id": "range_north",
+			"from_node_id": "range_side",
 			"from_port": 0,
-			"to_node_id": "ranges_a",
+			"to_node_id": "ranges",
 			"to_port": 1
+		},
+		{
+			"from_node_id": "rock_scree",
+			"from_port": 0,
+			"to_node_id": "rock",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "rock_dark",
+			"from_port": 0,
+			"to_node_id": "rock",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "cliffs",
+			"from_port": 0,
+			"to_node_id": "rock",
+			"to_port": 2
 		},
 		{
 			"from_node_id": "settled",
 			"from_port": 0,
-			"to_node_id": "rock",
+			"to_node_id": "rock_dark",
 			"to_port": 0
 		},
 		{
@@ -450,10 +577,28 @@
 			"to_port": 2
 		},
 		{
-			"from_node_id": "fine",
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "rock_scree",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "talus",
 			"from_port": 0,
 			"to_node_id": "settled",
 			"to_port": 0
+		},
+		{
+			"from_node_id": "colored",
+			"from_port": 0,
+			"to_node_id": "shaded",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "gullies",
+			"from_port": 0,
+			"to_node_id": "shaded",
+			"to_port": 1
 		},
 		{
 			"from_node_id": "settled",
@@ -464,7 +609,31 @@
 		{
 			"from_node_id": "settled",
 			"from_port": 0,
+			"to_node_id": "snow_alt",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "settled",
+			"from_port": 0,
+			"to_node_id": "snow_gentle",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow_alt",
+			"from_port": 0,
 			"to_node_id": "snowline",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow_gentle",
+			"from_port": 0,
+			"to_node_id": "snowline",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "fine",
+			"from_port": 0,
+			"to_node_id": "talus",
 			"to_port": 0
 		},
 		{
