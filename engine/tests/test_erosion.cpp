@@ -72,10 +72,27 @@ double fineDetail(const Heightfield& field) {
     return total / ((size - 2) * (size - 2));
 }
 
+/**
+ * Rain for ground with hundred-meter cells. The rates are physical — per 10 m
+ * of travel — and the defaults suit cells around that size, so on cells ten
+ * times coarser a droplet at the defaults dries up and drops its load within
+ * a few cells. These settings give it the reach and the load that ground
+ * needs: a long life, a heavy load, and rates a tenth as steep.
+ */
+void tuneForHundredMeterCells(terrain::GraphNode& rain) {
+    rain.parameters["lifetime"] = ParameterValue{6400.0, ""};
+    rain.parameters["capacity"] = ParameterValue{10.0, ""};
+    rain.parameters["erosionRate"] = ParameterValue{0.035, ""};
+    rain.parameters["depositionRate"] = ParameterValue{0.035, ""};
+    rain.parameters["evaporation"] = ParameterValue{0.002, ""};
+    rain.parameters["gravity"] = ParameterValue{1.0, ""};
+}
+
 Graph rainOnRidges(double density) {
     Graph graph = ridgedGround(1200.0);
     terrain::GraphNode& rain = graph.addNode("rain", "HydraulicErosion");
     rain.parameters["density"] = ParameterValue{density, ""};
+    tuneForHundredMeterCells(rain);
     graph.connect("shape", 0, "rain", 0);
     return graph;
 }
@@ -101,7 +118,7 @@ TEST_CASE("thermal erosion takes the edge off the steepest ground", "[erosion][t
     Graph graph = ridgedGround(2500.0);
     terrain::GraphNode& slump = graph.addNode("slump", "ThermalErosion");
     slump.parameters["talusAngle"] = ParameterValue{20.0, ""};
-    slump.parameters["iterations"] = ParameterValue{80.0, ""};
+    slump.parameters["travel"] = ParameterValue{900.0, ""};
     graph.connect("shape", 0, "slump", 0);
 
     const auto before = evaluateNode(graph, "shape");
@@ -142,7 +159,7 @@ TEST_CASE("deposit lays down exactly the sediment it was given", "[erosion][depo
     Graph graph = ridgedGround(1200.0);
     terrain::GraphNode& fill = graph.addNode("fill", "Deposit");
     fill.parameters["amount"] = ParameterValue{50.0, ""};
-    fill.parameters["iterations"] = ParameterValue{30.0, ""};
+    fill.parameters["travel"] = ParameterValue{550.0, ""};
     graph.connect("shape", 0, "fill", 0);
 
     const auto before = evaluateNode(graph, "shape");
@@ -156,7 +173,7 @@ TEST_CASE("deposit settles into the low ground", "[erosion][deposit]") {
     Graph graph = ridgedGround(1200.0);
     terrain::GraphNode& fill = graph.addNode("fill", "Deposit");
     fill.parameters["amount"] = ParameterValue{60.0, ""};
-    fill.parameters["iterations"] = ParameterValue{40.0, ""};
+    fill.parameters["travel"] = ParameterValue{630.0, ""};
     graph.connect("shape", 0, "fill", 0);
 
     const auto before = evaluateNode(graph, "shape");
@@ -278,6 +295,69 @@ TEST_CASE("the erosion seed varies that node alone", "[erosion][hydraulic][deter
     REQUIRE(rainWithSeed(0.0) != rainWithSeed(9.0));
 }
 
+/* ----------------------------------------------------- scale invariance -- */
+
+/// The same ground at two resolutions, so a simulation can be asked to give
+/// the same answer at both: 64 cells of 200 m against 128 of 100 m. The
+/// ground is smooth enough that the coarse grid resolves all of it, or the
+/// two would be eroding different terrain before the solver got a say.
+Graph smoothGroundAt(int cells) {
+    Graph graph = squareGraph(cells, 12800.0);
+    terrain::GraphNode& shape = graph.addNode("shape", "Perlin");
+    shape.parameters["featureSize"] = ParameterValue{6000.0, ""};
+    shape.parameters["octaves"] = ParameterValue{2.0, ""};
+    shape.parameters["amplitude"] = ParameterValue{2500.0, ""};
+    return graph;
+}
+
+/// Cubic meters moved between two fields, whatever their cell size.
+double volumeMoved(const Heightfield& before, const Heightfield& after) {
+    const double cellArea = before.cellSizeMeters() * before.cellSizeMeters();
+    double total = 0.0;
+    for (std::size_t index = 0; index < before.sampleCount(); ++index) {
+        total += std::abs(after.data()[index] - before.data()[index]) * cellArea;
+    }
+    return total;
+}
+
+double hydraulicVolumeAt(int cells) {
+    Graph graph = smoothGroundAt(cells);
+    terrain::GraphNode& rain = graph.addNode("rain", "HydraulicErosion");
+    rain.parameters["radius"] = ParameterValue{800.0, ""};
+    rain.parameters["lifetime"] = ParameterValue{4000.0, ""};
+    rain.parameters["density"] = ParameterValue{4.0, ""};
+    graph.connect("shape", 0, "rain", 0);
+    return volumeMoved(*evaluateNode(graph, "shape"), *evaluateNode(graph, "rain"));
+}
+
+double thermalVolumeAt(int cells) {
+    Graph graph = smoothGroundAt(cells);
+    terrain::GraphNode& slump = graph.addNode("slump", "ThermalErosion");
+    slump.parameters["talusAngle"] = ParameterValue{25.0, ""};
+    slump.parameters["travel"] = ParameterValue{2000.0, ""};
+    graph.connect("shape", 0, "slump", 0);
+    return volumeMoved(*evaluateNode(graph, "shape"), *evaluateNode(graph, "slump"));
+}
+
+// A preview has to look like the build. Neither solver can be identical
+// across resolutions — a finer grid resolves channels the coarse one cannot —
+// but the amount of material it moves over the same ground must be the same,
+// which is what a droplet life in cells, or a slumping pass count that did
+// not grow with the grid, both failed at.
+TEST_CASE("rain moves about the same volume whatever the resolution",
+          "[erosion][hydraulic][scale]") {
+    const double coarse = hydraulicVolumeAt(64);
+    const double fine = hydraulicVolumeAt(128);
+    REQUIRE(fine / coarse == Approx(1.0).margin(0.2));
+}
+
+TEST_CASE("thermal erosion moves about the same volume whatever the resolution",
+          "[erosion][thermal][scale]") {
+    const double coarse = thermalVolumeAt(64);
+    const double fine = thermalVolumeAt(128);
+    REQUIRE(fine / coarse == Approx(1.0).margin(0.2));
+}
+
 /* ------------------------------------------------------------- FlowMask -- */
 
 TEST_CASE("flow gathers downhill", "[erosion][flow]") {
@@ -326,12 +406,13 @@ TEST_CASE("a refinement graph adds relief to a coarse elevation model",
 
     terrain::GraphNode& slump = graph.addNode("slump", "ThermalErosion");
     slump.parameters["talusAngle"] = ParameterValue{34.0, ""};
-    slump.parameters["iterations"] = ParameterValue{25.0, ""};
+    slump.parameters["travel"] = ParameterValue{500.0, ""};
     graph.connect("shape", 0, "slump", 0);
     graph.connect("steep", 0, "slump", 1);
 
     terrain::GraphNode& rain = graph.addNode("rain", "HydraulicErosion");
     rain.parameters["density"] = ParameterValue{1.5, ""};
+    tuneForHundredMeterCells(rain);
     graph.connect("slump", 0, "rain", 0);
     graph.connect("steep", 0, "rain", 1);
 

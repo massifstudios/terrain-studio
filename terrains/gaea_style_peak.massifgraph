@@ -60,7 +60,7 @@
 			"parameters": {
 				"radius": 120,
 				"density": 3,
-				"lifetime": 120,
+				"lifetime": 940,
 				"capacity": 1.5,
 				"erosion_rate": 0.3,
 				"deposition_rate": 0.35,
@@ -86,7 +86,7 @@
 			"parameters": {
 				"radius": 45,
 				"density": 4,
-				"lifetime": 96,
+				"lifetime": 750,
 				"capacity": 2.5,
 				"erosion_rate": 0.45,
 				"deposition_rate": 0.2,
@@ -100,7 +100,7 @@
 			"y": 0,
 			"parameters": {
 				"talus_angle": 36,
-				"iterations": 80,
+				"travel": 70,
 				"strength": 0.6
 			}
 		},

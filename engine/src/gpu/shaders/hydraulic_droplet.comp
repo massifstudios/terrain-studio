@@ -145,14 +145,17 @@ void applyOverBrush(int row, int column, Exchange exchange) {
 }
 
 float carryingCapacity(Droplet droplet, float deltaHeight) {
-    return largerOf(-deltaHeight * droplet.speed * droplet.water * settings.capacityFactor,
-                    settings.minimumSlope * settings.capacityFactor);
+    precise float onSlope = -deltaHeight * droplet.speed;
+    precise float capacity = largerOf(onSlope, settings.minimumSlope) * droplet.water
+                             * settings.capacityFactor;
+    return capacity;
 }
 
 float sedimentToDrop(Droplet droplet, float capacity, float deltaHeight) {
     if (deltaHeight > 0.0) {
         // Uphill: the droplet is climbing out of a hollow and fills it instead.
-        return smallerOf(deltaHeight, droplet.sediment);
+        precise float share = deltaHeight * droplet.water;
+        return smallerOf(share, droplet.sediment);
     }
     return (droplet.sediment - capacity) * settings.depositionRate;
 }

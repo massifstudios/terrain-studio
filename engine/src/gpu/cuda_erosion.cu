@@ -277,14 +277,14 @@ __device__ void applyOverBrush(const BrushSample* brush, const HydraulicParamete
 
 __device__ inline float carryingCapacity(const Droplet& droplet, float deltaHeight,
                                          const HydraulicParameters& settings) {
-    return largerOf(-deltaHeight * droplet.speed * droplet.water * settings.capacityFactor,
-                    settings.minimumSlope * settings.capacityFactor);
+    return largerOf(-deltaHeight * droplet.speed, settings.minimumSlope) * droplet.water
+           * settings.capacityFactor;
 }
 
 __device__ inline float sedimentToDrop(const Droplet& droplet, float capacity, float deltaHeight,
                                        const HydraulicParameters& settings) {
     if (deltaHeight > 0.0f) {
-        return smallerOf(deltaHeight, droplet.sediment);
+        return smallerOf(deltaHeight * droplet.water, droplet.sediment);
     }
     return (droplet.sediment - capacity) * settings.depositionRate;
 }

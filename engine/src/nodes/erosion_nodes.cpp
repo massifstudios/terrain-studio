@@ -23,6 +23,50 @@ gpu::EvaluationHooks hooksFor(const TerrainContextApi* api, TerrainEvaluationCon
     return hooks;
 }
 
+/* ================================================================== scale == */
+
+/**
+ * Both solvers advance one cell per step, so a step is as long as a cell is
+ * wide. A parameter has to mean the same thing at every resolution, so every
+ * distance is given in meters and every per-step rate is defined over this
+ * many meters of travel, then rescaled to the cell size in hand. Building a
+ * graph at twice the resolution then runs the same simulation twice as
+ * finely rather than a different one.
+ */
+constexpr double referenceStepMeters = 10.0;
+
+double stepRatioFor(double cellSizeMeters) {
+    return cellSizeMeters / referenceStepMeters;
+}
+
+/// A fraction lost or moved per reference step, as the fraction per cell that
+/// compounds to the same loss over the same distance.
+float fractionPerCell(double fractionPerReferenceStep, double stepRatio) {
+    return static_cast<float>(1.0 - std::pow(1.0 - fractionPerReferenceStep, stepRatio));
+}
+
+/// A share kept per reference step, as the share kept per cell.
+float retentionPerCell(double retentionPerReferenceStep, double stepRatio) {
+    return static_cast<float>(std::pow(retentionPerReferenceStep, stepRatio));
+}
+
+/// How many cell steps cover a distance, never fewer than one.
+int stepsToTravel(double distanceMeters, double cellSizeMeters) {
+    return std::max(1, static_cast<int>(std::lround(distanceMeters / cellSizeMeters)));
+}
+
+/**
+ * How many slumping passes spread material over a distance, never fewer than
+ * one. Slumping is a diffusion: each pass hands material to the neighbouring
+ * cells, and what a random walk of one cell per pass covers grows with the
+ * square root of the pass count. Halving the cell therefore takes four times
+ * the passes to reach the same distance, not two.
+ */
+int passesToSpread(double distanceMeters, double cellSizeMeters) {
+    const double cells = distanceMeters / cellSizeMeters;
+    return std::max(1, static_cast<int>(std::lround(cells * cells)));
+}
+
 /* ================================================================ thermal == */
 
 /// The eight neighbours, and the fact that the opposite of direction d is
@@ -158,12 +202,12 @@ void thermalScatter(const TerrainContextApi* api, TerrainEvaluationContext* cont
 ThermalSettings thermalSettingsFor(const TerrainContextApi* api,
                                    TerrainEvaluationContext* context, double talusAngleDegrees,
                                    float rate) {
+    const double cellSizeMeters = api->cellSizeMeters(context);
     ThermalSettings settings;
     settings.size = api->width(context);
     settings.rate = rate;
     const double radians = talusAngleDegrees * std::numbers::pi / 180.0;
-    settings.talusDropMeters =
-        static_cast<float>(std::tan(radians) * api->cellSizeMeters(context));
+    settings.talusDropMeters = static_cast<float>(std::tan(radians) * cellSizeMeters);
     return settings;
 }
 
@@ -177,9 +221,9 @@ const TerrainPortDescriptor thermalOutputs[] = {
 const TerrainParameterDescriptor thermalParameters[] = {
     {"talusAngle", "Angle of repose", "The steepest slope loose material will hold", "deg",
      TerrainParameterType_Float, 35.0, 0.0, 89.0, "", nullptr, 0},
-    {"iterations", "Iterations", "How many times material is allowed to move on", "",
-     TerrainParameterType_Int, 40.0, 1.0, 1000.0, "", nullptr, 0},
-    {"strength", "Strength", "How much of the unstable material moves each time", "",
+    {"travel", "Travel", "How far loose material spreads before it comes to rest", "m",
+     TerrainParameterType_Float, 100.0, 1.0, 1000.0, "", nullptr, 0},
+    {"strength", "Strength", "How much of the unstable material moves in each pass", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0}};
 
 gpu::ThermalJob thermalJobFor(const ThermalSettings& settings, float* surface, float* sediment,
@@ -238,7 +282,8 @@ void evaluateThermalErosion(const TerrainContextApi* api, TerrainEvaluationConte
     const gpu::FlushDenormalsToZero denormals;
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
-    const int iterations = static_cast<int>(api->parameterNumber(context, 1));
+    const int iterations =
+        passesToSpread(api->parameterNumber(context, 1), api->cellSizeMeters(context));
     const ThermalSettings settings = thermalSettingsFor(
         api, context, api->parameterNumber(context, 0),
         static_cast<float>(api->parameterNumber(context, 2)));
@@ -278,8 +323,8 @@ const TerrainParameterDescriptor depositParameters[] = {
      TerrainParameterType_Float, 30.0, 0.0, 2000.0, "", nullptr, 0},
     {"settleAngle", "Settle angle", "The steepest slope the sediment will rest on", "deg",
      TerrainParameterType_Float, 12.0, 0.0, 89.0, "", nullptr, 0},
-    {"iterations", "Iterations", "How far the sediment is allowed to travel", "",
-     TerrainParameterType_Int, 60.0, 1.0, 1000.0, "", nullptr, 0}};
+    {"travel", "Travel", "How far the sediment spreads before it comes to rest", "m",
+     TerrainParameterType_Float, 100.0, 1.0, 1000.0, "", nullptr, 0}};
 
 /// A depth in meters as a mask, scaled against its own deepest point: a mask
 /// is a weight, and the meters are already in the surface output.
@@ -303,7 +348,8 @@ void evaluateDeposit(const TerrainContextApi* api, TerrainEvaluationContext* con
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
     const float amount = static_cast<float>(api->parameterNumber(context, 0));
-    const int iterations = static_cast<int>(api->parameterNumber(context, 2));
+    const int iterations =
+        passesToSpread(api->parameterNumber(context, 2), api->cellSizeMeters(context));
     const ThermalSettings settings =
         thermalSettingsFor(api, context, api->parameterNumber(context, 1), 0.5f);
     const float perIteration = amount / iterations;
@@ -341,6 +387,9 @@ const TerrainNodeDescriptor depositDescriptor = {
  * the two would make every parameter depend on the ground resolution — a
  * capacity tuned at 30 m per cell would be meaningless at 3 m per cell. The
  * caller scales the surface on the way in and back again on the way out.
+ *
+ * Every rate here is per cell step, already rescaled from the reference step
+ * the parameters are given over; see `hydraulicSettingsFor`.
  */
 struct HydraulicSettings {
     int size = 0;
@@ -437,21 +486,23 @@ struct Droplet {
     float sediment = 0.0f;
 };
 
-/// How much sediment the droplet can hold right now. A droplet running over
-/// flat ground would otherwise have no capacity at all and drop everything.
+/// How much sediment the droplet can hold right now. The slope floor keeps a
+/// droplet on flat ground from having no capacity at all and dropping
+/// everything. Everything a droplet does scales with its share of the rain,
+/// the floor included, or the floor would be worth more the finer the rain.
 float carryingCapacity(const Droplet& droplet, float deltaHeight,
                        const HydraulicSettings& settings) {
-    return std::max(-deltaHeight * droplet.speed * droplet.water * settings.capacityFactor,
-                    settings.minimumSlope * settings.capacityFactor);
+    return std::max(-deltaHeight * droplet.speed, settings.minimumSlope) * droplet.water
+           * settings.capacityFactor;
 }
 
 /// How much the droplet gives back this step: everything above its capacity,
-/// or enough to climb the step it just failed to descend.
+/// or its share of what would fill the step it just failed to descend.
 float sedimentToDrop(const Droplet& droplet, float capacity, float deltaHeight,
                      const HydraulicSettings& settings) {
     if (deltaHeight > 0.0f) {
         // Uphill: the droplet is climbing out of a hollow and fills it instead.
-        return std::min(deltaHeight, droplet.sediment);
+        return std::min(deltaHeight * droplet.water, droplet.sediment);
     }
     return (droplet.sediment - capacity) * settings.depositionRate;
 }
@@ -585,37 +636,49 @@ const TerrainParameterDescriptor hydraulicParameters[] = {
      "", TerrainParameterType_Float, 1.0, 0.0, 16.0, "", nullptr, 0},
     {"seed", "Seed", "Varies this node alone, on top of the graph seed", "",
      TerrainParameterType_Seed, 0.0, 0.0, 4294967295.0, "", nullptr, 0},
-    {"lifetime", "Droplet life", "How far a droplet travels before it is gone", "",
-     TerrainParameterType_Int, 64.0, 1.0, 512.0, "", nullptr, 0},
+    {"lifetime", "Droplet life", "How far a droplet travels before it is gone", "m",
+     TerrainParameterType_Float, 600.0, 1.0, 20000.0, "", nullptr, 0},
     {"radius", "Channel width", "How wide a patch a droplet works over, and so how broad its "
      "channels are. Narrow is faster but starts to punch holes",
      "m", TerrainParameterType_Float, 60.0, 0.0, 5000.0, "", nullptr, 0},
-    {"inertia", "Inertia", "How much a droplet keeps its heading instead of falling downhill",
-     "", TerrainParameterType_Float, 0.05, 0.0, 0.99, "", nullptr, 0},
+    {"inertia", "Inertia",
+     "How much of its heading a droplet keeps over 10 m instead of falling downhill", "",
+     TerrainParameterType_Float, 0.05, 0.0, 0.99, "", nullptr, 0},
     {"capacity", "Capacity", "How much sediment the rain can carry, and so how deeply it cuts",
      "", TerrainParameterType_Float, 1.0, 0.01, 16.0, "", nullptr, 0},
-    {"erosionRate", "Erosion rate", "How quickly an unloaded droplet cuts in", "",
+    {"erosionRate", "Erosion rate",
+     "What share of its spare capacity an unloaded droplet cuts in over 10 m", "",
      TerrainParameterType_Float, 0.3, 0.0, 1.0, "", nullptr, 0},
-    {"depositionRate", "Deposition rate", "How quickly an overloaded droplet drops its load", "",
+    {"depositionRate", "Deposition rate",
+     "What share of its excess load an overloaded droplet drops over 10 m", "",
      TerrainParameterType_Float, 0.3, 0.0, 1.0, "", nullptr, 0},
-    {"evaporation", "Evaporation", "How fast a droplet dries up as it travels", "",
+    {"evaporation", "Evaporation", "What share of its water a droplet loses over 10 m", "",
      TerrainParameterType_Float, 0.02, 0.0, 1.0, "", nullptr, 0},
-    {"gravity", "Gravity", "How much a drop in height speeds a droplet up", "",
+    {"gravity", "Gravity", "How much a drop in height speeds a droplet up, over 10 m", "",
      TerrainParameterType_Float, 10.0, 0.1, 40.0, "", nullptr, 0}};
 
+/// Capacity and the slope floor are per step already invariant: a height
+/// difference in cell units over one cell is a slope, whatever the cell size.
 HydraulicSettings hydraulicSettingsFor(const TerrainContextApi* api,
                                        TerrainEvaluationContext* context) {
+    const double cellSizeMeters = api->cellSizeMeters(context);
+    const double stepRatio = stepRatioFor(cellSizeMeters);
     HydraulicSettings settings;
     settings.size = api->width(context);
-    settings.lifetime = static_cast<int>(api->parameterNumber(context, 2));
-    settings.water =
-        1.0f / std::max(static_cast<float>(api->parameterNumber(context, 0)), 1.0e-3f);
-    settings.inertia = static_cast<float>(api->parameterNumber(context, 4));
+    settings.lifetime = stepsToTravel(api->parameterNumber(context, 2), cellSizeMeters);
+    // A droplet stands for one cell's share of the rain, and a cell is
+    // cellSize squared of ground; its load is a height over one cell, which
+    // is cellSize cubed of material. The rain per square meter is the same at
+    // every resolution, so the load a droplet can carry has to shrink as the
+    // cells do.
+    settings.water = static_cast<float>(
+        1.0 / (std::max(api->parameterNumber(context, 0), 1.0e-3) * stepRatio));
+    settings.inertia = retentionPerCell(api->parameterNumber(context, 4), stepRatio);
     settings.capacityFactor = static_cast<float>(api->parameterNumber(context, 5));
-    settings.erosionRate = static_cast<float>(api->parameterNumber(context, 6));
-    settings.depositionRate = static_cast<float>(api->parameterNumber(context, 7));
-    settings.evaporation = static_cast<float>(api->parameterNumber(context, 8));
-    settings.gravity = static_cast<float>(api->parameterNumber(context, 9));
+    settings.erosionRate = fractionPerCell(api->parameterNumber(context, 6), stepRatio);
+    settings.depositionRate = fractionPerCell(api->parameterNumber(context, 7), stepRatio);
+    settings.evaporation = fractionPerCell(api->parameterNumber(context, 8), stepRatio);
+    settings.gravity = static_cast<float>(api->parameterNumber(context, 9) * stepRatio);
     return settings;
 }
 
