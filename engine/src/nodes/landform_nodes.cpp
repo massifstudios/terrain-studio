@@ -267,41 +267,24 @@ const TerrainParameterDescriptor rangeParameters[] = {
      "", TerrainParameterType_Float, 1.6, 0.2, 6.0, "", nullptr, 0},
     {"seed", "Seed", "Varies this node alone, on top of the graph seed", "",
      TerrainParameterType_Seed, 0.0, 0.0, 4294967295.0, "", nullptr, 0},
-    {"irregularity", "Irregularity", "How far the spine and its flanks wander off straight", "",
+    {"irregularity", "Irregularity", "How far the spine and its ridges wander off straight", "",
      TerrainParameterType_Float, 0.4, 0.0, 1.0, "", nullptr, 0},
-    {"detailStrength", "Detail", "How much ridged detail is cut into the slopes", "",
+    {"detailStrength", "Valley depth",
+     "How deep the valleys are cut between the ridges, as a share of the mass above them", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
+    {"featureSize", "Detail size", "Ground distance between neighbouring gullies on a flank", "m",
      TerrainParameterType_Float, 1600.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the range sits at", "m",
      TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
-     "How far the detail is drawn out into ribs running down the flanks of the spine", "",
+     "How far the fine detail is drawn out into gullies running down the flanks", "",
      TerrainParameterType_Float, 0.6, 0.0, 0.95, "", nullptr, 0}};
-
-/**
- * Two overlapping shapes joined without a crease.
- *
- * Taking the higher of two smooth domes leaves the gradient discontinuous
- * along the line where they cross, and a range built by folding five domes
- * together that way is a set of plates with seams between them. Easing across
- * a band of relief removes the seam, and unlike a conventional smooth union it
- * never stands higher than the taller of the two, so a range still reaches
- * exactly the height it was given.
- */
-float blendedMaximum(float first, float second, float band) {
-    const float weight = std::clamp(0.5f + 0.5f * (first - second) / band, 0.0f, 1.0f);
-    const float eased = weight * weight * (3.0f - 2.0f * weight);
-    return second + (first - second) * eased;
-}
-
-/// How much relief the summits and the spine are eased together over.
-constexpr float massifBlendBand = 0.2f;
 
 struct RangePeak {
     double eastingMeters = 0.0;
     double northingMeters = 0.0;
-    double radiusMeters = 0.0;
+    /// Where the summit sits along the range's axis, measured from the centre.
+    double alongMeters = 0.0;
     float heightFraction = 1.0f;
 };
 
@@ -315,6 +298,28 @@ struct RangeAxis {
 RangeAxis axisFor(double bearingDegrees) {
     const double radians = bearingDegrees * std::numbers::pi / 180.0;
     return RangeAxis{std::sin(radians), std::cos(radians), std::cos(radians), -std::sin(radians)};
+}
+
+struct RidgeSegment {
+    GroundPoint first;
+    GroundPoint second;
+};
+
+/// A unit direction on the ground.
+struct Heading {
+    double east = 0.0;
+    double north = 1.0;
+
+    Heading turned(double radians) const {
+        const double cosine = std::cos(radians);
+        const double sine = std::sin(radians);
+        return Heading{east * cosine - north * sine, east * sine + north * cosine};
+    }
+};
+
+GroundPoint stepFrom(const GroundPoint& origin, const Heading& heading, double distanceMeters) {
+    return GroundPoint{origin.eastingMeters + heading.east * distanceMeters,
+                       origin.northingMeters + heading.north * distanceMeters};
 }
 
 /**
@@ -334,64 +339,145 @@ std::vector<RangePeak> spineFrom(const ShapePlacement& placement, const RangeAxi
         const double alongJitter =
             (terrainRandomUnitFloat(&state) - 0.5) * lengthMeters / peakCount * 0.5;
         const double acrossJitter = (terrainRandomUnitFloat(&state) - 0.5) * widthMeters * 0.5;
-        const double along = alongUnit * lengthMeters + alongJitter;
 
         RangePeak peak;
-        peak.eastingMeters = placement.centreEastingMeters + axis.alongEast * along
+        peak.alongMeters = alongUnit * lengthMeters + alongJitter;
+        peak.eastingMeters = placement.centreEastingMeters + axis.alongEast * peak.alongMeters
                              + axis.acrossEast * acrossJitter;
-        peak.northingMeters = placement.centreNorthingMeters + axis.alongNorth * along
+        peak.northingMeters = placement.centreNorthingMeters + axis.alongNorth * peak.alongMeters
                               + axis.acrossNorth * acrossJitter;
-        peak.radiusMeters = widthMeters * 0.5 * (0.7 + 0.6 * terrainRandomUnitFloat(&state));
         peak.heightFraction = 1.0f - heightVariation * terrainRandomUnitFloat(&state);
         peaks.push_back(peak);
     }
     return peaks;
 }
 
-float peakValue(const RangePeak& peak, const GroundPoint& ground, float peakSharpness) {
-    const double distance = std::hypot(ground.eastingMeters - peak.eastingMeters,
-                                       ground.northingMeters - peak.northingMeters);
-    const float base = radialProfileValue(RadialProfile::Smooth, distance, peak.radiusMeters);
-    return std::pow(base, peakSharpness) * peak.heightFraction;
+GroundPoint pointOf(const RangePeak& peak) {
+    return GroundPoint{peak.eastingMeters, peak.northingMeters};
 }
 
-float peakRelief(const std::vector<RangePeak>& peaks, const GroundPoint& ground,
-                 float peakSharpness) {
-    if (peaks.empty()) {
-        return 0.0f;
-    }
-    // The fold starts on the first summit rather than on zero, because easing
-    // against a floor no summit stands on would pull the foot of the range
-    // down wherever its relief is shallower than the blending band.
-    float highest = peakValue(peaks.front(), ground, peakSharpness);
-    for (std::size_t index = 1; index < peaks.size(); ++index) {
-        highest = blendedMaximum(highest, peakValue(peaks[index], ground, peakSharpness),
-                                 massifBlendBand);
-    }
-    return highest;
+GroundPoint midpointOf(const RangePeak& first, const RangePeak& second) {
+    return GroundPoint{(first.eastingMeters + second.eastingMeters) * 0.5,
+                       (first.northingMeters + second.northingMeters) * 0.5};
 }
 
-/// The ridge that joins the summits, so the range reads as one landform rather
-/// than as a row of separate hills.
-float spineRelief(const std::vector<RangePeak>& peaks, const GroundPoint& ground,
-                  double halfWidthMeters, float saddleHeight) {
-    double nearest = halfWidthMeters;
-    for (std::size_t index = 1; index < peaks.size(); ++index) {
-        const double distance = segmentDistance(
-            ground.eastingMeters, ground.northingMeters, peaks[index - 1].eastingMeters,
-            peaks[index - 1].northingMeters, peaks[index].eastingMeters,
-            peaks[index].northingMeters);
-        nearest = std::min(nearest, distance);
+std::vector<RidgeSegment> spineSegmentsFrom(const std::vector<RangePeak>& peaks) {
+    std::vector<RidgeSegment> segments;
+    if (peaks.size() == 1) {
+        segments.push_back(RidgeSegment{pointOf(peaks.front()), pointOf(peaks.front())});
+        return segments;
     }
-    return radialProfileValue(RadialProfile::Smooth, nearest, halfWidthMeters) * saddleHeight;
+    for (std::size_t index = 1; index < peaks.size(); ++index) {
+        segments.push_back(RidgeSegment{pointOf(peaks[index - 1]), pointOf(peaks[index])});
+    }
+    return segments;
+}
+
+/// How far a transverse ridge may lean from square across the spine, either way.
+constexpr double branchLeanRadians = 40.0 * std::numbers::pi / 180.0;
+/// How sharply a transverse ridge may bend at its knee.
+constexpr double branchBendRadians = 30.0 * std::numbers::pi / 180.0;
+
+/**
+ * One transverse ridge leaving the spine towards a flank: two straight runs
+ * with a bend between them, reaching roughly to the foot of the range.
+ */
+void appendBranch(const GroundPoint& origin, const Heading& outward, double halfWidthMeters,
+                  std::uint64_t seed, std::vector<RidgeSegment>& segments) {
+    std::uint64_t state = seed;
+    const double lean = (terrainRandomUnitFloat(&state) - 0.5) * 2.0 * branchLeanRadians;
+    const double reach = halfWidthMeters * (0.7 + 0.6 * terrainRandomUnitFloat(&state));
+    const double bend = (terrainRandomUnitFloat(&state) - 0.5) * 2.0 * branchBendRadians;
+    const double kneeShare = 0.4 + 0.3 * terrainRandomUnitFloat(&state);
+
+    const Heading firstHeading = outward.turned(lean);
+    const GroundPoint knee = stepFrom(origin, firstHeading, reach * kneeShare);
+    const GroundPoint tip = stepFrom(knee, firstHeading.turned(bend), reach * (1.0 - kneeShare));
+    segments.push_back(RidgeSegment{origin, knee});
+    segments.push_back(RidgeSegment{knee, tip});
+}
+
+/**
+ * The transverse ridges that make a range a massif rather than a wall: one
+ * pair leaves each summit and one pair each pass, to either flank. The
+ * valleys draining the flanks are the gaps between them.
+ */
+std::vector<RidgeSegment> branchSegmentsFrom(const std::vector<RangePeak>& peaks,
+                                             const RangeAxis& axis, double halfWidthMeters,
+                                             std::uint64_t seed) {
+    std::vector<RidgeSegment> segments;
+    const Heading eastFlank{axis.acrossEast, axis.acrossNorth};
+    const Heading westFlank{-axis.acrossEast, -axis.acrossNorth};
+    const std::size_t originCount = peaks.size() * 2 - 1;
+
+    for (std::size_t originIndex = 0; originIndex < originCount; ++originIndex) {
+        const std::size_t peakIndex = originIndex / 2;
+        GroundPoint origin = pointOf(peaks[peakIndex]);
+        if (originIndex % 2 == 1) {
+            origin = midpointOf(peaks[peakIndex], peaks[peakIndex + 1]);
+        }
+        const std::uint64_t originSeed = terrainSeedForLane(seed, originIndex);
+        appendBranch(origin, eastFlank, halfWidthMeters, terrainSeedForLane(originSeed, 0),
+                     segments);
+        appendBranch(origin, westFlank, halfWidthMeters, terrainSeedForLane(originSeed, 1),
+                     segments);
+    }
+    return segments;
+}
+
+double nearestSegmentDistance(const std::vector<RidgeSegment>& segments,
+                              const GroundPoint& ground) {
+    double nearest = 1.0e30;
+    for (const RidgeSegment& segment : segments) {
+        nearest = std::min(nearest, segmentDistance(ground.eastingMeters, ground.northingMeters,
+                                                    segment.first.eastingMeters,
+                                                    segment.first.northingMeters,
+                                                    segment.second.eastingMeters,
+                                                    segment.second.northingMeters));
+    }
+    return nearest;
+}
+
+float smoothFall(double share) {
+    const float clamped = static_cast<float>(std::clamp(share, 0.0, 1.0));
+    return 1.0f - clamped * clamped * (3.0f - 2.0f * clamped);
+}
+
+/**
+ * How high the crest stands at a position along the range: the summits'
+ * own heights, dipping to the saddle height in each pass and tapering off
+ * beyond the end summits over one summit spacing.
+ */
+float crestHeightAlong(const std::vector<RangePeak>& peaks, double alongMeters,
+                       float saddleHeight, double spacingMeters) {
+    const RangePeak& first = peaks.front();
+    const RangePeak& last = peaks.back();
+    if (alongMeters <= first.alongMeters) {
+        return first.heightFraction * smoothFall((first.alongMeters - alongMeters) / spacingMeters);
+    }
+    if (alongMeters >= last.alongMeters) {
+        return last.heightFraction * smoothFall((alongMeters - last.alongMeters) / spacingMeters);
+    }
+
+    std::size_t index = 1;
+    while (peaks[index].alongMeters < alongMeters) {
+        ++index;
+    }
+    const RangePeak& before = peaks[index - 1];
+    const RangePeak& after = peaks[index];
+    const double share = (alongMeters - before.alongMeters)
+                         / std::max(after.alongMeters - before.alongMeters, 1.0e-6);
+    const float crest = static_cast<float>(before.heightFraction
+                                           + (after.heightFraction - before.heightFraction) * share);
+    const float dip = static_cast<float>(std::sin(share * std::numbers::pi));
+    return crest * (1.0f - (1.0f - saddleHeight) * dip * dip);
 }
 
 /**
  * The range's answer to `spurReadPoint`: the ground point pulled toward the
  * spine across the range rather than toward a summit. Damping the across-spine
- * coordinate stretches the noise the same way, so its features become ribs
- * running down the flanks and over the crest, instead of crumple laid over the
- * whole chain.
+ * coordinate stretches the noise the same way, so its features become gullies
+ * running down the flanks instead of crumple laid over the whole chain.
  */
 GroundPoint ribReadPoint(const GroundPoint& ground, const ShapePlacement& placement,
                          const RangeAxis& axis, float elongation) {
@@ -406,28 +492,96 @@ GroundPoint ribReadPoint(const GroundPoint& ground, const ShapePlacement& placem
                            + axis.acrossNorth * across};
 }
 
+/// How much of the ridge structure the transverse ridges set, against the
+/// fine gullies laid over them.
+constexpr float transverseShare = 0.6f;
+
+/// The deepest a valley may be cut, as a share of the mass above its floor.
+/// Cutting to the base leaves walls no rock stands at.
+constexpr float deepestValleyShare = 0.85f;
+
+/**
+ * Everything about a range that is fixed before the first cell is read. The
+ * per-cell work is a handful of distance queries against these.
+ */
+struct RangeLayout {
+    ShapePlacement placement;
+    RangeAxis axis;
+    std::vector<RangePeak> peaks;
+    std::vector<RidgeSegment> spine;
+    std::vector<RidgeSegment> branches;
+    double halfWidthMeters = 0.0;
+    double summitSpacingMeters = 0.0;
+    /// How far from the nearest ridge line the ground is still that ridge's
+    /// flank rather than the valley floor between two of them.
+    double valleyReachMeters = 0.0;
+    float saddleHeight = 0.5f;
+    float peakSharpness = 1.6f;
+};
+
+/**
+ * The mass of the range at a point: the crest height at that position along
+ * the axis, falling away across the spine as a shaped bell.
+ */
+float rangeMass(const RangeLayout& layout, const GroundPoint& ground) {
+    const double east = ground.eastingMeters - layout.placement.centreEastingMeters;
+    const double north = ground.northingMeters - layout.placement.centreNorthingMeters;
+    const double along = east * layout.axis.alongEast + north * layout.axis.alongNorth;
+    const float crest =
+        crestHeightAlong(layout.peaks, along, layout.saddleHeight, layout.summitSpacingMeters);
+    const float across = radialProfileValue(RadialProfile::Smooth,
+                                            nearestSegmentDistance(layout.spine, ground),
+                                            layout.halfWidthMeters);
+    return std::pow(across, layout.peakSharpness) * crest;
+}
+
+/// 1 on a ridge line, 0 on the valley floor between two of them.
+float transverseRidges(const RangeLayout& layout, const GroundPoint& ground) {
+    const double toRidge = std::min(nearestSegmentDistance(layout.spine, ground),
+                                    nearestSegmentDistance(layout.branches, ground));
+    return 1.0f - smoothFall(toRidge / layout.valleyReachMeters);
+}
+
+/**
+ * The valleys are cut at full depth right up to the crest and released only at
+ * the summits themselves, so the tallest summit still reaches the height it
+ * was given while every flank below it is ridge and valley all the way down.
+ */
+float carvedRange(float mass, float ridges, float valleyDepth) {
+    const float summitFade = std::clamp((1.0f - mass) * 8.0f, 0.0f, 1.0f);
+    return mass * (1.0f - valleyDepth * summitFade * (1.0f - ridges));
+}
+
 void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
-    const ShapePlacement placement = placementFrom(frame, api->parameterNumber(context, 0),
-                                                   api->parameterNumber(context, 1), 0.0);
+    const double lengthMeters = api->parameterNumber(context, 3);
     const double widthMeters = api->parameterNumber(context, 4);
+    const int peakCount = static_cast<int>(api->parameterNumber(context, 5));
     const float height = static_cast<float>(api->parameterNumber(context, 6));
-    const float saddleHeight = static_cast<float>(api->parameterNumber(context, 8));
-    const float peakSharpness = static_cast<float>(api->parameterNumber(context, 9));
     const std::uint64_t seed = terrainSeedForLane(
         api->randomSeed(context),
         static_cast<std::uint64_t>(api->parameterNumber(context, 10)));
-    const float detailStrength = static_cast<float>(api->parameterNumber(context, 12));
+    const float valleyDepth =
+        static_cast<float>(api->parameterNumber(context, 12)) * deepestValleyShare;
     const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 13));
     const float baseAltitude = static_cast<float>(api->parameterNumber(context, 14));
     const float spurElongation = static_cast<float>(api->parameterNumber(context, 15));
-    const float carveDepth = carveDepthFor(detailStrength, featureSizeMeters, height);
 
-    const RangeAxis axis = axisFor(api->parameterNumber(context, 2));
-    const std::vector<RangePeak> peaks = spineFrom(
-        placement, axis, api->parameterNumber(context, 3), widthMeters,
-        static_cast<int>(api->parameterNumber(context, 5)),
-        static_cast<float>(api->parameterNumber(context, 7)), terrainSeedForLane(seed, 4));
+    RangeLayout layout;
+    layout.placement = placementFrom(frame, api->parameterNumber(context, 0),
+                                     api->parameterNumber(context, 1), 0.0);
+    layout.axis = axisFor(api->parameterNumber(context, 2));
+    layout.peaks = spineFrom(layout.placement, layout.axis, lengthMeters, widthMeters, peakCount,
+                             static_cast<float>(api->parameterNumber(context, 7)),
+                             terrainSeedForLane(seed, 4));
+    layout.spine = spineSegmentsFrom(layout.peaks);
+    layout.halfWidthMeters = widthMeters * 0.5;
+    layout.branches = branchSegmentsFrom(layout.peaks, layout.axis, layout.halfWidthMeters,
+                                         terrainSeedForLane(seed, 5));
+    layout.summitSpacingMeters = lengthMeters / peakCount;
+    layout.valleyReachMeters = layout.summitSpacingMeters * 0.3;
+    layout.saddleHeight = static_cast<float>(api->parameterNumber(context, 8));
+    layout.peakSharpness = static_cast<float>(api->parameterNumber(context, 9));
 
     DomainWarp warp;
     warp.eastingSeed = terrainSeedForLane(seed, 1);
@@ -435,7 +589,6 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
     warp.featureSizeMeters = static_cast<float>(widthMeters);
     warp.amountMeters = static_cast<float>(api->parameterNumber(context, 11) * widthMeters * 0.5);
     const std::uint64_t detailSeed = terrainSeedForLane(seed, 3);
-    const double spineHalfWidth = widthMeters * 0.35;
     float* output = api->outputField(context, 0);
 
     forEachRowRange(api, context, frame.size, [&](int firstRow, int lastRow) {
@@ -444,16 +597,16 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
             for (int column = 0; column < frame.size; ++column) {
                 const GroundPoint ground =
                     warpedBy(warp, frame.eastingAt(column), frame.northingAt(row));
-                const float shaped =
-                    blendedMaximum(peakRelief(peaks, ground, peakSharpness),
-                                   spineRelief(peaks, ground, spineHalfWidth, saddleHeight),
-                                   massifBlendBand);
                 const auto readPointFor = [&](float elongation) {
-                    return ribReadPoint(ground, placement, axis, elongation);
+                    return ribReadPoint(ground, layout.placement, layout.axis, elongation);
                 };
-                const float ridges = craggyField(readPointFor, featureSizeMeters, spurElongation,
-                                                 detailSeed);
-                line[column] = cragged(shaped, ridges, carveDepth) * height + baseAltitude;
+                const float gullies = craggyField(readPointFor, featureSizeMeters, spurElongation,
+                                                  detailSeed);
+                const float ridges = transverseRidges(layout, ground) * transverseShare
+                                     + gullies * (1.0f - transverseShare);
+                line[column] =
+                    carvedRange(rangeMass(layout, ground), ridges, valleyDepth) * height
+                    + baseAltitude;
             }
         }
     });
@@ -462,7 +615,7 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
 const TerrainNodeDescriptor mountainRangeDescriptor = {
     "MountainRange",
     "Terrain",
-    "A chain of summits joined by a ridge, shaped for erosion to work on",
+    "A chain of summits on one spine, with transverse ridges and the valleys between them",
     1,
     nullptr,
     0,

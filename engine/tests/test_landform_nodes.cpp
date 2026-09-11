@@ -1,6 +1,8 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+
 #include "node_test_support.h"
 
 using Catch::Approx;
@@ -29,6 +31,20 @@ terrain::GraphNode& addPlainMountain(Graph& graph, const std::string& id) {
     mountain.parameters["detailStrength"] = ParameterValue{0.0, ""};
     mountain.parameters["baseAltitude"] = ParameterValue{0.0, ""};
     return mountain;
+}
+
+/// A range with its stochastic dials at zero and every summit at full height.
+terrain::GraphNode& addPlainRange(Graph& graph, const std::string& id) {
+    terrain::GraphNode& range = graph.addNode(id, "MountainRange");
+    range.parameters["bearing"] = ParameterValue{0.0, ""};
+    range.parameters["length"] = ParameterValue{10000.0, ""};
+    range.parameters["width"] = ParameterValue{6000.0, ""};
+    range.parameters["peakCount"] = ParameterValue{4.0, ""};
+    range.parameters["height"] = ParameterValue{2000.0, ""};
+    range.parameters["heightVariation"] = ParameterValue{0.0, ""};
+    range.parameters["irregularity"] = ParameterValue{0.0, ""};
+    range.parameters["detailStrength"] = ParameterValue{0.0, ""};
+    return range;
 }
 
 }  // namespace
@@ -218,6 +234,66 @@ TEST_CASE("a range draws the same chain at any thread count",
 
     REQUIRE(hashField(*evaluateNode(graph, "range", 1))
             == hashField(*evaluateNode(graph, "range", 8)));
+}
+
+TEST_CASE("valleys cut a range's flanks deep while its summit keeps its height",
+          "[nodes][mountainrange]") {
+    constexpr int fineResolution = 128;
+    Graph graph = squareGraph(fineResolution, worldSize);
+    addPlainRange(graph, "smooth");
+    terrain::GraphNode& carved = addPlainRange(graph, "carved");
+    carved.parameters["detailStrength"] = ParameterValue{1.0, ""};
+
+    const auto smoothField = evaluateNode(graph, "smooth");
+    const auto carvedField = evaluateNode(graph, "carved");
+
+    // The valleys take more than half the mass somewhere on the flanks: relief
+    // at full depth, not crumple laid over a dome.
+    float deepestShare = 0.0f;
+    for (int row = 0; row < fineResolution; ++row) {
+        for (int column = 0; column < fineResolution; ++column) {
+            const float mass = smoothField->at(column, row);
+            if (mass < 500.0f) {
+                continue;
+            }
+            deepestShare = std::max(deepestShare, 1.0f - carvedField->at(column, row) / mass);
+        }
+    }
+    REQUIRE(deepestShare > 0.5f);
+    REQUIRE(carvedField->maximum() > smoothField->maximum() * 0.9f);
+    REQUIRE(carvedField->maximum() <= smoothField->maximum());
+}
+
+TEST_CASE("a range's ridges run out across its flanks rather than only along its spine",
+          "[nodes][mountainrange]") {
+    // Walking along the range half-way down one flank crosses transverse
+    // ridges and the valleys between them, so the height there rises and falls
+    // many times. On a plain wall it would only follow the crest.
+    constexpr int fineResolution = 128;
+    Graph graph = squareGraph(fineResolution, worldSize);
+    terrain::GraphNode& range = graph.addNode("range", "MountainRange");
+    range.parameters["bearing"] = ParameterValue{0.0, ""};
+    range.parameters["length"] = ParameterValue{12000.0, ""};
+    range.parameters["width"] = ParameterValue{8000.0, ""};
+    range.parameters["peakCount"] = ParameterValue{4.0, ""};
+    range.parameters["height"] = ParameterValue{2000.0, ""};
+    range.parameters["heightVariation"] = ParameterValue{0.0, ""};
+    range.parameters["saddleHeight"] = ParameterValue{1.0, ""};
+    range.parameters["irregularity"] = ParameterValue{0.0, ""};
+    range.parameters["detailStrength"] = ParameterValue{1.0, ""};
+
+    const auto field = evaluateNode(graph, "range");
+    const int flankColumn = fineResolution / 2 + fineResolution / 8;
+    int turns = 0;
+    bool rising = false;
+    for (int row = fineResolution / 4 + 1; row < fineResolution * 3 / 4; ++row) {
+        const bool nowRising = field->at(flankColumn, row) > field->at(flankColumn, row - 1);
+        if (nowRising != rising) {
+            ++turns;
+        }
+        rising = nowRising;
+    }
+    REQUIRE(turns >= 6);
 }
 
 TEST_CASE("nothing in a range lies below the altitude it sits on",
