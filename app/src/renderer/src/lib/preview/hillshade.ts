@@ -73,6 +73,12 @@ vec3 surfaceColor(vec3 rampColor, sampler2D painted, vec2 gridUv, float strength
  * layers packed one per channel; they add to one, so the blend is a plain
  * weighted sum. Sampler arrays may only be indexed by constants, hence the
  * spelled-out four.
+ *
+ * A texture repeated as-is reads as a carpet. Every tile instead places the
+ * texture its own way, turned by a random angle and slid by a random offset,
+ * and neighbouring tiles cross-fade over the middle half of each so neither
+ * the seam nor the repeat shows. Gradients are passed explicitly because the
+ * per-tile transform would otherwise break mip selection at the tile edges.
  */
 const materialGlsl = /* glsl */ `
 uniform sampler2D materialWeights;
@@ -80,16 +86,43 @@ uniform float materialStrength;
 uniform sampler2D materialTiles[4];
 uniform float materialRepeat;
 
+vec4 tileHash(vec2 tile) {
+	return fract(sin(vec4(
+		1.0 + dot(tile, vec2(37.0, 17.0)),
+		2.0 + dot(tile, vec2(11.0, 47.0)),
+		3.0 + dot(tile, vec2(41.0, 29.0)),
+		4.0 + dot(tile, vec2(23.0, 31.0)))) * 103.0);
+}
+
+vec3 sampleTile(sampler2D tile, vec2 uv, vec2 cell, vec2 ddx, vec2 ddy) {
+	vec4 random = tileHash(cell);
+	float angle = random.z * 6.2831853;
+	mat2 turn = mat2(cos(angle), sin(angle), -sin(angle), cos(angle));
+	return textureGrad(tile, turn * uv + random.xy, turn * ddx, turn * ddy).rgb;
+}
+
+vec3 untiledSample(sampler2D tile, vec2 uv) {
+	vec2 cell = floor(uv);
+	vec2 blend = smoothstep(0.25, 0.75, fract(uv));
+	vec2 ddx = dFdx(uv);
+	vec2 ddy = dFdy(uv);
+	vec3 here = sampleTile(tile, uv, cell, ddx, ddy);
+	vec3 east = sampleTile(tile, uv, cell + vec2(1.0, 0.0), ddx, ddy);
+	vec3 south = sampleTile(tile, uv, cell + vec2(0.0, 1.0), ddx, ddy);
+	vec3 southEast = sampleTile(tile, uv, cell + vec2(1.0, 1.0), ddx, ddy);
+	return mix(mix(here, east, blend.x), mix(south, southEast, blend.x), blend.y);
+}
+
 vec3 drapeMaterials(vec3 colour, vec2 gridUv) {
 	if (materialStrength <= 0.0) {
 		return colour;
 	}
 	vec4 weights = texture2D(materialWeights, gridUv);
 	vec2 tileUv = gridUv * materialRepeat;
-	vec3 blended = weights.r * texture2D(materialTiles[0], tileUv).rgb
-		+ weights.g * texture2D(materialTiles[1], tileUv).rgb
-		+ weights.b * texture2D(materialTiles[2], tileUv).rgb
-		+ weights.a * texture2D(materialTiles[3], tileUv).rgb;
+	vec3 blended = weights.r * untiledSample(materialTiles[0], tileUv)
+		+ weights.g * untiledSample(materialTiles[1], tileUv)
+		+ weights.b * untiledSample(materialTiles[2], tileUv)
+		+ weights.a * untiledSample(materialTiles[3], tileUv);
 	return mix(colour, blended, materialStrength);
 }
 `;
