@@ -390,9 +390,12 @@ StreakWander streakWanderAt(const GroundPoint& ground, double featureMeters,
                     * gullies.wanderStreaks;
     wander.outward = noise::fractalPerlin(x, y, terrainSeedForLane(seed, 102), wanderOptions)
                      * gullies.wanderStreaks;
-    wander.depth = 1.0f
-                   + noise::perlin(x * depthScale, y * depthScale, terrainSeedForLane(seed, 103))
-                         * gullies.depthWanderShare;
+    // Scaled so the deepest gully is still at most the full depth, which
+    // keeps every finer octave cutting rather than filling.
+    wander.depth = (1.0f
+                    + noise::perlin(x * depthScale, y * depthScale, terrainSeedForLane(seed, 103))
+                          * gullies.depthWanderShare)
+                   / (1.0f + gullies.depthWanderShare);
     return wander;
 }
 
