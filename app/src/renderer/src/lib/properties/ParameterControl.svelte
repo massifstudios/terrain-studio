@@ -5,6 +5,7 @@
 	import type { ParameterSchema, ParameterValue } from '$shared/graph-document';
 	import CurveEditor from '$lib/controls/CurveEditor.svelte';
 	import RampEditor from '$lib/controls/RampEditor.svelte';
+	import TexturePicker from '$lib/controls/TexturePicker.svelte';
 	import ValueSlider from '$lib/controls/ValueSlider.svelte';
 
 	interface Props {
@@ -57,7 +58,9 @@
 			onchange={(event: Event) => onChange((event.currentTarget as HTMLInputElement).checked)}
 		/>
 	</label>
-{:else if schema.type === 'enum' || schema.type === 'texture'}
+{:else if schema.type === 'texture'}
+	<TexturePicker label={schema.label} options={schema.options} value={textValue} onChange={onChange} />
+{:else if schema.type === 'enum'}
 	<label class="flex flex-col gap-1 text-2xs text-muted">
 		<span>{schema.label}</span>
 		<Select
