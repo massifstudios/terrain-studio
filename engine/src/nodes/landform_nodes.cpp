@@ -521,6 +521,10 @@ constexpr double mountainMergeShare = 2.0;
 /// a crinkle laid over the rock rather than as drainage cut into it.
 constexpr double finestStreakShare = 1.0 / 160.0;
 
+/// The narrowest gully the grid can hold, in cells. A streak narrower than
+/// this is sampled below its own width and comes out as speckle.
+constexpr double finestStreakCells = 4.0;
+
 /// How many generations of gullies a massif holds. Past this a generation has
 /// merged into the network below it before its streaks were ever wide enough
 /// on the ground to cut anything.
@@ -767,7 +771,8 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
     layout.gullies.gullySharpness = mountainGullySharpness;
     layout.gullies.gain = mountainGullyGain;
     layout.gullies.coarsestMergeMeters = layout.radiusMeters * mountainMergeShare;
-    layout.gullies.finestStreakMeters = layout.radiusMeters * finestStreakShare;
+    layout.gullies.finestStreakMeters = std::max(layout.radiusMeters * finestStreakShare,
+                                                 frame.cellSizeMeters * finestStreakCells);
     layout.gullies.wanderStreaks = mountainWanderStreaks;
     layout.gullies.wanderFeatureStreaks = mountainWanderFeatureStreaks;
     layout.gullies.depthWanderShare = mountainDepthWanderShare;
