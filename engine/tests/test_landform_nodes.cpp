@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <functional>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <vector>
 
 #include "node_test_support.h"
@@ -140,6 +142,73 @@ float heightSpreadOnRing(const terrain::Heightfield& field, int size, const Cell
         }
     }
     return highest - lowest;
+}
+
+float heightOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                   double radiusCells, double angleRadians) {
+    const int column = static_cast<int>(
+        std::lround(centre.column + radiusCells * std::sin(angleRadians)));
+    const int row =
+        static_cast<int>(std::lround(centre.row - radiusCells * std::cos(angleRadians)));
+    return field.at(std::clamp(column, 0, size - 1), std::clamp(row, 0, size - 1));
+}
+
+/**
+ * How many separate stretches of a ring stand above the middle of the ring's
+ * own relief: how many ridges the ring crosses.
+ *
+ * Counted as arcs rather than as local highs, so a cell of sampling noise on a
+ * flank cannot be mistaken for a ridge of its own.
+ */
+int ridgeCrossingsOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                         double radiusCells) {
+    constexpr int sampleCount = 180;
+    std::vector<float> heights;
+    heights.reserve(sampleCount);
+    for (int sample = 0; sample < sampleCount; ++sample) {
+        const double angle = 2.0 * std::numbers::pi * sample / sampleCount;
+        heights.push_back(heightOnRing(field, size, centre, radiusCells, angle));
+    }
+
+    const auto [lowest, highest] = std::minmax_element(heights.begin(), heights.end());
+    const float midHeight = (*lowest + *highest) * 0.5f;
+    int crossings = 0;
+    for (int sample = 0; sample < sampleCount; ++sample) {
+        const bool rises = heights[(sample + sampleCount - 1) % sampleCount] <= midHeight
+                           && heights[sample] > midHeight;
+        if (rises) {
+            ++crossings;
+        }
+    }
+    return crossings;
+}
+
+/// The deepest the detail cuts into the plain shape along one row, over a band
+/// of distances from a cell.
+float deepestCutInRow(const terrain::Heightfield& plainField,
+                      const terrain::Heightfield& roughField, int size, const Cell& centre,
+                      int row, double lowRadiusCells, double highRadiusCells) {
+    float deepest = 0.0f;
+    for (int column = 0; column < size; ++column) {
+        const double distance = std::hypot(column - centre.column, row - centre.row);
+        if (distance < lowRadiusCells || distance >= highRadiusCells) {
+            continue;
+        }
+        deepest = std::max(deepest, plainField.at(column, row) - roughField.at(column, row));
+    }
+    return deepest;
+}
+
+/// The same over the whole grid.
+float deepestCutInBand(const terrain::Heightfield& plainField,
+                       const terrain::Heightfield& roughField, int size, const Cell& centre,
+                       double lowRadiusCells, double highRadiusCells) {
+    float deepest = 0.0f;
+    for (int row = 0; row < size; ++row) {
+        deepest = std::max(deepest, deepestCutInRow(plainField, roughField, size, centre, row,
+                                                    lowRadiusCells, highRadiusCells));
+    }
+    return deepest;
 }
 
 }  // namespace
@@ -293,8 +362,47 @@ TEST_CASE("a mountain draws the same shape at any thread count",
     Graph graph = squareGraph(resolution, worldSize);
     graph.addNode("peak", "Mountain");
 
-    REQUIRE(hashField(*evaluateNode(graph, "peak", 1))
-            == hashField(*evaluateNode(graph, "peak", 8)));
+    const std::uint64_t once = hashField(*evaluateNode(graph, "peak", 1));
+    REQUIRE(once == hashField(*evaluateNode(graph, "peak", 1)));
+    REQUIRE(once == hashField(*evaluateNode(graph, "peak", 4)));
+    REQUIRE(once == hashField(*evaluateNode(graph, "peak", 8)));
+}
+
+TEST_CASE("a mountain's flanks carry a tree of spurs, not a handful of arms",
+          "[nodes][mountain]") {
+    // A ring drawn round the massif crosses a ridge every time it leaves one
+    // catchment for the next, so the count is how many spurs reach that far
+    // out. A cone crosses none, a starfish a few; a mountain carries a spur
+    // and a valley every few hundred metres all the way round.
+    constexpr int fineResolution = 256;
+    const auto field = plainMountainField(fineResolution, leaveAsItIs);
+    const Cell centre{fineResolution / 2, fineResolution / 2};
+    const double cellSizeMeters = worldSize / fineResolution;
+
+    REQUIRE(ridgeCrossingsOnRing(*field, fineResolution, centre, 1600.0 / cellSizeMeters) >= 6);
+    REQUIRE(ridgeCrossingsOnRing(*field, fineResolution, centre, 2600.0 / cellSizeMeters) >= 6);
+}
+
+TEST_CASE("the gullies are cut as deeply at the foot as on the flank above",
+          "[nodes][mountain]") {
+    // Relief does not thin out towards the foot of a mountain: the valleys
+    // draining its lower flanks are the deepest ground on it. Scaling the cut
+    // by the mass standing over it instead leaves everything below the middle
+    // of the massif smooth, which reads as a crumpled cap on a plain dome.
+    constexpr int fineResolution = 256;
+    const auto plainField = plainMountainField(fineResolution, leaveAsItIs);
+    const auto roughField = plainMountainField(fineResolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    });
+
+    const Cell centre{fineResolution / 2, fineResolution / 2};
+    const double cellSizeMeters = worldSize / fineResolution;
+    const float onFlank = deepestCutInBand(*plainField, *roughField, fineResolution, centre,
+                                           800.0 / cellSizeMeters, 2000.0 / cellSizeMeters);
+    const float atFoot = deepestCutInBand(*plainField, *roughField, fineResolution, centre,
+                                          2000.0 / cellSizeMeters, 3200.0 / cellSizeMeters);
+    REQUIRE(onFlank > 0.0f);
+    REQUIRE(atFoot > onFlank * 0.7f);
 }
 
 TEST_CASE("the relief a mountain draws follows the height it is given",

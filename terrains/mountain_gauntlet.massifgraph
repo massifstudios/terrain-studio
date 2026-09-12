@@ -26,7 +26,16 @@
 			"type": "Mountain",
 			"x": 0,
 			"y": 0,
-			"parameters": {}
+			"parameters": {
+				"radius": 7600,
+				"height": 2200,
+				"peakSharpness": 2.0,
+				"irregularity": 0.5,
+				"reduceDetails": 0.25,
+				"detailStrength": 0.35,
+				"featureSize": 900,
+				"spurElongation": 0.65
+			}
 		},
 		{
 			"id": "dem",
