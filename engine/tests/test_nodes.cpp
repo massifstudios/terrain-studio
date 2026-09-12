@@ -314,6 +314,29 @@ TEST_CASE("a curvature mask separates hollows from rises", "[nodes][mask]") {
     REQUIRE(hashField(*hollowField) != hashField(*riseField));
 }
 
+TEST_CASE("the hollows mode selects the bottom of a pit, not its rim", "[nodes][mask]") {
+    // A cone turned upside down: a single hollow whose centre is the one
+    // place the ground bends inwards most sharply.
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& pit = graph.addNode("pit", "RadialGradient");
+    pit.parameters["amplitude"] = ParameterValue{-100.0, ""};
+    pit.parameters["offset"] = ParameterValue{0.0, ""};
+    pit.parameters["radius"] = ParameterValue{250.0, ""};
+    pit.parameters["profile"] = ParameterValue{2.0, ""};
+    terrain::GraphNode& hollows = graph.addNode("hollows", "CurvatureMask");
+    hollows.parameters["mode"] = ParameterValue{0.0, ""};
+    graph.connect("pit", 0, "hollows", 0);
+    terrain::GraphNode& rises = graph.addNode("rises", "CurvatureMask");
+    rises.parameters["mode"] = ParameterValue{1.0, ""};
+    graph.connect("pit", 0, "rises", 0);
+
+    const auto hollowField = evaluateNode(graph, "hollows");
+    const auto riseField = evaluateNode(graph, "rises");
+    const int centre = resolution / 2;
+    REQUIRE(hollowField->at(centre, centre) > 0.5f);
+    REQUIRE(riseField->at(centre, centre) == Approx(0.0).margin(1e-4));
+}
+
 TEST_CASE("a mask scales a filter's effect", "[nodes][mask]") {
     Graph graph = northwardRamp(0.0, 100.0);
     terrain::GraphNode& band = graph.addNode("band", "HeightMask");

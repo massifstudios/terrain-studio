@@ -111,7 +111,9 @@ float sampleCurvature(const float* field, int size, int row, int column, double 
                       + sampleClamped(field, size, row + 1, column)
                       + sampleClamped(field, size, row - 1, column);
     const float step = static_cast<float>(cellSizeMeters);
-    return (sum - 4.0f * centre) / (step * step);
+    // The Laplacian is positive where the cell sits below its neighbours; the
+    // sign is turned so a bend reads positive over a rise, as documented.
+    return (4.0f * centre - sum) / (step * step);
 }
 
 float smoothStep(float edge) {

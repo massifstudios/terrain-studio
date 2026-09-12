@@ -88,13 +88,11 @@ CurvatureField curvatureOf(const TerrainContextApi* api, TerrainEvaluationContex
     CurvatureField curvature;
     curvature.values.resize(cellCount(api, context));
 
-    // The Laplacian is positive where a cell sits below the ground around it,
-    // so the sign is turned over: a bend reads positive over a rise.
     forEachRowRange(api, context, size, [&](int firstRow, int lastRow) {
         for (int row = firstRow; row < lastRow; ++row) {
             for (int column = 0; column < size; ++column) {
                 curvature.values[cellIndex(size, row, column)] =
-                    -sampleCurvature(field, size, row, column, cellSize);
+                    sampleCurvature(field, size, row, column, cellSize);
             }
         }
     });
