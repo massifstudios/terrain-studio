@@ -2,7 +2,7 @@
 	"version": 1,
 	"settings": {
 		"resolution": 1024,
-		"world_size_meters": 4000,
+		"world_size_meters": 12000,
 		"seed": 7,
 		"georeference": {
 			"coordinate_system": "",
@@ -10,8 +10,61 @@
 			"northing_max_meters": 0
 		}
 	},
-	"preview_node_id": "mountain1",
+	"preview_node_id": "colorRamp1",
 	"nodes": [
+		{
+			"id": "add1",
+			"type": "Add",
+			"x": -502.4219244524085,
+			"y": 1446.1396190475728,
+			"parameters": {}
+		},
+		{
+			"id": "add2",
+			"type": "Add",
+			"x": -268.5159792238038,
+			"y": 1647.0578007362983,
+			"parameters": {}
+		},
+		{
+			"id": "colorRamp1",
+			"type": "ColorRamp",
+			"x": 937.9239269350852,
+			"y": 1648.8003594924264,
+			"parameters": {
+				"ramp": "0:#3f5545;0.35:#7c8459;0.6:#8d7b5f;0.82:#9a9791;1:#ffffff"
+			}
+		},
+		{
+			"id": "fluvialErosion1",
+			"type": "FluvialErosion",
+			"x": -7.442906296493916,
+			"y": 1541.7267994679555,
+			"parameters": {
+				"concavity": 0.2,
+				"creep": 5,
+				"incision": 5,
+				"passes": 20
+			}
+		},
+		{
+			"id": "hydraulicErosion1",
+			"type": "HydraulicErosion",
+			"x": 293.8575206850845,
+			"y": 1630.3277032424264,
+			"parameters": {
+				"capacity": 1,
+				"density": 1,
+				"deposition_rate": 0.3,
+				"erosion_rate": 0.3,
+				"evaporation": 0.02,
+				"gravity": 10,
+				"inertia": 0.05,
+				"lifetime": 600,
+				"radius": 60,
+				"seed": 0
+			}
+		},
 		{
 			"id": "mountain1",
 			"type": "Mountain",
@@ -24,17 +77,125 @@
 				"centre_north": 0.5,
 				"detail_strength": 0.5,
 				"feature_size": 1200,
-				"height": 4800,
+				"height": 1800,
 				"irregularity": 0.35,
 				"peak_sharpness": 1.6,
-				"radius": 3000,
-				"reduce_details": 1,
+				"radius": 4000,
+				"reduce_details": 0,
 				"scale": 1.5,
 				"seed": 935392982,
 				"spur_elongation": 0.6,
 				"style": 1
 			}
+		},
+		{
+			"id": "mountainRange1",
+			"type": "MountainRange",
+			"x": -1074.7121128869921,
+			"y": 1536.1258429254883,
+			"parameters": {
+				"base_altitude": 0,
+				"bearing": 45,
+				"centre_east": 0.5,
+				"centre_north": 0.5,
+				"detail_strength": 0.5,
+				"feature_size": 1900,
+				"height": 1400,
+				"height_variation": 0.4,
+				"irregularity": 0.4,
+				"length": 18000,
+				"peak_count": 8,
+				"peak_sharpness": 1.6,
+				"saddle_height": 0.5,
+				"seed": 0,
+				"spur_elongation": 0.7,
+				"width": 12000
+			}
+		},
+		{
+			"id": "mountainRange2",
+			"type": "MountainRange",
+			"x": -923.0818678198672,
+			"y": 1778.0156993506782,
+			"parameters": {
+				"base_altitude": 0,
+				"bearing": 135,
+				"centre_east": 0.5,
+				"centre_north": 0.5,
+				"detail_strength": 0.5,
+				"feature_size": 1900,
+				"height": 1400,
+				"height_variation": 0.4,
+				"irregularity": 0.4,
+				"length": 18000,
+				"peak_count": 8,
+				"peak_sharpness": 1.6,
+				"saddle_height": 0.5,
+				"seed": 0,
+				"spur_elongation": 0.7,
+				"width": 12000
+			}
+		},
+		{
+			"id": "thermalErosion1",
+			"type": "ThermalErosion",
+			"x": 605.0528331850849,
+			"y": 1665.9487969924264,
+			"parameters": {
+				"strength": 0.5,
+				"talus_angle": 35,
+				"travel": 100
+			}
 		}
 	],
-	"edges": []
+	"edges": [
+		{
+			"from_node_id": "mountainRange1",
+			"from_port": 0,
+			"to_node_id": "add1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "mountain1",
+			"from_port": 0,
+			"to_node_id": "add1",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "add1",
+			"from_port": 0,
+			"to_node_id": "add2",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "mountainRange2",
+			"from_port": 0,
+			"to_node_id": "add2",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "thermalErosion1",
+			"from_port": 0,
+			"to_node_id": "colorRamp1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "add2",
+			"from_port": 0,
+			"to_node_id": "fluvialErosion1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "fluvialErosion1",
+			"from_port": 0,
+			"to_node_id": "hydraulicErosion1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "hydraulicErosion1",
+			"from_port": 0,
+			"to_node_id": "thermalErosion1",
+			"to_port": 0
+		}
+	]
 }
