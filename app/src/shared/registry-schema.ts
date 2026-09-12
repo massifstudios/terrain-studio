@@ -2,6 +2,7 @@ import type {
 	NodeSchema,
 	ParameterSchema,
 	ParameterValue,
+	PortTypeName,
 	RegistrySchema
 } from './graph-document';
 
@@ -19,6 +20,11 @@ export function findNodeSchema(
 		return null;
 	}
 	return found;
+}
+
+/// Whether an edge carrying this type has any input on the node to land on.
+export function acceptsInputType(schema: NodeSchema, type: PortTypeName): boolean {
+	return schema.inputs.some((input) => input.type === type);
 }
 
 /// Which half of a parameter carries its value comes from the descriptor, the

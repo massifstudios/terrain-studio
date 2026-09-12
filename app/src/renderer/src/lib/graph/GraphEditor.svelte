@@ -385,6 +385,23 @@
 		};
 	}
 
+	/// The type the dropped edge carries, so the palette offers only nodes it
+	/// could be plugged into.
+	const paletteAcceptedType = $derived.by(() => {
+		if (!palette || palette.source === null) {
+			return null;
+		}
+		const from = graphStore.findNode(palette.source.fromNodeId);
+		if (!from) {
+			return null;
+		}
+		const output = displayedSchema(from).outputs[palette.source.fromPort];
+		if (!output) {
+			return null;
+		}
+		return output.type;
+	});
+
 	function insertNode(schema: NodeSchema): void {
 		if (!palette) {
 			return;
@@ -571,6 +588,7 @@
 		<NodePalette
 			screenX={palette.screenX}
 			screenY={palette.screenY}
+			acceptedType={paletteAcceptedType}
 			onPick={insertNode}
 			onDismiss={() => (palette = null)}
 		/>

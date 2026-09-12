@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { Card, portal } from '@neoworks-dev/ui';
-	import type { NodeSchema } from '$shared/graph-document';
+	import type { NodeSchema, PortTypeName } from '$shared/graph-document';
 	import { engineClient } from '$lib/engine-client.svelte';
-	import { groupByCategory } from '$shared/registry-schema';
+	import { acceptsInputType, groupByCategory } from '$shared/registry-schema';
 	import { iconForCategory } from './category-icons';
 
 	interface Props {
@@ -10,11 +10,14 @@
 		/// that opened it, so it is free to stand over anything.
 		screenX: number;
 		screenY: number;
+		/// Set when an edge is waiting to be plugged into whatever is picked:
+		/// only nodes with an input of this type are offered.
+		acceptedType?: PortTypeName | null;
 		onPick: (schema: NodeSchema) => void;
 		onDismiss: () => void;
 	}
 
-	const { screenX, screenY, onPick, onDismiss }: Props = $props();
+	const { screenX, screenY, acceptedType = null, onPick, onDismiss }: Props = $props();
 
 	const paletteWidth = 288;
 	const preferredHeight = 460;
@@ -66,9 +69,23 @@
 		return groupByCategory(engineClient.registry)
 			.map((category) => ({
 				name: category.name,
-				nodes: category.nodes.filter((node) => matches(node, needle))
+				nodes: category.nodes.filter((node) => isOffered(node) && matches(node, needle))
 			}))
 			.filter((category) => category.nodes.length > 0);
+	});
+
+	function isOffered(node: NodeSchema): boolean {
+		if (acceptedType === null) {
+			return true;
+		}
+		return acceptsInputType(node, acceptedType);
+	}
+
+	const emptyMessage = $derived.by(() => {
+		if (acceptedType === null) {
+			return 'No node matches';
+		}
+		return `No node with a ${acceptedType} input matches`;
 	});
 
 	function matches(node: NodeSchema, needle: string): boolean {
@@ -200,7 +217,7 @@
 				</div>
 			{/each}
 			{#if categories.length === 0}
-				<div class="px-2 py-3 text-center text-2xs text-faint">No node matches</div>
+				<div class="px-2 py-3 text-center text-2xs text-faint">{emptyMessage}</div>
 			{/if}
 		</div>
 	</Card>
