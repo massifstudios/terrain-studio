@@ -10,7 +10,7 @@
 			"northing_max_meters": 0
 		}
 	},
-	"preview_node_id": "fluvialErosion1",
+	"preview_node_id": null,
 	"nodes": [
 		{
 			"id": "fluvialErosion1",
@@ -128,24 +128,24 @@
 			}
 		},
 		{
-			"id": "satMap1",
-			"type": "SatMap",
-			"x": 969.671875,
-			"y": 1765.65234375,
+			"id": "snow1",
+			"type": "Snow",
+			"x": 904.1214468037163,
+			"y": 1794.588478223048,
 			"parameters": {
-				"bias": 0,
-				"enhance": 1,
-				"hue_shift": 0,
-				"item": 0,
-				"library": 3,
-				"lightness": 0,
-				"range_end": 1,
-				"range_start": 0,
-				"reverse": false,
-				"rough": 0,
-				"saturation": 0,
+				"adhered_snow_mass": 0.3,
+				"direction": 180,
+				"duration": 12,
+				"intensity": 3,
+				"melt": 0.2,
+				"melt_remnants": 0.3,
+				"melt_type": 0,
 				"seed": 0,
-				"strip": ""
+				"settle_duration": 60,
+				"slip_off_angle": 38,
+				"snow_line": 1500,
+				"snow_line_falloff": 300,
+				"verticality": 0.2
 			}
 		},
 		{
@@ -200,7 +200,7 @@
 		{
 			"from_node_id": "fluvialErosion1",
 			"from_port": 0,
-			"to_node_id": "satMap1",
+			"to_node_id": "snow1",
 			"to_port": 0
 		},
 		{
