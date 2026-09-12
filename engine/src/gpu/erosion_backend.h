@@ -102,6 +102,7 @@ struct HydraulicJob {
     float depositionRate = 0.3f;
     float evaporation = 0.02f;
     float gravity = 10.0f;
+    float slopeWeight = 1.0f;
 };
 
 /**

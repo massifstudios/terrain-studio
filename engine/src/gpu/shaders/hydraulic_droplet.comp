@@ -45,6 +45,7 @@ layout(push_constant) uniform Settings {
     float depositionRate;
     float evaporation;
     float gravity;
+    float slopeWeight;
     int brushSampleCount;
     uint seedLow;
     uint seedHigh;
@@ -69,6 +70,7 @@ struct Droplet {
     float speed;
     float water;
     float sediment;
+    float runningSlope;
 };
 
 uint64_t combine(uint low, uint high) {
@@ -144,9 +146,19 @@ void applyOverBrush(int row, int column, Exchange exchange) {
     }
 }
 
-float carryingCapacity(Droplet droplet, float deltaHeight) {
-    precise float onSlope = -deltaHeight * droplet.speed;
-    precise float capacity = largerOf(onSlope, settings.minimumSlope) * droplet.water
+/// The slope the capacity follows is averaged over one brush diameter of
+/// path, so a droplet answers to the patch it works rather than to the single
+/// cell step it just took; see `followSlope` in erosion_nodes.cpp.
+void followSlope(inout Droplet droplet, float deltaHeight) {
+    precise float thisStep = -deltaHeight * droplet.speed;
+    precise float onSlope = largerOf(thisStep, 0.0);
+    precise float kept = 1.0 - settings.slopeWeight;
+    precise float blended = droplet.runningSlope * kept + onSlope * settings.slopeWeight;
+    droplet.runningSlope = blended;
+}
+
+float carryingCapacity(Droplet droplet) {
+    precise float capacity = largerOf(droplet.runningSlope, settings.minimumSlope) * droplet.water
                              * settings.capacityFactor;
     return capacity;
 }
@@ -161,7 +173,8 @@ float sedimentToDrop(Droplet droplet, float capacity, float deltaHeight) {
 }
 
 Exchange settleOrBite(inout Droplet droplet, float deltaHeight) {
-    precise float capacity = carryingCapacity(droplet, deltaHeight);
+    followSlope(droplet, deltaHeight);
+    precise float capacity = carryingCapacity(droplet);
     if (deltaHeight > 0.0 || droplet.sediment > capacity) {
         precise float dropped = sedimentToDrop(droplet, capacity, deltaHeight);
         droplet.sediment = droplet.sediment - dropped;
@@ -234,6 +247,7 @@ void runDroplet(uint64_t seed) {
     droplet.directionColumn = 0.0;
     droplet.speed = 1.0;
     droplet.sediment = 0.0;
+    droplet.runningSlope = 0.0;
     droplet.water = settings.water;
     droplet.row = terrainRandomUnitFloat(state) * float(settings.size - 2);
     droplet.column = terrainRandomUnitFloat(state) * float(settings.size - 2);

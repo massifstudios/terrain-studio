@@ -48,6 +48,7 @@ struct HydraulicSettings {
     float depositionRate = 0.0f;
     float evaporation = 0.0f;
     float gravity = 0.0f;
+    float slopeWeight = 0.0f;
     std::int32_t brushSampleCount = 0;
     std::uint32_t seedLow = 0;
     std::uint32_t seedHigh = 0;
@@ -304,6 +305,7 @@ bool HydraulicRun::prepare(const HydraulicJob& job) {
     dropletSettings_.depositionRate = job.depositionRate;
     dropletSettings_.evaporation = job.evaporation;
     dropletSettings_.gravity = job.gravity;
+    dropletSettings_.slopeWeight = job.slopeWeight;
     dropletSettings_.brushSampleCount = job.brushSampleCount;
     dropletSettings_.seedLow = static_cast<std::uint32_t>(job.seed);
     dropletSettings_.seedHigh = static_cast<std::uint32_t>(job.seed >> 32);

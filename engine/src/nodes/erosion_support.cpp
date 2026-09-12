@@ -35,8 +35,9 @@ float FixedPointGrid::strongest() const {
     return static_cast<float>(highest) / unitsPerMeter;
 }
 
-ErosionBrush::ErosionBrush(int radiusInCells, int gridSize) {
-    const int radius = std::clamp(radiusInCells, smallestRadius, std::max(gridSize / 4, smallestRadius));
+ErosionBrush::ErosionBrush(int radiusInCells, int gridSize)
+    : radius_(std::clamp(radiusInCells, smallestRadius, std::max(gridSize / 4, smallestRadius))) {
+    const int radius = radius_;
     float total = 0.0f;
 
     for (int offsetRow = -radius; offsetRow <= radius; ++offsetRow) {

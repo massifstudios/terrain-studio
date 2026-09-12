@@ -202,6 +202,7 @@ struct HydraulicParameters {
     float depositionRate;
     float evaporation;
     float gravity;
+    float slopeWeight;
     int brushSampleCount;
 };
 
@@ -219,6 +220,7 @@ struct Droplet {
     float speed;
     float water;
     float sediment;
+    float runningSlope;
 };
 
 struct HydraulicGrids {
@@ -275,9 +277,16 @@ __device__ void applyOverBrush(const BrushSample* brush, const HydraulicParamete
     }
 }
 
-__device__ inline float carryingCapacity(const Droplet& droplet, float deltaHeight,
+__device__ inline void followSlope(Droplet& droplet, float deltaHeight,
+                                   const HydraulicParameters& settings) {
+    const float onSlope = largerOf(-deltaHeight * droplet.speed, 0.0f);
+    droplet.runningSlope = droplet.runningSlope * (1.0f - settings.slopeWeight)
+                           + onSlope * settings.slopeWeight;
+}
+
+__device__ inline float carryingCapacity(const Droplet& droplet,
                                          const HydraulicParameters& settings) {
-    return largerOf(-deltaHeight * droplet.speed, settings.minimumSlope) * droplet.water
+    return largerOf(droplet.runningSlope, settings.minimumSlope) * droplet.water
            * settings.capacityFactor;
 }
 
@@ -291,7 +300,8 @@ __device__ inline float sedimentToDrop(const Droplet& droplet, float capacity, f
 
 __device__ Exchange settleOrBite(Droplet& droplet, const HydraulicGrids& grids,
                                  const HydraulicParameters& settings, float deltaHeight) {
-    const float capacity = carryingCapacity(droplet, deltaHeight, settings);
+    followSlope(droplet, deltaHeight, settings);
+    const float capacity = carryingCapacity(droplet, settings);
     if (deltaHeight > 0.0f || droplet.sediment > capacity) {
         const float dropped = sedimentToDrop(droplet, capacity, deltaHeight, settings);
         droplet.sediment -= dropped;
@@ -361,6 +371,7 @@ __global__ void hydraulicDropletKernel(HydraulicGrids grids, HydraulicParameters
     droplet.directionColumn = 0.0f;
     droplet.speed = 1.0f;
     droplet.sediment = 0.0f;
+    droplet.runningSlope = 0.0f;
     droplet.water = settings.water;
     droplet.row = randomUnitFloat(state) * (settings.size - 2);
     droplet.column = randomUnitFloat(state) * (settings.size - 2);
@@ -461,6 +472,7 @@ HydraulicParameters hydraulicParametersFor(const HydraulicJob& job) {
     settings.depositionRate = job.depositionRate;
     settings.evaporation = job.evaporation;
     settings.gravity = job.gravity;
+    settings.slopeWeight = job.slopeWeight;
     settings.brushSampleCount = job.brushSampleCount;
     return settings;
 }

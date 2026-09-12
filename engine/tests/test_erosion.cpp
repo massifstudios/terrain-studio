@@ -252,6 +252,43 @@ TEST_CASE("rain on gentle ground does not build towers", "[erosion][hydraulic]")
     REQUIRE(after->minimum() > before->minimum() - relief * 0.02f);
 }
 
+TEST_CASE("rain does not turn a faint ripple into a chain of beads", "[erosion][hydraulic]") {
+    // A smooth flank with a ripple a few cells long laid across it. Read one
+    // cell at a time, every ripple is a flatter step followed by a steeper
+    // one; a droplet that answers to each step settles on the first and bites
+    // the second, and every droplet in a channel does so in the same places.
+    // The rain is allowed to add a little relief at the cell scale, but not
+    // to stamp the ripple onto the ground several times over.
+    Graph graph = squareGraph(128, 1280.0);
+    terrain::GraphNode& flank = graph.addNode("flank", "Mountain");
+    flank.parameters["radius"] = ParameterValue{3000.0, ""};
+    flank.parameters["height"] = ParameterValue{1500.0, ""};
+    flank.parameters["centreEast"] = ParameterValue{0.0, ""};
+    flank.parameters["centreNorth"] = ParameterValue{0.0, ""};
+    flank.parameters["irregularity"] = ParameterValue{0.0, ""};
+    flank.parameters["detailStrength"] = ParameterValue{0.0, ""};
+    flank.parameters["peakSharpness"] = ParameterValue{1.0, ""};
+
+    terrain::GraphNode& ripple = graph.addNode("ripple", "Pattern");
+    ripple.parameters["pattern"] = ParameterValue{1.0, ""};
+    ripple.parameters["featureSize"] = ParameterValue{30.0, ""};
+    ripple.parameters["lineWidth"] = ParameterValue{15.0, ""};
+    ripple.parameters["softness"] = ParameterValue{5.0, ""};
+    ripple.parameters["amplitude"] = ParameterValue{0.5, ""};
+    ripple.parameters["rotation"] = ParameterValue{30.0, ""};
+
+    graph.addNode("ground", "Add");
+    graph.connect("flank", 0, "ground", 0);
+    graph.connect("ripple", 0, "ground", 1);
+    graph.addNode("rain", "HydraulicErosion");
+    graph.connect("ground", 0, "rain", 0);
+
+    const auto before = evaluateNode(graph, "ground");
+    const auto after = evaluateNode(graph, "rain");
+
+    REQUIRE(fineDetail(*after) < fineDetail(*before) * 1.15);
+}
+
 TEST_CASE("rain gives the same surface at one thread and at eight",
           "[erosion][hydraulic][determinism]") {
     const Graph graph = rainOnRidges(1.0);

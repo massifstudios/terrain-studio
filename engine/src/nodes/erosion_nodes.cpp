@@ -406,6 +406,9 @@ struct HydraulicSettings {
     float depositionRate = 0.3f;
     float evaporation = 0.02f;
     float gravity = 10.0f;
+    /// How much of each new step enters the slope the capacity follows; see
+    /// `followSlope`.
+    float slopeWeight = 1.0f;
 };
 
 /**
@@ -484,15 +487,32 @@ struct Droplet {
     float speed = 1.0f;
     float water = 1.0f;
     float sediment = 0.0f;
+    /// The downhill slope, weighted by speed, averaged along the recent path.
+    float runningSlope = 0.0f;
 };
+
+/**
+ * Folds this step's slope into the running slope the capacity is worked out
+ * from. The window is one brush diameter, so the load a droplet carries
+ * answers to the ground over the patch it is working, not to the single cell
+ * step it just took. Read cell by cell, every ripple in the source is a
+ * flatter step followed by a steeper one; a droplet reacting to each one
+ * settles on the first and bites the second, and every droplet in the same
+ * channel does so in the same places, which stamps the channel with a chain
+ * of beads a brush wide. Uphill steps count as no slope at all.
+ */
+void followSlope(Droplet& droplet, float deltaHeight, const HydraulicSettings& settings) {
+    const float onSlope = std::max(-deltaHeight * droplet.speed, 0.0f);
+    droplet.runningSlope = droplet.runningSlope * (1.0f - settings.slopeWeight)
+                           + onSlope * settings.slopeWeight;
+}
 
 /// How much sediment the droplet can hold right now. The slope floor keeps a
 /// droplet on flat ground from having no capacity at all and dropping
 /// everything. Everything a droplet does scales with its share of the rain,
 /// the floor included, or the floor would be worth more the finer the rain.
-float carryingCapacity(const Droplet& droplet, float deltaHeight,
-                       const HydraulicSettings& settings) {
-    return std::max(-deltaHeight * droplet.speed, settings.minimumSlope) * droplet.water
+float carryingCapacity(const Droplet& droplet, const HydraulicSettings& settings) {
+    return std::max(droplet.runningSlope, settings.minimumSlope) * droplet.water
            * settings.capacityFactor;
 }
 
@@ -515,7 +535,8 @@ struct Exchange {
 
 Exchange settleOrBite(Droplet& droplet, const HydraulicGrids& grids,
                       const HydraulicSettings& settings, float deltaHeight) {
-    const float capacity = carryingCapacity(droplet, deltaHeight, settings);
+    followSlope(droplet, deltaHeight, settings);
+    const float capacity = carryingCapacity(droplet, settings);
     if (deltaHeight > 0.0f || droplet.sediment > capacity) {
         const float dropped = sedimentToDrop(droplet, capacity, deltaHeight, settings);
         droplet.sediment -= dropped;
@@ -659,8 +680,10 @@ const TerrainParameterDescriptor hydraulicParameters[] = {
 
 /// Capacity and the slope floor are per step already invariant: a height
 /// difference in cell units over one cell is a slope, whatever the cell size.
+/// The slope window is the brush diameter, which is a distance in meters too.
 HydraulicSettings hydraulicSettingsFor(const TerrainContextApi* api,
-                                       TerrainEvaluationContext* context) {
+                                       TerrainEvaluationContext* context,
+                                       const ErosionBrush& brush) {
     const double cellSizeMeters = api->cellSizeMeters(context);
     const double stepRatio = stepRatioFor(cellSizeMeters);
     HydraulicSettings settings;
@@ -679,6 +702,7 @@ HydraulicSettings hydraulicSettingsFor(const TerrainContextApi* api,
     settings.depositionRate = fractionPerCell(api->parameterNumber(context, 7), stepRatio);
     settings.evaporation = fractionPerCell(api->parameterNumber(context, 8), stepRatio);
     settings.gravity = static_cast<float>(api->parameterNumber(context, 9) * stepRatio);
+    settings.slopeWeight = 1.0f / static_cast<float>(2 * brush.radius() + 1);
     return settings;
 }
 
@@ -775,6 +799,7 @@ gpu::HydraulicJob hydraulicJobFor(const HydraulicSettings& settings, HydraulicWo
     job.depositionRate = settings.depositionRate;
     job.evaporation = settings.evaporation;
     job.gravity = settings.gravity;
+    job.slopeWeight = settings.slopeWeight;
     return job;
 }
 
@@ -810,8 +835,8 @@ void evaluateHydraulicErosion(const TerrainContextApi* api, TerrainEvaluationCon
     const gpu::FlushDenormalsToZero denormals;
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
-    const HydraulicSettings settings = hydraulicSettingsFor(api, context);
-    if (settings.size < 4) {
+    const int size = api->width(context);
+    if (size < 4) {
         api->setError(context, "Hydraulic erosion needs a grid of at least four cells");
         return;
     }
@@ -820,7 +845,8 @@ void evaluateHydraulicErosion(const TerrainContextApi* api, TerrainEvaluationCon
     const double cellSizeMeters = api->cellSizeMeters(context);
     const int radiusInCells =
         static_cast<int>(std::lround(api->parameterNumber(context, 3) / cellSizeMeters));
-    const ErosionBrush brush(radiusInCells, settings.size);
+    const ErosionBrush brush(radiusInCells, size);
+    const HydraulicSettings settings = hydraulicSettingsFor(api, context, brush);
 
     HydraulicWorkspace workspace(count);
     for (std::size_t index = 0; index < count; ++index) {

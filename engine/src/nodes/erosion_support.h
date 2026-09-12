@@ -71,8 +71,11 @@ public:
     };
 
     const std::vector<Sample>& samples() const { return samples_; }
+    /// The radius actually in use, after the floor and the grid's ceiling.
+    int radius() const { return radius_; }
 
 private:
+    int radius_ = smallestRadius;
     std::vector<Sample> samples_;
 };
 
