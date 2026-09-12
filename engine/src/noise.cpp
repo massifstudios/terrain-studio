@@ -141,7 +141,20 @@ float ridgeOctave(float x, float y, std::uint64_t seed) {
     return 1.0f - acrossCatchment * acrossCatchment * (3.0f - 2.0f * acrossCatchment);
 }
 
-VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
+namespace {
+
+std::int64_t wrappedCell(std::int64_t cell, int period) {
+    if (period <= 0) {
+        return cell;
+    }
+    const std::int64_t wrapped = cell % period;
+    if (wrapped < 0) {
+        return wrapped + period;
+    }
+    return wrapped;
+}
+
+VoronoiSample voronoiWithPeriod(float x, float y, std::uint64_t seed, float jitter, int periodX) {
     const std::int64_t baseX = static_cast<std::int64_t>(std::floor(x));
     const std::int64_t baseY = static_cast<std::int64_t>(std::floor(y));
     const float clampedJitter = std::clamp(jitter, 0.0f, 1.0f);
@@ -154,7 +167,8 @@ VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
         for (std::int64_t offsetX = -1; offsetX <= 1; ++offsetX) {
             const std::int64_t cellX = baseX + offsetX;
             const std::int64_t cellY = baseY + offsetY;
-            std::uint64_t state = hashLattice(seed, cellX, cellY);
+            const std::int64_t hashX = wrappedCell(cellX, periodX);
+            std::uint64_t state = hashLattice(seed, hashX, cellY);
             const float pointX =
                 static_cast<float>(cellX) + 0.5f
                 + (terrainRandomUnitFloat(&state) - 0.5f) * clampedJitter;
@@ -168,13 +182,23 @@ VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
             if (distance < sample.nearestDistance) {
                 sample.secondDistance = sample.nearestDistance;
                 sample.nearestDistance = distance;
-                sample.cellValue = randomUnitFromHash(hashLattice(seed ^ 0x5BF03635ull, cellX, cellY));
+                sample.cellValue = randomUnitFromHash(hashLattice(seed ^ 0x5BF03635ull, hashX, cellY));
                 continue;
             }
             sample.secondDistance = std::min(sample.secondDistance, distance);
         }
     }
     return sample;
+}
+
+}  // namespace
+
+VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
+    return voronoiWithPeriod(x, y, seed, jitter, 0);
+}
+
+VoronoiSample voronoiPeriodic(float x, float y, std::uint64_t seed, float jitter, int periodX) {
+    return voronoiWithPeriod(x, y, seed, jitter, periodX);
 }
 
 }  // namespace terrain::noise

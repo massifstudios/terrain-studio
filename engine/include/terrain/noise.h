@@ -62,4 +62,8 @@ struct VoronoiSample {
 /// Jittered-grid cellular noise. `jitter` of 0 leaves the points on the grid.
 VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter);
 
+/// The same, repeating every `periodX` cells along x, so a field read around
+/// a loop closes on itself without a seam.
+VoronoiSample voronoiPeriodic(float x, float y, std::uint64_t seed, float jitter, int periodX);
+
 }  // namespace terrain::noise

@@ -175,47 +175,9 @@ GroundPoint stepFrom(const GroundPoint& origin, const Heading& heading, double d
                        origin.northingMeters + heading.north * distanceMeters};
 }
 
-/// How far along the segment between two points a third, already on the
-/// segment, sits.
-double segmentShare(const GroundPoint& first, const GroundPoint& second, const GroundPoint& on) {
-    const double runEast = second.eastingMeters - first.eastingMeters;
-    const double runNorth = second.northingMeters - first.northingMeters;
-    const double lengthSquared = runEast * runEast + runNorth * runNorth;
-    if (lengthSquared <= 1.0e-9) {
-        return 0.0;
-    }
-    return std::clamp(((on.eastingMeters - first.eastingMeters) * runEast
-                       + (on.northingMeters - first.northingMeters) * runNorth)
-                          / lengthSquared,
-                      0.0, 1.0);
-}
-
-/// The point on the segment between two others that lies closest to a point.
-GroundPoint nearestOnSegment(const GroundPoint& first, const GroundPoint& second,
-                             const GroundPoint& ground) {
-    const double runEast = second.eastingMeters - first.eastingMeters;
-    const double runNorth = second.northingMeters - first.northingMeters;
-    const double lengthSquared = runEast * runEast + runNorth * runNorth;
-    if (lengthSquared <= 1.0e-9) {
-        return first;
-    }
-    const double toEast = ground.eastingMeters - first.eastingMeters;
-    const double toNorth = ground.northingMeters - first.northingMeters;
-    const double along = std::clamp((toEast * runEast + toNorth * runNorth) / lengthSquared, 0.0, 1.0);
-    return GroundPoint{first.eastingMeters + runEast * along, first.northingMeters + runNorth * along};
-}
-
 /// A value drawn evenly from either side of zero, out to `limit`.
 double spreadFrom(std::uint64_t* state, double limit) {
     return (terrainRandomUnitFloat(state) - 0.5f) * 2.0 * limit;
-}
-
-/// Either side of a line, drawn evenly.
-double drawnSide(std::uint64_t* state) {
-    if (terrainRandomUnitFloat(state) < 0.5f) {
-        return -1.0;
-    }
-    return 1.0;
 }
 
 /* ------------------------------------------------------------- Mountain -- */
@@ -254,16 +216,15 @@ const TerrainParameterDescriptor mountainParameters[] = {
     {"baseAltitude", "Base altitude", "The altitude the foot of the mountain sits at", "m",
      TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"peakSharpness", "Peak sharpness", "Higher values pull the mass down and leave a finer peak",
-     "", TerrainParameterType_Float, 2.0, 0.2, 6.0, "", nullptr, 0},
+     "", TerrainParameterType_Float, 1.5, 0.2, 6.0, "", nullptr, 0},
     {"irregularity", "Irregularity", "How far the outline wanders off a circle", "",
      TerrainParameterType_Float, 0.35, 0.0, 1.0, "", nullptr, 0},
-    {"detailStrength", "Detail", "How much fine ridged detail is cut into the slopes", "",
-     TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"featureSize", "Spur spacing",
-     "Ground distance between neighbouring spurs where they leave the summit, before Scale", "m",
-     TerrainParameterType_Float, 300.0, 1.0, 100000.0, "", nullptr, 0},
-    {"spurElongation", "Gully stretch",
-     "How far the fine relief is drawn out into gullies running down the flanks", "",
+    {"detailStrength", "Detail", "How deep the valleys are cut between the spurs", "",
+     TerrainParameterType_Float, 0.7, 0.0, 1.0, "", nullptr, 0},
+    {"featureSize", "Spur spacing", "Ground distance between neighbouring spurs at the foot, before Scale",
+     "m", TerrainParameterType_Float, 1400.0, 1.0, 100000.0, "", nullptr, 0},
+    {"spurElongation", "Spur length",
+     "How far the spurs are drawn out from the summit toward the foot", "",
      TerrainParameterType_Float, 0.7, 0.0, 0.95, "", nullptr, 0}};
 
 /**
@@ -307,387 +268,62 @@ constexpr noise::FractalOptions outlineOptions{2, 0.5f, 2.0f};
 /// How long the summit crest is, as a share of the reach to the foot. A summit
 /// is the high point of an arête rather than the tip of a cone, so the mass
 /// falls away from a line and the ground leaves it at an angle on every side.
-constexpr double summitCrestShare = 0.3;
+constexpr double summitCrestShare = 0.2;
 
-/* ------------------------------------------------------------ ridge tree -- */
-
-/**
- * The divides of a mountain form a tree rooted at the summit: spurs leave the
- * summit crest, fork on their way down, and the ground between any two of
- * them is a valley. Noise cannot draw this. The creases of folded gradient
- * noise close into loops, and a loop of ridge encloses a basin with no way
- * out, which no mountain has. So the coarse structure is drawn as lines and
- * the valleys are read off the distance to them.
- */
-struct RidgeLine {
-    std::vector<GroundPoint> points;
-    /// How high the ridge stands against the mass profile at its start and
-    /// at its end. Below one the ridge sits down into the flank; above one it
-    /// holds the flank up. Ranking the generations this way is what lets the
-    /// eye tell a main ridge from a spur and a spur from a rib.
-    float standAtStart = 1.0f;
-    float standAtEnd = 1.0f;
-};
-
-/// How high each generation of spur stands where it leaves its parent and
-/// where it ends. Each finer generation sits lower, so the network has a
-/// hierarchy rather than a thicket of equal ridges.
-constexpr float spurStandAtStart[] = {1.0f, 0.9f, 0.76f};
-constexpr float spurStandAtEnd[] = {0.9f, 0.84f, 0.7f};
-
-/// One primary spur is the main ridge: it leaves the first end of the summit
-/// crest and holds its height further out than any other, so the massif has
-/// a spine rather than a set of equal arms.
-constexpr float mainRidgeStandAtEnd = 1.15f;
-
-/// How far past the nominal foot a spur runs, so no spur ends on the flank
-/// and leaves a rounded nose behind it.
-constexpr double spurEndShare = 1.25;
-
-/// How far off the summit crest the spurs start. Just off it, so the ones
-/// leaving the ends of the crest fan out from a point rather than all sharing
-/// one.
-constexpr double spurStartShare = 0.03;
-
-/// How close together the spurs leave the crest, against the spur spacing.
-constexpr double spurOriginSpacingShare = 1.0;
-
-constexpr int spurRunCount = 6;
-
-/// How far a spur may lean off straight out as it leaves, how far it may turn
-/// at each step, and how far a branch leaves the spur that bore it.
-constexpr double spurLeanRadians = 18.0 * std::numbers::pi / 180.0;
-constexpr double spurBendRadians = 15.0 * std::numbers::pi / 180.0;
-constexpr double spurBranchRadians = 38.0 * std::numbers::pi / 180.0;
-
-/// How much of each step a spur takes the way it set out rather than the way
-/// it was last heading. Spurs that only wander cross each other; this keeps
-/// them fanning, and keeps a branch diverging from the spur that bore it.
-constexpr double spurOutwardPull = 0.25;
-
-/// How much a spur leaving the crest sets out straight away from the centre
-/// rather than straight off the crest. Off a straight crest every spur would
-/// otherwise leave parallel to its neighbours; leaning them outward fans
-/// them across the flank.
-constexpr double spurFanShare = 0.6;
-
-/// How many times a spur forks on its way down, and the earliest and latest
-/// step it may fork at.
-constexpr int spurBranchGenerations = 2;
-constexpr int spurBranchEarliestStep = 1;
-constexpr int spurBranchLatestStep = 3;
-
-/// How far a branch of each generation runs, as a share of the ground left
-/// between where it leaves and the foot. A spur that forks and has both arms
-/// run to the foot crosses its neighbour; a branch dies into the valley it
-/// divides, and only some of them make it down.
-constexpr double branchReachLow[] = {1.0, 0.5, 0.3};
-constexpr double branchReachHigh[] = {1.0, 0.95, 0.55};
-
-struct RidgeTreePlan {
-    GroundPoint centre;
-    RidgeSegment summitCrest;
-    double radiusMeters = 3000.0;
-    double spacingMeters = 300.0;
-};
-
-Heading blendedHeading(const Heading& heading, const Heading& toward, double share) {
-    const double east = heading.east * (1.0 - share) + toward.east * share;
-    const double north = heading.north * (1.0 - share) + toward.north * share;
-    const double length = std::max(std::hypot(east, north), 1.0e-9);
-    return Heading{east / length, north / length};
-}
-
-void appendSpur(const GroundPoint& origin, const Heading& outward, double reachShare,
-                const RidgeTreePlan& plan, int generation, std::uint64_t seed,
-                std::vector<RidgeLine>& lines);
-
-/// One fork off a spur, leaving at the step drawn for it.
-void appendSpurBranch(const RidgeLine& spur, const RidgeTreePlan& plan, int generation,
-                      std::uint64_t* state, std::uint64_t seed, std::vector<RidgeLine>& lines) {
-    if (generation >= spurBranchGenerations) {
-        return;
-    }
-    const int stepSpan = spurBranchLatestStep - spurBranchEarliestStep + 1;
-    const int step =
-        spurBranchEarliestStep
-        + std::min(static_cast<int>(terrainRandomUnitFloat(state) * stepSpan), stepSpan - 1);
-    const std::size_t at = static_cast<std::size_t>(step);
-    const Heading along = headingFrom(spur.points[at - 1], spur.points[at]);
-    const int child = generation + 1;
-    const double reachShare =
-        branchReachLow[child]
-        + (branchReachHigh[child] - branchReachLow[child]) * terrainRandomUnitFloat(state);
-    appendSpur(spur.points[at], along.turned(drawnSide(state) * spurBranchRadians), reachShare,
-               plan, child, seed, lines);
-}
-
-void appendSpur(const GroundPoint& origin, const Heading& outward, double reachShare,
-                const RidgeTreePlan& plan, int generation, std::uint64_t seed,
-                std::vector<RidgeLine>& lines) {
-    std::uint64_t state = seed;
-    const double fromCentre = std::hypot(origin.eastingMeters - plan.centre.eastingMeters,
-                                         origin.northingMeters - plan.centre.northingMeters);
-    const double runMeters =
-        (plan.radiusMeters * spurEndShare - fromCentre) * reachShare / spurRunCount;
-    if (runMeters <= 0.0) {
-        return;
-    }
-    RidgeLine spur;
-    spur.standAtStart = spurStandAtStart[generation];
-    spur.standAtEnd = spurStandAtEnd[generation];
-    spur.points.reserve(spurRunCount + 1);
-    spur.points.push_back(origin);
-    const Heading setOut = outward.turned(spreadFrom(&state, spurLeanRadians));
-    Heading heading = setOut;
-    for (int run = 0; run < spurRunCount; ++run) {
-        heading = blendedHeading(heading.turned(spreadFrom(&state, spurBendRadians)), setOut,
-                                 spurOutwardPull);
-        spur.points.push_back(stepFrom(spur.points.back(), heading, runMeters));
-    }
-    lines.push_back(spur);
-    appendSpurBranch(lines.back(), plan, generation, &state, terrainSeedForLane(seed, 1), lines);
-}
-
-/// A point on the loop drawn a fixed distance around the summit crest, and
-/// the direction straight out from the crest there.
-struct CrestLoopPoint {
-    GroundPoint point;
-    Heading outward;
-};
-
-/// The loop, walked from the first end along one side, round the second end,
-/// back along the other side and round the first end.
-CrestLoopPoint crestLoopAt(const RidgeSegment& crest, double offsetMeters, double arcMeters) {
-    const Heading along = headingFrom(crest.first, crest.second);
-    const Heading left = along.turned(std::numbers::pi * 0.5);
-    const double lengthMeters =
-        std::hypot(crest.second.eastingMeters - crest.first.eastingMeters,
-                   crest.second.northingMeters - crest.first.northingMeters);
-    const double capMeters = std::numbers::pi * offsetMeters;
-
-    if (arcMeters < lengthMeters) {
-        return CrestLoopPoint{stepFrom(stepFrom(crest.first, along, arcMeters), left, offsetMeters),
-                              left};
-    }
-    if (arcMeters < lengthMeters + capMeters) {
-        const Heading outward = left.turned(-(arcMeters - lengthMeters) / offsetMeters);
-        return CrestLoopPoint{stepFrom(crest.second, outward, offsetMeters), outward};
-    }
-    if (arcMeters < 2.0 * lengthMeters + capMeters) {
-        const double back = arcMeters - lengthMeters - capMeters;
-        const Heading right{-left.east, -left.north};
-        return CrestLoopPoint{stepFrom(stepFrom(crest.second, along, -back), right, offsetMeters),
-                              right};
-    }
-    const double round = arcMeters - 2.0 * lengthMeters - capMeters;
-    const Heading outward = Heading{-left.east, -left.north}.turned(-round / offsetMeters);
-    return CrestLoopPoint{stepFrom(crest.first, outward, offsetMeters), outward};
-}
-
-std::vector<RidgeLine> ridgeTreeFrom(const RidgeTreePlan& plan, std::uint64_t seed) {
-    std::vector<RidgeLine> lines;
-    lines.push_back(RidgeLine{{plan.summitCrest.first, plan.summitCrest.second}});
-
-    const double offsetMeters = plan.radiusMeters * spurStartShare;
-    const double lengthMeters =
-        std::hypot(plan.summitCrest.second.eastingMeters - plan.summitCrest.first.eastingMeters,
-                   plan.summitCrest.second.northingMeters - plan.summitCrest.first.northingMeters);
-    const double loopMeters = 2.0 * lengthMeters + 2.0 * std::numbers::pi * offsetMeters;
-    const double originSpacing = plan.spacingMeters * spurOriginSpacingShare;
-    const int spurCount = std::max(static_cast<int>(std::round(loopMeters / originSpacing)), 3);
-    const double stepMeters = loopMeters / spurCount;
-
-    std::uint64_t state = terrainSeedForLane(seed, 0);
-    const double phaseMeters = terrainRandomUnitFloat(&state) * stepMeters;
-    for (int index = 0; index < spurCount; ++index) {
-        const CrestLoopPoint origin =
-            crestLoopAt(plan.summitCrest, offsetMeters, phaseMeters + stepMeters * index);
-        const Heading fanned = blendedHeading(origin.outward, headingFrom(plan.centre, origin.point),
-                                             spurFanShare);
-        const std::size_t before = lines.size();
-        appendSpur(origin.point, fanned, branchReachLow[0], plan, 0,
-                   terrainSeedForLane(seed, static_cast<std::uint64_t>(index) + 1), lines);
-        if (index == 0 && lines.size() > before) {
-            lines[before].standAtEnd = mainRidgeStandAtEnd;
-        }
-    }
-    return lines;
-}
-
-/* ------------------------------------------------------ the valley field -- */
-
-/// Where the nearest ridge line stands from a point, and the next nearest
-/// after it. Two are needed: a valley is the ground between two ridges, and
-/// its floor lies where they are equally far.
-struct NearestRidges {
-    double firstMeters = 1.0e30;
-    double secondMeters = 1.0e30;
-    /// How high the nearest ridge stands where it comes closest.
-    float stand = 1.0f;
-    /// The stand of every ridge weighted by nearness, which is what the
-    /// valley floor between two of them inherits. Taking the floor from the
-    /// nearest ridge alone steps it wherever the nearest ridge changes.
-    float floorStand = 1.0f;
-    /// How far along the nearest ridge its closest point sits.
-    double alongFirstMeters = 0.0;
-};
-
-/// Where a ridge line comes closest to a point: the point, how far, and how
-/// high the ridge stands there.
-struct RidgeApproach {
-    GroundPoint point;
-    double distanceMeters = 1.0e30;
-    /// How far along the ridge from its start the nearest point sits.
-    double alongMeters = 0.0;
-    float stand = 1.0f;
-};
-
-RidgeApproach ridgeApproach(const RidgeLine& line, const GroundPoint& ground) {
-    RidgeApproach best;
-    double walkedMeters = 0.0;
-    for (std::size_t index = 1; index < line.points.size(); ++index) {
-        const GroundPoint& from = line.points[index - 1];
-        const GroundPoint& to = line.points[index];
-        const double segmentMeters = std::hypot(to.eastingMeters - from.eastingMeters,
-                                                to.northingMeters - from.northingMeters);
-        const double distance =
-            segmentDistance(ground.eastingMeters, ground.northingMeters, from.eastingMeters,
-                            from.northingMeters, to.eastingMeters, to.northingMeters);
-        if (distance < best.distanceMeters) {
-            best.distanceMeters = distance;
-            best.point = nearestOnSegment(from, to, ground);
-            best.alongMeters = walkedMeters + segmentShare(from, to, best.point) * segmentMeters;
-        }
-        walkedMeters += segmentMeters;
-    }
-    const double alongLine = best.alongMeters / std::max(walkedMeters, 1.0e-9);
-    best.stand =
-        line.standAtStart + (line.standAtEnd - line.standAtStart) * static_cast<float>(alongLine);
-    return best;
-}
-
-/// The power the second distance is taken as a soft minimum at. A hard second
-/// minimum creases the flank wherever the second nearest ridge changes; the
-/// soft one blends the ridges beyond the nearest into one far side of the
-/// valley.
-constexpr double secondRidgePower = 4.0;
-
-NearestRidges nearestRidges(const std::vector<RidgeLine>& lines, const GroundPoint& ground) {
-    std::vector<RidgeApproach> approaches;
-    approaches.reserve(lines.size());
-    std::size_t nearestIndex = 0;
-    for (const RidgeLine& line : lines) {
-        approaches.push_back(ridgeApproach(line, ground));
-        if (approaches.back().distanceMeters < approaches[nearestIndex].distanceMeters) {
-            nearestIndex = approaches.size() - 1;
-        }
-    }
-    double inverseSum = 0.0;
-    double weightSum = 0.0;
-    double standSum = 0.0;
-    for (std::size_t index = 0; index < approaches.size(); ++index) {
-        const double weight =
-            std::pow(std::max(approaches[index].distanceMeters, 1.0e-3), -secondRidgePower);
-        weightSum += weight;
-        standSum += weight * approaches[index].stand;
-        if (index != nearestIndex) {
-            inverseSum += weight;
-        }
-    }
-    NearestRidges nearest;
-    nearest.firstMeters = approaches[nearestIndex].distanceMeters;
-    nearest.secondMeters = std::pow(inverseSum, -1.0 / secondRidgePower);
-    nearest.stand = approaches[nearestIndex].stand;
-    nearest.floorStand = static_cast<float>(standSum / weightSum);
-    nearest.alongFirstMeters = approaches[nearestIndex].alongMeters;
-    return nearest;
-}
-
-/// How wide a valley has to be before it is cut to full depth, against the
-/// spur spacing. Where a branch has just left its parent the two ridges are
-/// a few metres apart and the ground between them is a valley head, not a
-/// gorge.
-constexpr double valleyFullWidthShare = 1.0;
-
-/// How broad the rounded top of a ridge is, as a share of the spur spacing,
-/// at the summit and at the foot. Below the rounding the flank runs straight
-/// into the V of the floor. High on the mountain the spurs are arêtes; low
-/// down they are broad-backed.
-constexpr double summitCrestWidthShare = 0.06;
-constexpr double footCrestWidthShare = 0.4;
-
-/// The drop from a ridge crest at a distance from it: level on the crest,
-/// rounded over the crest width, straight beyond it.
-double crestDrop(double fromCrestMeters, double crestWidthMeters) {
-    return std::hypot(fromCrestMeters, crestWidthMeters) - crestWidthMeters;
-}
-
-/// How much of the mass the floor of a valley between two spurs loses. The
-/// cut is a share of the mass standing there, so the valleys of a tall
-/// mountain are as deep as the mountain is tall, and the relief dies away
-/// with the mass into the apron at the foot.
-constexpr float valleyDepthShare = 0.45f;
-
-/// What the ridge tree leaves of the mass at a point: the nearest ridge's own
-/// stand on its crest, the valley floor between it and the next ridge over,
-/// and the wall between.
-float treeRelief(const NearestRidges& nearest, double spacingMeters, float mass) {
-    const double span = nearest.firstMeters + nearest.secondMeters;
-    if (span <= 1.0e-9) {
-        return nearest.stand;
-    }
-    // The soft second distance can dip under the first on the floor itself;
-    // that ground is the floor, not a trench in it.
-    const double floorMeters = std::max(span * 0.5, nearest.firstMeters);
-    const double crestWidthMeters =
-        spacingMeters
-        * (footCrestWidthShare
-           + (summitCrestWidthShare - footCrestWidthShare) * std::clamp(mass, 0.0f, 1.0f));
-    const float wall = 1.0f
-                       - static_cast<float>(crestDrop(nearest.firstMeters, crestWidthMeters)
-                                            / crestDrop(floorMeters, crestWidthMeters));
-    const float width = static_cast<float>(
-        std::clamp(span / (spacingMeters * valleyFullWidthShare), 0.0, 1.0));
-    const float floor = nearest.floorStand * (1.0f - valleyDepthShare * width);
-    return floor + (nearest.stand - floor) * wall;
-}
-
-/* ------------------------------------------------------------ flank cells -- */
+/* ------------------------------------------------------------ spur cells -- */
 
 /**
- * The fine relief on a flank: a field of cells read in the frame of the ridge
- * above it, where one axis runs along the ridge and the other straight down
- * from it. Each cell is a cone, a peak at its own point falling to a V along
- * every edge, so the cells carve the flank into facets with gullies between
- * them. Read in the ridge's own frame and stretched down the flank, the
- * gullies leave the ridge and run down it, and where the nearest ridge
- * changes, on the valley floor, the gullies from either side meet.
+ * The spurs and the valleys between them, drawn as Gaea's docs describe their
+ * own Mountain: a modulated Voronoi pattern under distortion.
+ *
+ * The cells are laid out around the summit in a log-polar frame, so every
+ * cell is a wedge pointing at the summit and the cells are as fine near the
+ * summit as they are coarse at the foot. Each cell is a cone falling away
+ * from its own point, stretched along the wedge: a spur with a rounded back,
+ * meeting its neighbours in the V of a gully along every cell edge. The frame
+ * is read around the loop with a whole number of cells, so it closes without
+ * a seam. Finer octaves lay smaller spurs and gullies over the large ones.
  */
-struct FlankCells {
-    /// Size of the coarsest cells, along the ridge.
-    double cellMeters = 180.0;
+struct SpurCells {
+    /// How many cells the coarsest octave carries around the summit.
+    int countAround = 12;
+    /// How far a cell runs toward the foot against its width around.
+    double stretch = 3.0;
+    /// The radius the log-polar frame is read from, so cells near the summit
+    /// stay about this size rather than shrinking without end.
+    double innerMeters = 100.0;
     int octaveCount = 5;
-    float gain = 0.5f;
-    /// How far the cells are drawn out down the flank against their width
-    /// along the ridge. 0 leaves them round; near 1 they are streaks.
-    float stretch = 0.7f;
+    float gain = 0.3f;
+    /// How much smaller than a cell the ground held clear around the summit
+    /// is.
+    float summitHoldSharpness = 4.0f;
+    /// How sharply the ground leaves a ridge. Below one the crest is a knife
+    /// edge over steep upper flanks that ease into the valley.
+    float ridgeSharpness = 0.75f;
     float detailRetention = 1.0f;
-    /// Octaves finer than the grid can hold are left out, so the finest ground
-    /// is drawn by the grid rather than aliased across it.
-    float finestCellMeters = 1.0f;
+    /// How much the depth of the valleys varies slowly around the mountain,
+    /// so some spurs stand well clear of their neighbours and others barely
+    /// show.
+    float depthWanderShare = 0.5f;
+    float depthWanderFeatureCells = 2.5f;
+    /// Wander of the cell edges, in cells, and the size of that wander.
+    float edgeWanderCells = 0.35f;
+    float edgeWanderFeatureCells = 1.5f;
     std::uint64_t seed = 0;
 };
 
-/// How far either side of the summit crest the cells hold their full value,
-/// as a share of the coarsest cell, so the fine relief leaves the summit a
-/// summit.
-constexpr float crestHoldOfCell = 0.5f;
+/// A point in the frame the cells are read in: turns around the summit and
+/// stretched distance out from it.
+struct PolarPoint {
+    double around = 0.0;
+    double outward = 0.0;
+};
 
-/// 1 on the summit crest, 0 half a cell off it.
-float crestHold(double fromCrestMeters, double cellMeters) {
-    const float across = static_cast<float>(fromCrestMeters / (cellMeters * crestHoldOfCell));
-    return 1.0f - smoothStep(std::clamp(across, 0.0f, 1.0f));
+PolarPoint polarAbout(const GroundPoint& centre, const GroundPoint& ground, double innerMeters) {
+    const double east = ground.eastingMeters - centre.eastingMeters;
+    const double north = ground.northingMeters - centre.northingMeters;
+    const double turns = std::atan2(north, east) / (2.0 * std::numbers::pi) + 0.5;
+    return PolarPoint{turns, std::log(std::hypot(east, north) / innerMeters + 1.0)};
 }
 
 /// How much of an octave survives when the finest detail is held back.
@@ -698,68 +334,100 @@ float cellOctaveWeight(float detailRetention, int octave, int octaveCount) {
     return std::clamp(keptOctaves - static_cast<float>(octave), 0.0f, 1.0f);
 }
 
-/// 1 on a cell's own point, 0 on its edges.
-float flankCells(double alongRidgeMeters, double fromRidgeMeters, double fromCrestMeters,
-                 const FlankCells& cells) {
-    const double downMeters = fromRidgeMeters * (1.0 - cells.stretch);
+/// The wander laid over the cells is read on the ground rather than in the
+/// polar frame, because a field read in the frame would not close around the
+/// loop and would seam the mountain along one ray.
+struct CellWander {
+    float edgeEast = 0.0f;
+    float edgeNorth = 0.0f;
+    float depth = 0.0f;
+};
+
+CellWander cellWanderAt(const GroundPoint& ground, double featureMeters, const SpurCells& cells,
+                        std::uint64_t seed) {
+    const float x = static_cast<float>(ground.eastingMeters / featureMeters);
+    const float y = static_cast<float>(ground.northingMeters / featureMeters);
+    CellWander wander;
+    wander.edgeEast = noise::perlin(x, y, terrainSeedForLane(seed, 101)) * cells.edgeWanderCells;
+    wander.edgeNorth = noise::perlin(x, y, terrainSeedForLane(seed, 102)) * cells.edgeWanderCells;
+    wander.depth = noise::perlin(x / cells.depthWanderFeatureCells, y / cells.depthWanderFeatureCells,
+                                 terrainSeedForLane(seed, 103));
+    return wander;
+}
+
+/// One octave of cells: 0 on a cell edge, rising toward the cell's own point.
+float spurCellOctave(const PolarPoint& polar, const CellWander& wander, int countAround,
+                     const SpurCells& cells, std::uint64_t seed) {
+    // One turn around is `countAround` cells; the outward axis is scaled so a
+    // cell is `stretch` times as long as it is wide.
+    const double cellsPerTurn = static_cast<double>(countAround);
+    const float x = static_cast<float>(polar.around * cellsPerTurn);
+    const float y =
+        static_cast<float>(polar.outward * cellsPerTurn / (2.0 * std::numbers::pi * cells.stretch));
+    const noise::VoronoiSample sample = noise::voronoiPeriodic(
+        x + wander.edgeEast, y + wander.edgeNorth, seed, 1.0f, countAround);
+    // Ridges run along the cell edges, where the two nearest points are
+    // equally far, and the ground falls away from them into the cell: a
+    // network of arêtes meeting at every junction, with a valley down every
+    // cell between them. The summit itself is held clear, so it is where the
+    // ridges meet rather than the floor of whichever cell it fell in.
+    const float intoCell = std::min(sample.secondDistance - sample.nearestDistance, 1.0f);
+    const float toSummit = static_cast<float>(polar.outward * cellsPerTurn
+                                              / (2.0 * std::numbers::pi * cells.stretch))
+                           * cells.summitHoldSharpness;
+    const float valley =
+        std::pow(intoCell, cells.ridgeSharpness) * smoothStep(std::min(toSummit, 1.0f));
+    return valley * (1.0f + wander.depth * cells.depthWanderShare);
+}
+
+float spurCells(const PolarPoint& polar, const GroundPoint& ground, double radiusMeters,
+                const SpurCells& cells) {
     float total = 0.0f;
     float weightSum = 0.0f;
     float amplitude = 1.0f;
-    double cellMeters = cells.cellMeters;
+    int countAround = cells.countAround;
+    // A cell of the coarsest octave is about this wide at the foot; the
+    // wander of each octave is read at its own cell size.
+    double featureMeters = 2.0 * std::numbers::pi * radiusMeters / countAround
+                           * cells.edgeWanderFeatureCells;
     for (int octave = 0; octave < cells.octaveCount; ++octave) {
-        if (cellMeters < cells.finestCellMeters) {
-            break;
-        }
         const float weight =
             amplitude * cellOctaveWeight(cells.detailRetention, octave, cells.octaveCount);
-        const noise::VoronoiSample sample = noise::voronoi(
-            static_cast<float>(alongRidgeMeters / cellMeters),
-            static_cast<float>(downMeters / cellMeters),
-            terrainSeedForLane(cells.seed, static_cast<std::uint64_t>(octave)), 1.0f);
-        total += std::min(sample.nearestDistance, 1.0f) * weight;
-        // Normalised over every octave the grid can hold, held back or not,
-        // so holding detail back leaves smoother ground rather than the same
-        // relief drawn coarser.
+        const std::uint64_t octaveSeed =
+            terrainSeedForLane(cells.seed, static_cast<std::uint64_t>(octave));
+        const CellWander wander = cellWanderAt(ground, featureMeters, cells, octaveSeed);
+        total += spurCellOctave(polar, wander, countAround, cells, octaveSeed) * weight;
+        featureMeters *= 0.5;
         weightSum += amplitude;
         amplitude *= cells.gain;
-        cellMeters *= 0.5;
+        countAround *= 2;
     }
-    if (weightSum <= 0.0f) {
-        return 1.0f;
-    }
-    const float hold = crestHold(fromCrestMeters, cells.cellMeters);
-    return (1.0f - total / weightSum) * (1.0f - hold) + hold;
+    return total / weightSum;
 }
 
 /* ----------------------------------------------------------- the massif -- */
 
-/// How much of what is left the flank cells may cut at full detail.
-constexpr float fineCarveLimit = 0.5f;
+/// How much of the mass the floor of a valley between two spurs may lose at
+/// full detail. The cut is a share of the mass standing there, so the valleys
+/// of a tall mountain are as deep as the mountain is tall, and the relief
+/// dies away with the mass into the apron at the foot.
+constexpr float valleyDepthLimit = 0.8f;
 
-/// How much of that cut the foot keeps against the summit. The upper faces
-/// are striated with gullies; the lower flanks are smoother.
-constexpr float gullyFloorShare = 0.3f;
-
-/// How big the coarsest flank cells are against the spur spacing.
-constexpr double cellOfSpurSpacing = 1.0;
-
-/// The shortest wavelength worth drawing, in grid cells.
-constexpr double finestOctaveCells = 2.0;
-
+/// How many cells the coarsest octave carries around the summit per unit of
+/// foot perimeter over spur spacing.
+constexpr int leastCellsAround = 4;
 
 /// Everything about a mountain that is fixed before the first cell is read.
 struct MountainLayout {
     ShapePlacement placement;
     DomainWarp warp;
     RidgeSegment summitCrest;
-    std::vector<RidgeLine> ridgeTree;
+    SpurCells cells;
     double radiusMeters = 3000.0;
-    double spacingMeters = 500.0;
     double outlineFeatureSizeMeters = 3000.0;
     float outlineWanderShare = 0.0f;
     float profileExponent = 1.6f;
-    float fineCarve = 0.0f;
-    FlankCells cells;
+    float valleyDepth = 0.0f;
     float heightMeters = 1200.0f;
     float baseAltitudeMeters = 0.0f;
     std::uint64_t outlineSeed = 0;
@@ -803,15 +471,12 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
         layout.summitCrest.first.northingMeters, layout.summitCrest.second.eastingMeters,
         layout.summitCrest.second.northingMeters);
     const float mass = massAt(layout, ground, fromCrestMeters);
-    const NearestRidges nearest = nearestRidges(layout.ridgeTree, ground);
-    const float relief = treeRelief(nearest, layout.spacingMeters, mass);
-
-    const float fine = flankCells(nearest.alongFirstMeters, nearest.firstMeters, fromCrestMeters,
-                                  layout.cells);
-
-    const float fineCarve = layout.fineCarve * (gullyFloorShare + (1.0f - gullyFloorShare) * mass);
-    const float carved = relief * (1.0f - fineCarve * (1.0f - fine));
-    return mass * carved * layout.heightMeters + layout.baseAltitudeMeters;
+    const GroundPoint centre{layout.placement.centreEastingMeters,
+                             layout.placement.centreNorthingMeters};
+    const float valleys = spurCells(polarAbout(centre, ground, layout.cells.innerMeters), ground,
+                                    layout.radiusMeters, layout.cells);
+    return mass * (1.0f - layout.valleyDepth * valleys) * layout.heightMeters
+           + layout.baseAltitudeMeters;
 }
 
 /// The slow bend that takes the straightness out of the ridge lines.
@@ -849,26 +514,23 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
     layout.placement = placementFrom(frame, api->parameterNumber(context, 6),
                                      api->parameterNumber(context, 7), 0.0);
     layout.radiusMeters = api->parameterNumber(context, 8) * scale;
-    layout.spacingMeters = api->parameterNumber(context, 13) * scale;
     layout.summitCrest =
         summitCrestFor(layout.placement, layout.radiusMeters, terrainSeedForLane(seed, 5));
-    layout.ridgeTree = ridgeTreeFrom(
-        RidgeTreePlan{GroundPoint{layout.placement.centreEastingMeters,
-                                  layout.placement.centreNorthingMeters},
-                      layout.summitCrest, layout.radiusMeters, layout.spacingMeters},
-        terrainSeedForLane(seed, 6));
     layout.profileExponent =
         static_cast<float>(api->parameterNumber(context, 10)) * bulkExponentScale(bulk);
-    layout.cells.cellMeters = layout.spacingMeters * cellOfSpurSpacing;
-    layout.cells.stretch = static_cast<float>(api->parameterNumber(context, 14));
+    const double spacingMeters = api->parameterNumber(context, 13) * scale;
+    layout.cells.countAround = std::max(
+        static_cast<int>(std::round(2.0 * std::numbers::pi * layout.radiusMeters / spacingMeters)),
+        leastCellsAround);
+    layout.cells.stretch = 1.0 / (1.0 - api->parameterNumber(context, 14));
+    layout.cells.innerMeters = spacingMeters * 0.1;
     layout.cells.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
-    layout.cells.finestCellMeters = static_cast<float>(frame.cellSizeMeters * finestOctaveCells);
     layout.cells.seed = terrainSeedForLane(seed, 3);
     layout.outlineFeatureSizeMeters = layout.radiusMeters * std::numbers::pi / outlineLobeCount;
     layout.outlineWanderShare = irregularity * outlineWanderLimit;
     layout.heightMeters = static_cast<float>(api->parameterNumber(context, 1));
     layout.baseAltitudeMeters = static_cast<float>(api->parameterNumber(context, 9));
-    layout.fineCarve = static_cast<float>(api->parameterNumber(context, 12)) * fineCarveLimit;
+    layout.valleyDepth = static_cast<float>(api->parameterNumber(context, 12)) * valleyDepthLimit;
     layout.warp = mountainWarpFor(layout.radiusMeters, irregularity, seed);
     layout.outlineSeed = terrainSeedForLane(seed, 4);
     return layout;
@@ -890,7 +552,7 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
 const TerrainNodeDescriptor mountainDescriptor = {
     "Mountain",
     "Terrain",
-    "A single mountain: a summit crest with a tree of spurs running off it to the foot",
+    "A single mountain: a summit with spurs and valleys radiating to the foot",
     1,
     nullptr,
     0,

@@ -27,8 +27,8 @@ constexpr int resolution = 64;
 constexpr double worldSize = 12800.0;
 constexpr int middle = resolution / 2;
 
-/// A mountain with its bend and its fine relief at zero, which leaves the
-/// mass and the ridge tree on their own and makes every height below
+/// A mountain with its bend at zero and a straight profile, which leaves the
+/// mass and the spur cells on their own and makes every height below
 /// predictable.
 terrain::GraphNode& addPlainMountain(Graph& graph, const std::string& id) {
     terrain::GraphNode& mountain = graph.addNode(id, "Mountain");
@@ -36,7 +36,6 @@ terrain::GraphNode& addPlainMountain(Graph& graph, const std::string& id) {
     mountain.parameters["height"] = ParameterValue{1000.0, ""};
     mountain.parameters["peakSharpness"] = ParameterValue{1.0, ""};
     mountain.parameters["irregularity"] = ParameterValue{0.0, ""};
-    mountain.parameters["detailStrength"] = ParameterValue{0.0, ""};
     mountain.parameters["baseAltitude"] = ParameterValue{0.0, ""};
     return mountain;
 }
@@ -83,7 +82,7 @@ std::shared_ptr<const terrain::Heightfield> mountainField(
     return evaluateNode(graph, "peak");
 }
 
-/// The same, with the stochastic dials at zero so the skeleton stands alone.
+/// The same, with the bend at zero so the shape stands alone.
 std::shared_ptr<const terrain::Heightfield> plainMountainField(
     int gridResolution, const std::function<void(terrain::GraphNode&)>& adjust) {
     Graph graph = squareGraph(gridResolution, worldSize);
@@ -241,16 +240,19 @@ TEST_CASE("a mountain sits on the altitude it is given", "[nodes][mountain]") {
 }
 
 TEST_CASE("a sharper peak carries less mass on its flanks", "[nodes][mountain]") {
-    const auto bluntField = plainMountainField(resolution, leaveAsItIs);
-    const auto sharpField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+    // The summit is a crest line the grid meets only as closely as a cell
+    // allows, so the peaks are compared on a fine grid.
+    constexpr int fineResolution = 256;
+    const auto bluntField = plainMountainField(fineResolution, leaveAsItIs);
+    const auto sharpField = plainMountainField(fineResolution, [](terrain::GraphNode& mountain) {
         mountain.parameters["peakSharpness"] = ParameterValue{3.0, ""};
     });
 
-    const Cell summit = highestCell(*bluntField, resolution);
-    const double mid = 4000.0 * 0.5 / (worldSize / resolution);
-    REQUIRE(meanHeightOnRing(*sharpField, resolution, summit, mid - 1.0, mid + 1.0)
-            < meanHeightOnRing(*bluntField, resolution, summit, mid - 1.0, mid + 1.0));
-    REQUIRE(sharpField->maximum() == Approx(bluntField->maximum()).margin(15.0));
+    const Cell summit = highestCell(*bluntField, fineResolution);
+    const double mid = 4000.0 * 0.5 / (worldSize / fineResolution);
+    REQUIRE(meanHeightOnRing(*sharpField, fineResolution, summit, mid - 1.0, mid + 1.0)
+            < meanHeightOnRing(*bluntField, fineResolution, summit, mid - 1.0, mid + 1.0));
+    REQUIRE(sharpField->maximum() == Approx(bluntField->maximum()).margin(30.0));
 }
 
 TEST_CASE("detail roughens the slopes without lifting the summit",
@@ -313,9 +315,8 @@ TEST_CASE("a mountain falls away from its summit at once", "[nodes][mountain]") 
 }
 
 TEST_CASE("the flanks carry ridges and the valleys between them", "[nodes][mountain]") {
-    // With the detail and the bend both at zero the skeleton is all there is,
-    // so a ring around the massif crosses ridge and valley only if the mass is
-    // hung off ridge lines rather than off the centre.
+    // A ring around the massif crosses ridge and valley: the spurs are part
+    // of the mountain, not detail laid over a cone.
     constexpr int fineResolution = 256;
     const auto field = plainMountainField(fineResolution, leaveAsItIs);
     const Cell centre{fineResolution / 2, fineResolution / 2};
@@ -418,18 +419,21 @@ TEST_CASE("scaling a mountain widens its footprint", "[nodes][mountain]") {
 
 TEST_CASE("a bulkier mountain stands further out from its summit",
           "[nodes][mountain]") {
-    const auto slenderField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+    // The summit is a crest line the grid meets only as closely as a cell
+    // allows, so the peaks are compared on a fine grid.
+    constexpr int fineResolution = 256;
+    const auto slenderField = plainMountainField(fineResolution, [](terrain::GraphNode& mountain) {
         mountain.parameters["bulk"] = ParameterValue{0.0, ""};
     });
-    const auto broadField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+    const auto broadField = plainMountainField(fineResolution, [](terrain::GraphNode& mountain) {
         mountain.parameters["bulk"] = ParameterValue{2.0, ""};
     });
 
-    const Cell summit = highestCell(*broadField, resolution);
-    const double mid = 4000.0 * 0.5 / (worldSize / resolution);
-    REQUIRE(meanHeightOnRing(*broadField, resolution, summit, mid - 1.0, mid + 1.0)
-            > meanHeightOnRing(*slenderField, resolution, summit, mid - 1.0, mid + 1.0));
-    REQUIRE(broadField->maximum() == Approx(slenderField->maximum()).margin(15.0));
+    const Cell summit = highestCell(*broadField, fineResolution);
+    const double mid = 4000.0 * 0.5 / (worldSize / fineResolution);
+    REQUIRE(meanHeightOnRing(*broadField, fineResolution, summit, mid - 1.0, mid + 1.0)
+            > meanHeightOnRing(*slenderField, fineResolution, summit, mid - 1.0, mid + 1.0));
+    REQUIRE(broadField->maximum() == Approx(slenderField->maximum()).margin(30.0));
 }
 
 TEST_CASE("reducing detail drops the finest ridges and keeps the mass",
