@@ -1,0 +1,40 @@
+{
+	"version": 1,
+	"settings": {
+		"resolution": 1024,
+		"world_size_meters": 10000,
+		"seed": 7,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "mountain",
+	"nodes": [
+		{
+			"id": "heightmap",
+			"type": "ExportPNG16",
+			"x": 240,
+			"y": 0,
+			"parameters": {
+				"path": "terrains/mountain_gauntlet.png"
+			}
+		},
+		{
+			"id": "mountain",
+			"type": "Mountain",
+			"x": 0,
+			"y": 0,
+			"parameters": {}
+		}
+	],
+	"edges": [
+		{
+			"from_node_id": "mountain",
+			"from_port": 0,
+			"to_node_id": "heightmap",
+			"to_port": 0
+		}
+	]
+}

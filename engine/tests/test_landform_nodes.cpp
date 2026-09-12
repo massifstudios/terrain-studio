@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 #include "node_test_support.h"
@@ -32,6 +33,20 @@ terrain::GraphNode& addPlainMountain(Graph& graph, const std::string& id) {
     mountain.parameters["detailStrength"] = ParameterValue{0.0, ""};
     mountain.parameters["baseAltitude"] = ParameterValue{0.0, ""};
     return mountain;
+}
+
+/// The mean step between neighbouring cells across a row band: how rough the
+/// surface is at the finest scale the grid can hold.
+float meanNeighbourStep(const terrain::Heightfield& field, int size) {
+    double total = 0.0;
+    int steps = 0;
+    for (int row = 0; row < size; ++row) {
+        for (int column = 1; column < size; ++column) {
+            total += std::abs(field.at(column, row) - field.at(column - 1, row));
+            ++steps;
+        }
+    }
+    return static_cast<float>(total / steps);
 }
 
 /// A range with its stochastic dials at zero and every summit at full height.
@@ -168,6 +183,71 @@ TEST_CASE("a mountain draws the same shape at any thread count",
 
     REQUIRE(hashField(*evaluateNode(graph, "peak", 1))
             == hashField(*evaluateNode(graph, "peak", 8)));
+}
+
+TEST_CASE("the relief a mountain draws follows the height it is given",
+          "[nodes][mountain]") {
+    // Ridge-to-valley relief is what the height parameter promises: doubling it
+    // doubles the distance from the summit to the plane it stands on, and the
+    // summit itself still reaches the height asked for.
+    constexpr int fineResolution = 256;
+    for (const double height : {800.0, 1600.0, 3200.0}) {
+        Graph graph = squareGraph(fineResolution, worldSize);
+        terrain::GraphNode& mountain = graph.addNode("peak", "Mountain");
+        mountain.parameters["height"] = ParameterValue{height, ""};
+
+        const auto field = evaluateNode(graph, "peak");
+        const float relief = field->maximum() - field->minimum();
+        REQUIRE(field->minimum() == Approx(0.0));
+        REQUIRE(relief <= height);
+        REQUIRE(relief > height * 0.9);
+    }
+}
+
+TEST_CASE("scaling a mountain widens its footprint", "[nodes][mountain]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    addPlainMountain(graph, "small");
+    terrain::GraphNode& large = addPlainMountain(graph, "large");
+    large.parameters["scale"] = ParameterValue{1.6, ""};
+
+    const auto smallField = evaluateNode(graph, "small");
+    const auto largeField = evaluateNode(graph, "large");
+    // Eight cells past the small mountain's radius of 4000 m there is nothing
+    // left of it, while the scaled one still stands.
+    const int beyondFoot = middle + 4000 / static_cast<int>(worldSize / resolution) + 8;
+    REQUIRE(smallField->at(middle, beyondFoot) == Approx(0.0));
+    REQUIRE(largeField->at(middle, beyondFoot) > 50.0f);
+}
+
+TEST_CASE("a bulkier mountain stands further out from its summit",
+          "[nodes][mountain]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& slender = addPlainMountain(graph, "slender");
+    slender.parameters["bulk"] = ParameterValue{0.0, ""};
+    terrain::GraphNode& broad = addPlainMountain(graph, "broad");
+    broad.parameters["bulk"] = ParameterValue{2.0, ""};
+
+    const auto slenderField = evaluateNode(graph, "slender");
+    const auto broadField = evaluateNode(graph, "broad");
+    REQUIRE(broadField->at(middle, middle + 10) > slenderField->at(middle, middle + 10));
+    REQUIRE(broadField->maximum() == Approx(slenderField->maximum()).margin(15.0));
+}
+
+TEST_CASE("reducing detail drops the finest ridges and keeps the mass",
+          "[nodes][mountain]") {
+    constexpr int fineResolution = 256;
+    Graph graph = squareGraph(fineResolution, worldSize);
+    terrain::GraphNode& detailed = graph.addNode("detailed", "Mountain");
+    detailed.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    terrain::GraphNode& reduced = graph.addNode("reduced", "Mountain");
+    reduced.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    reduced.parameters["reduceDetails"] = ParameterValue{1.0, ""};
+
+    const auto detailedField = evaluateNode(graph, "detailed");
+    const auto reducedField = evaluateNode(graph, "reduced");
+    REQUIRE(meanNeighbourStep(*reducedField, fineResolution)
+            < meanNeighbourStep(*detailedField, fineResolution) * 0.8f);
+    REQUIRE(reducedField->maximum() == Approx(detailedField->maximum()).margin(30.0));
 }
 
 TEST_CASE("rolling a mountain's seed changes it", "[nodes][mountain]") {

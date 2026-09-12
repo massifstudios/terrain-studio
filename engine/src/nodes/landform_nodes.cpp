@@ -13,6 +13,19 @@ namespace {
 const TerrainPortDescriptor landformOutputs[] = {
     {"Out", "The landform", TerrainPortType_Field, TerrainFieldSemantics_Heightfield, 0}};
 
+/// Fills a band of rows from a function of the ground position, so a landform's
+/// own arithmetic stays out of the parallel loop that calls it.
+template <typename HeightAt>
+void writeLandformRows(const WorldFrame& frame, int firstRow, int lastRow, float* output,
+                       const HeightAt& heightAt) {
+    for (int row = firstRow; row < lastRow; ++row) {
+        float* line = output + static_cast<std::size_t>(row) * frame.size;
+        for (int column = 0; column < frame.size; ++column) {
+            line[column] = heightAt(frame.eastingAt(column), frame.northingAt(row));
+        }
+    }
+}
+
 /**
  * A displacement of where each cell reads the landform from, driven by two
  * decorrelated octaves of fBm.
@@ -59,8 +72,13 @@ GroundPoint warpedBy(const DomainWarp& warp, double eastingMeters, double northi
  * the summit ridges and the outwash at the foot alike, which is an even mat
  * rather than a mountain.
  */
+/// How quickly the catchments reach full depth below the summit, per unit of
+/// mass given up. The summit itself has to stay one summit; a hand's breadth
+/// below it the flank is already ridge and valley.
+constexpr float summitReleaseRate = 16.0f;
+
 float cragged(float shaped, float ridges, float carveDepth) {
-    const float summitFade = std::clamp((1.0f - shaped) * 8.0f, 0.0f, 1.0f);
+    const float summitFade = std::clamp((1.0f - shaped) * summitReleaseRate, 0.0f, 1.0f);
     return shaped - shaped * carveDepth * summitFade * (1.0f - ridges);
 }
 
@@ -97,6 +115,20 @@ float carveDepthFor(float detailStrength, float featureSizeMeters, float heightM
 }
 
 /**
+ * How much of one octave survives when the finest detail is held back.
+ *
+ * Retention counts octaves rather than scaling amplitude, so holding detail
+ * back drops the smallest ridges outright and leaves the larger ones at full
+ * depth: the surviving octaves keep the share of the network they always had,
+ * so what is left is a coarser network rather than a fainter one. The coarsest
+ * octave is always kept, so the network never vanishes.
+ */
+float octaveWeight(float detailRetention, int octave) {
+    const float keptOctaves = std::max(detailRetention * ridgeOctaveCount, 1.0f);
+    return std::clamp(keptOctaves - static_cast<float>(octave), 0.0f, 1.0f);
+}
+
+/**
  * The ridge network the catchments are cut from, with the stretch that draws
  * the ridges into spurs released as the octaves get finer.
  *
@@ -108,7 +140,7 @@ float carveDepthFor(float detailStrength, float featureSizeMeters, float heightM
  */
 template <typename ReadPointFor>
 float craggyField(const ReadPointFor& readPointFor, float featureSizeMeters, float elongation,
-                  std::uint64_t seed) {
+                  float detailRetention, std::uint64_t seed) {
     float total = 0.0f;
     float amplitude = 1.0f;
     float amplitudeSum = 0.0f;
@@ -116,11 +148,12 @@ float craggyField(const ReadPointFor& readPointFor, float featureSizeMeters, flo
     float octaveElongation = elongation;
 
     for (int octave = 0; octave < ridgeOctaveCount; ++octave) {
+        const float weight = amplitude * octaveWeight(detailRetention, octave);
         const GroundPoint read = readPointFor(octaveElongation);
         total += noise::ridgeOctave(static_cast<float>(read.eastingMeters) * octaveScale,
                                     static_cast<float>(read.northingMeters) * octaveScale,
                                     terrainSeedForLane(seed, static_cast<std::uint64_t>(octave)))
-                 * amplitude;
+                 * weight;
         amplitudeSum += amplitude;
         amplitude *= ridgeGain;
         octaveScale *= ridgeLacunarity;
@@ -156,76 +189,199 @@ GroundPoint spurReadPoint(const GroundPoint& ground, const ShapePlacement& place
 
 /* ------------------------------------------------------------- Mountain -- */
 
+/// The styles a graph may carry. Only Basic is drawn today; each of the others
+/// takes its own shaping as it lands.
+const TerrainEnumOption mountainStyles[] = {{"basic", "Basic", 0},
+                                            {"eroded", "Eroded", 1},
+                                            {"old", "Old", 2},
+                                            {"alpine", "Alpine", 3},
+                                            {"strata", "Strata", 4}};
+
+const TerrainEnumOption mountainBulks[] = {
+    {"low", "Low", 0}, {"medium", "Medium", 1}, {"high", "High", 2}};
+
 const TerrainParameterDescriptor mountainParameters[] = {
-    {"centreEast", "Centre east", "Where the summit sits across the world, 0 at the west edge",
-     "", TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"centreNorth", "Centre north", "Where the summit sits up the world, 0 at the south edge", "",
-     TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"radius", "Radius", "Ground distance from the summit out to the foot of the slope", "m",
-     TerrainParameterType_Float, 3000.0, 1.0, 100000.0, "", nullptr, 0},
+    {"scale", "Scale", "Scales the whole massif, footprint and detail together", "",
+     TerrainParameterType_Float, 1.0, 0.05, 4.0, "", nullptr, 0},
     {"height", "Height", "How far the summit stands above the base altitude", "m",
      TerrainParameterType_Float, 1200.0, 0.0, 12000.0, "", nullptr, 0},
+    {"style", "Style", "Which kind of mountain is drawn", "", TerrainParameterType_Enum, 0.0, 0.0,
+     4.0, "", mountainStyles, 5},
+    {"bulk", "Bulk", "How much mass the flanks carry between the summit and the foot", "",
+     TerrainParameterType_Enum, 1.0, 0.0, 2.0, "", mountainBulks, 3},
+    {"reduceDetails", "Reduce details",
+     "Holds back the finest ridges and leaves the larger shapes standing", "",
+     TerrainParameterType_Float, 0.0, 0.0, 1.0, "", nullptr, 0},
     {"seed", "Seed", "Varies this node alone, on top of the graph seed", "",
      TerrainParameterType_Seed, 0.0, 0.0, 4294967295.0, "", nullptr, 0},
+    {"centreEast", "X offset", "Where the summit sits across the world, 0 at the west edge", "",
+     TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
+    {"centreNorth", "Y offset", "Where the summit sits up the world, 0 at the south edge", "",
+     TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
+    {"radius", "Radius", "Ground distance from the summit out to the foot, before Scale", "m",
+     TerrainParameterType_Float, 3000.0, 1.0, 100000.0, "", nullptr, 0},
+    {"baseAltitude", "Base altitude", "The altitude the foot of the mountain sits at", "m",
+     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"peakSharpness", "Peak sharpness", "Higher values pull the mass down and leave a finer peak",
      "", TerrainParameterType_Float, 1.6, 0.2, 6.0, "", nullptr, 0},
     {"irregularity", "Irregularity", "How far the outline wanders off a circle", "",
      TerrainParameterType_Float, 0.35, 0.0, 1.0, "", nullptr, 0},
     {"detailStrength", "Detail", "How much ridged detail is cut into the slopes", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"featureSize", "Detail size", "Ground distance between neighbouring spurs", "m",
+    {"featureSize", "Detail size", "Ground distance between neighbouring spurs, before Scale", "m",
      TerrainParameterType_Float, 1200.0, 1.0, 100000.0, "", nullptr, 0},
-    {"baseAltitude", "Base altitude", "The altitude the foot of the mountain sits at", "m",
-     TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
      "How far the detail is drawn out into spurs running from the summit to the foot", "",
      TerrainParameterType_Float, 0.6, 0.0, 0.95, "", nullptr, 0}};
 
+/**
+ * How much mass the flanks carry, as a factor on the profile's exponent. A low
+ * bulk leaves a slender peak over hollow flanks; a high one stands the massif
+ * well out from its summit before it falls away.
+ */
+float bulkExponentScale(int bulk) {
+    if (bulk == 0) {
+        return 1.45f;
+    }
+    if (bulk == 2) {
+        return 0.7f;
+    }
+    return 1.0f;
+}
+
+/// How far the ground may be bent per unit of irregularity, as a share of the
+/// distance the bend is drawn over. Past about a quarter the displacement's own
+/// gradient exceeds one and the field folds over itself.
+constexpr double mountainWarpShare = 0.25;
+
+/// How far the foot may stand in or out from the nominal reach at full
+/// irregularity. This is what makes the mass a massif rather than a cone: one
+/// flank runs far out, the next breaks off short.
+constexpr float outlineWanderLimit = 0.5f;
+
+/// Roughly how many lobes the outline carries around the mountain. Fewer and
+/// the mass is an oval; many more and the foot scallops instead of leaning.
+constexpr double outlineLobeCount = 3.0;
+
+/// Gradient noise spends most of its range near zero, so the raw field would
+/// leave the outline all but circular. Lifting it and letting it saturate
+/// trades the rare extremes for lobes that read, with no clip to crease the
+/// flank where the reach would otherwise jump.
+constexpr float outlineGain = 2.5f;
+
+constexpr noise::FractalOptions outlineOptions{2, 0.5f, 2.0f};
+
+/// Everything about a mountain that is fixed before the first cell is read.
+struct MountainLayout {
+    ShapePlacement placement;
+    DomainWarp warp;
+    double radiusMeters = 3000.0;
+    double outlineFeatureSizeMeters = 3000.0;
+    float outlineWanderShare = 0.0f;
+    float profileExponent = 1.6f;
+    float carveDepth = 0.0f;
+    float featureSizeMeters = 1200.0f;
+    float spurElongation = 0.6f;
+    float detailRetention = 1.0f;
+    float heightMeters = 1200.0f;
+    float baseAltitudeMeters = 0.0f;
+    std::uint64_t outlineSeed = 0;
+    std::uint64_t detailSeed = 0;
+};
+
+/**
+ * How far the foot of the mountain stands from the summit in the direction of
+ * a point: the nominal reach bent by a slow field read around the mountain, so
+ * the outline is a massif's rather than a circle's.
+ *
+ * The field is read on a ring about the summit rather than at the point
+ * itself, so the reach depends on the direction alone. A reach that varied
+ * along a ray as well would move the foot in and out under its own slope and
+ * break the flank into terraces.
+ */
+double reachAt(const MountainLayout& layout, const GroundPoint& ground) {
+    const GroundPoint around = spurReadPoint(ground, layout.placement, layout.radiusMeters, 1.0f);
+    const float featureSize = static_cast<float>(layout.outlineFeatureSizeMeters);
+    const float field =
+        noise::fractalPerlin(static_cast<float>(around.eastingMeters) / featureSize,
+                             static_cast<float>(around.northingMeters) / featureSize,
+                             layout.outlineSeed, outlineOptions);
+    const float wander = std::tanh(field * outlineGain);
+    return layout.radiusMeters * (1.0 + layout.outlineWanderShare * wander);
+}
+
+/**
+ * The mass standing at a point, as [0, 1]: pointed at the summit, concave down
+ * the flanks, and tangent to the ground at the foot, so the base fades into
+ * the plane instead of ending on a rim.
+ */
+float massifProfile(double distanceMeters, double reachMeters, float exponent) {
+    if (reachMeters <= 0.0) {
+        return 0.0f;
+    }
+    const double unit = std::clamp(distanceMeters / reachMeters, 0.0, 1.0);
+    return static_cast<float>(std::pow(1.0 - unit * unit, exponent));
+}
+
+float mountainHeightAt(const MountainLayout& layout, double eastingMeters, double northingMeters) {
+    const GroundPoint ground = warpedBy(layout.warp, eastingMeters, northingMeters);
+    const LocalPoint point =
+        layout.placement.localPoint(ground.eastingMeters, ground.northingMeters);
+    const float mass = massifProfile(point.distanceFromCentre(), reachAt(layout, ground),
+                                     layout.profileExponent);
+    const auto readPointFor = [&](float elongation) {
+        return spurReadPoint(ground, layout.placement, layout.radiusMeters, elongation);
+    };
+    const float ridges = craggyField(readPointFor, layout.featureSizeMeters, layout.spurElongation,
+                                     layout.detailRetention, layout.detailSeed);
+    return cragged(mass, ridges, layout.carveDepth) * layout.heightMeters
+           + layout.baseAltitudeMeters;
+}
+
+MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                                  const WorldFrame& frame) {
+    const double scale = api->parameterNumber(context, 0);
+    const std::uint64_t seed = terrainSeedForLane(
+        api->randomSeed(context), static_cast<std::uint64_t>(api->parameterNumber(context, 5)));
+    const int bulk = static_cast<int>(api->parameterNumber(context, 3));
+    const float irregularity = static_cast<float>(api->parameterNumber(context, 11));
+
+    MountainLayout layout;
+    layout.placement = placementFrom(frame, api->parameterNumber(context, 6),
+                                     api->parameterNumber(context, 7), 0.0);
+    layout.radiusMeters = api->parameterNumber(context, 8) * scale;
+    layout.outlineFeatureSizeMeters =
+        layout.radiusMeters * std::numbers::pi / outlineLobeCount;
+    layout.outlineWanderShare = irregularity * outlineWanderLimit;
+    layout.heightMeters = static_cast<float>(api->parameterNumber(context, 1));
+    layout.baseAltitudeMeters = static_cast<float>(api->parameterNumber(context, 9));
+    layout.profileExponent =
+        static_cast<float>(api->parameterNumber(context, 10)) * bulkExponentScale(bulk);
+    layout.featureSizeMeters = static_cast<float>(api->parameterNumber(context, 13) * scale);
+    layout.spurElongation = static_cast<float>(api->parameterNumber(context, 14));
+    layout.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
+    layout.carveDepth = carveDepthFor(static_cast<float>(api->parameterNumber(context, 12)),
+                                      layout.featureSizeMeters, layout.heightMeters);
+    layout.warp.eastingSeed = terrainSeedForLane(seed, 1);
+    layout.warp.northingSeed = terrainSeedForLane(seed, 2);
+    layout.warp.featureSizeMeters = static_cast<float>(layout.radiusMeters);
+    layout.warp.amountMeters =
+        static_cast<float>(irregularity * layout.radiusMeters * mountainWarpShare);
+    layout.outlineSeed = terrainSeedForLane(seed, 4);
+    layout.detailSeed = terrainSeedForLane(seed, 3);
+    return layout;
+}
+
 void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
-    const ShapePlacement placement = placementFrom(frame, api->parameterNumber(context, 0),
-                                                   api->parameterNumber(context, 1), 0.0);
-    const double radiusMeters = api->parameterNumber(context, 2);
-    const float height = static_cast<float>(api->parameterNumber(context, 3));
-    const std::uint64_t seed = terrainSeedForLane(
-        api->randomSeed(context),
-        static_cast<std::uint64_t>(api->parameterNumber(context, 4)));
-    const float peakSharpness = static_cast<float>(api->parameterNumber(context, 5));
-    const float detailStrength = static_cast<float>(api->parameterNumber(context, 7));
-    const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 8));
-    const float baseAltitude = static_cast<float>(api->parameterNumber(context, 9));
-    const float spurElongation = static_cast<float>(api->parameterNumber(context, 10));
-    const float carveDepth = carveDepthFor(detailStrength, featureSizeMeters, height);
-
-    DomainWarp warp;
-    warp.eastingSeed = terrainSeedForLane(seed, 1);
-    warp.northingSeed = terrainSeedForLane(seed, 2);
-    warp.featureSizeMeters = static_cast<float>(radiusMeters);
-    warp.amountMeters =
-        static_cast<float>(api->parameterNumber(context, 6) * radiusMeters * 0.5);
-    const std::uint64_t detailSeed = terrainSeedForLane(seed, 3);
+    const MountainLayout layout = mountainLayoutFrom(api, context, frame);
     float* output = api->outputField(context, 0);
 
     forEachRowRange(api, context, frame.size, [&](int firstRow, int lastRow) {
-        for (int row = firstRow; row < lastRow; ++row) {
-            float* line = output + static_cast<std::size_t>(row) * frame.size;
-            for (int column = 0; column < frame.size; ++column) {
-                const GroundPoint ground =
-                    warpedBy(warp, frame.eastingAt(column), frame.northingAt(row));
-                const LocalPoint point =
-                    placement.localPoint(ground.eastingMeters, ground.northingMeters);
-                const float base = radialProfileValue(RadialProfile::Smooth,
-                                                      point.distanceFromCentre(), radiusMeters);
-                const auto readPointFor = [&](float elongation) {
-                    return spurReadPoint(ground, placement, radiusMeters, elongation);
-                };
-                const float ridges = craggyField(readPointFor, featureSizeMeters, spurElongation,
-                                                 detailSeed);
-                const float relief =
-                    cragged(std::pow(base, peakSharpness), ridges, carveDepth);
-                line[column] = relief * height + baseAltitude;
-            }
-        }
+        writeLandformRows(frame, firstRow, lastRow, output,
+                          [&](double eastingMeters, double northingMeters) {
+                              return mountainHeightAt(layout, eastingMeters, northingMeters);
+                          });
     });
 }
 
@@ -239,7 +395,7 @@ const TerrainNodeDescriptor mountainDescriptor = {
     landformOutputs,
     1,
     mountainParameters,
-    11,
+    15,
     &evaluateMountain};
 
 /* -------------------------------------------------------- MountainRange -- */
@@ -617,7 +773,7 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
                     return ribReadPoint(ground, layout.placement, layout.axis, elongation);
                 };
                 const float gullies = craggyField(readPointFor, featureSizeMeters, spurElongation,
-                                                  detailSeed);
+                                                  1.0f, detailSeed);
                 const float ridges = transverseRidges(layout, ground) * transverseShare
                                      + gullies * (1.0f - transverseShare);
                 line[column] =
