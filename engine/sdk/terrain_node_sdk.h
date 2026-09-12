@@ -56,7 +56,7 @@
 extern "C" {
 #endif
 
-#define TERRAIN_SDK_ABI_VERSION 1
+#define TERRAIN_SDK_ABI_VERSION 2
 
 /* ---------------------------------------------------------------- types -- */
 
@@ -84,7 +84,12 @@ typedef enum TerrainParameterType {
     TerrainParameterType_Text = 7,
     /* A transfer curve, read as text: "x,y;x,y;..." with both coordinates in
        [0, 1] and the points sorted by x. See terrain/curve.h. */
-    TerrainParameterType_Curve = 8
+    TerrainParameterType_Curve = 8,
+    /* An enum whose options are the image textures in the asset directories,
+       in name order. The viewport pairs a node's texture parameters with its
+       mask outputs in declaration order and tiles each texture where its mask
+       has weight; the engine itself never reads the images. */
+    TerrainParameterType_Texture = 9
 } TerrainParameterType;
 
 typedef struct TerrainEnumOption {

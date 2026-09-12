@@ -80,6 +80,7 @@ const char* parameterTypeName(ParameterType type) {
         case ParameterType::Path: return "path";
         case ParameterType::Text: return "text";
         case ParameterType::Curve: return "curve";
+        case ParameterType::Texture: return "texture";
         case ParameterType::Float: break;
     }
     return "float";

@@ -1,17 +1,22 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "node_test_support.h"
 #include "terrain/color_ramp.h"
 #include "terrain/color_space.h"
 #include "terrain/color_strip.h"
+#include "terrain/registry.h"
 #include "terrain/satmap_catalogue.h"
+#include "terrain/texture_catalogue.h"
 #include "terrain/formats/png_image.h"
 #include "terrain/formats/point_files.h"
 #include "terrain/formats/texture_maps.h"
@@ -397,6 +402,41 @@ TEST_CASE("ground nothing claims falls to the base layer", "[texture][nodes]") {
     graph.connect("none", 0, "splat", 1);
 
     REQUIRE(evaluateOutput(graph, "splat", 0)->minimum() == Approx(1.0));
+}
+
+TEST_CASE("the source tree's textures are found without configuration", "[texture][splat]") {
+    const std::vector<std::string>& names = terrain::TextureCatalogue::shared().names();
+    REQUIRE(names.size() >= 6);
+    REQUIRE(std::find(names.begin(), names.end(), "snow_02.jpg") != names.end());
+    for (std::size_t index = 1; index < names.size(); ++index) {
+        REQUIRE(names[index - 1] < names[index]);
+    }
+}
+
+TEST_CASE("a directory without textures leaves the catalogue empty", "[texture][splat]") {
+    const terrain::TextureCatalogue catalogue =
+        terrain::TextureCatalogue::scan({std::filesystem::temp_directory_path() / "no_such_dir"});
+    REQUIRE(catalogue.names().empty());
+}
+
+TEST_CASE("splat weights name one texture per layer, each starting on its own",
+          "[texture][splat]") {
+    terrain::NodeRegistry registry;
+    terrain::registerBuiltinNodes(registry);
+    const terrain::NodeType* splat = registry.find("SplatWeights");
+    REQUIRE(splat != nullptr);
+    REQUIRE(splat->parameters.size() == 4);
+
+    const std::vector<std::string>& textures = terrain::TextureCatalogue::shared().names();
+    for (std::size_t layer = 0; layer < splat->parameters.size(); ++layer) {
+        const terrain::ParameterDescriptor& parameter = splat->parameters[layer];
+        REQUIRE(parameter.type == terrain::ParameterType::Texture);
+        REQUIRE(parameter.enumOptions.size() == textures.size());
+        REQUIRE(parameter.defaultValue == static_cast<double>(layer));
+        REQUIRE(parameter.enumOptions[layer].name == textures[layer]);
+    }
+    REQUIRE(splat->parameters[0].name == "baseTexture");
+    REQUIRE(splat->parameters[0].enumOptions[0].label == "Aerial rocks 02");
 }
 
 /* ----------------------------------------------------------- GrowthMask -- */

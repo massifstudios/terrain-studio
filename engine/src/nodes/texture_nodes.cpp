@@ -1,10 +1,13 @@
 #include <algorithm>
+#include <cctype>
+#include <string>
 #include <vector>
 
 #include "color_lookup_support.h"
 #include "node_support.h"
 #include "terrain/color_field.h"
 #include "terrain/color_ramp.h"
+#include "terrain/texture_catalogue.h"
 
 namespace terrain::nodes {
 namespace {
@@ -198,25 +201,93 @@ void evaluateSplatWeights(const TerrainContextApi* api, TerrainEvaluationContext
     }
 }
 
-const TerrainNodeDescriptor splatWeightsDescriptor = {
-    "SplatWeights",
-    "Texture",
-    "Shares each cell out between up to four layers so they add to one",
-    1,
-    splatInputs,
-    splatLayerCount,
-    splatOutputs,
-    splatLayerCount,
-    nullptr,
-    0,
-    &evaluateSplatWeights};
+/// Each layer names the texture the viewport tiles where it has weight. The
+/// option list is read off the asset directories, so it offers the textures
+/// that exist rather than a list typed in here.
+struct SplatWeightsRegistration {
+    std::vector<std::string> optionNames;
+    std::vector<TerrainEnumOption> textureOptions;
+    std::vector<TerrainParameterDescriptor> parameters;
+    TerrainNodeDescriptor descriptor;
+};
+
+/// "aerial_rocks_02.jpg" reads as "Aerial rocks 02".
+std::string textureLabel(const std::string& fileName) {
+    std::string label = fileName.substr(0, fileName.find_last_of('.'));
+    std::replace(label.begin(), label.end(), '_', ' ');
+    if (!label.empty()) {
+        label[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(label[0])));
+    }
+    return label;
+}
+
+std::vector<TerrainEnumOption> textureOptionsFor(const TextureCatalogue& catalogue,
+                                                 std::vector<std::string>& names) {
+    std::vector<TerrainEnumOption> options;
+    const std::vector<std::string>& textures = catalogue.names();
+    names.reserve(textures.size() * 2);
+    for (std::size_t index = 0; index < textures.size(); ++index) {
+        names.push_back(textures[index]);
+        names.push_back(textureLabel(textures[index]));
+        options.push_back(TerrainEnumOption{names[names.size() - 2].c_str(),
+                                            names.back().c_str(), static_cast<int32_t>(index)});
+    }
+    if (options.empty()) {
+        options.push_back(TerrainEnumOption{"none", "No textures found", 0});
+    }
+    return options;
+}
+
+const char* const splatTextureParameterNames[splatLayerCount] = {
+    "baseTexture", "layer2Texture", "layer3Texture", "layer4Texture"};
+const char* const splatTextureLabels[splatLayerCount] = {"Base texture", "Layer 2 texture",
+                                                         "Layer 3 texture", "Layer 4 texture"};
+
+/// Every layer starts on a different texture, so a freshly placed node already
+/// shows its layers apart.
+std::vector<TerrainParameterDescriptor> splatParametersFor(
+    const std::vector<TerrainEnumOption>& textureOptions) {
+    const double lastTexture = static_cast<double>(textureOptions.size() - 1);
+    std::vector<TerrainParameterDescriptor> parameters;
+    for (int layer = 0; layer < splatLayerCount; ++layer) {
+        const double preset = std::min(static_cast<double>(layer), lastTexture);
+        parameters.push_back({splatTextureParameterNames[layer], splatTextureLabels[layer],
+                              "The texture the viewport tiles where this layer has weight", "",
+                              TerrainParameterType_Texture, preset, 0.0, lastTexture, "",
+                              textureOptions.data(),
+                              static_cast<int32_t>(textureOptions.size())});
+    }
+    return parameters;
+}
+
+SplatWeightsRegistration& splatWeightsRegistration() {
+    static SplatWeightsRegistration registration = [] {
+        SplatWeightsRegistration built;
+        built.textureOptions = textureOptionsFor(TextureCatalogue::shared(), built.optionNames);
+        built.parameters = splatParametersFor(built.textureOptions);
+        built.descriptor = TerrainNodeDescriptor{
+            "SplatWeights",
+            "Texture",
+            "Shares each cell out between up to four layers so they add to one",
+            2,
+            splatInputs,
+            splatLayerCount,
+            splatOutputs,
+            splatLayerCount,
+            built.parameters.data(),
+            static_cast<int32_t>(built.parameters.size()),
+            &evaluateSplatWeights};
+        return built;
+    }();
+    return registration;
+}
 
 }  // namespace
 
 void registerTextureNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
     api.registerNode(registry, &colorRampDescriptor);
     api.registerNode(registry, &mixColorDescriptor);
-    api.registerNode(registry, &splatWeightsDescriptor);
+    api.registerNode(registry, &splatWeightsRegistration().descriptor);
 }
 
 }  // namespace terrain::nodes

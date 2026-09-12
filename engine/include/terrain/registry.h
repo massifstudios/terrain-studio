@@ -27,7 +27,8 @@ enum class ParameterType {
     ColorRamp = TerrainParameterType_ColorRamp,
     Path = TerrainParameterType_Path,
     Text = TerrainParameterType_Text,
-    Curve = TerrainParameterType_Curve
+    Curve = TerrainParameterType_Curve,
+    Texture = TerrainParameterType_Texture
 };
 
 struct EnumOption {

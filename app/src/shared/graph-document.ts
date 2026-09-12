@@ -64,7 +64,8 @@ export type ParameterTypeName =
 	| 'colorRamp'
 	| 'path'
 	| 'text'
-	| 'curve';
+	| 'curve'
+	| 'texture';
 
 export interface PortSchema {
 	name: string;

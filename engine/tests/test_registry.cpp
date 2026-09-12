@@ -91,7 +91,10 @@ TEST_CASE("the registry serialises to JSON the UI can read", "[registry]") {
     const NodeRegistry registry = builtinRegistry();
     const std::string json = registry.toJson();
 
-    REQUIRE(json.starts_with("{\"abiVersion\":1,\"nodes\":["));
+    const std::string expectedHead =
+        "{\"abiVersion\":" + std::to_string(TERRAIN_SDK_ABI_VERSION) + ",\"nodes\":[";
+    REQUIRE(json.starts_with(expectedHead));
+    REQUIRE(json.find("\"type\":\"texture\"") != std::string::npos);
     REQUIRE(json.find("\"typeName\":\"Blur\"") != std::string::npos);
     REQUIRE(json.find("\"category\":\"Filter\"") != std::string::npos);
     REQUIRE(json.find("\"unit\":\"m\"") != std::string::npos);

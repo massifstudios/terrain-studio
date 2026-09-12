@@ -47,7 +47,7 @@ function describePortType(port: PortSchema): string {
 }
 
 function describeRange(parameter: ParameterSchema): string {
-	if (parameter.type === 'enum') {
+	if (parameter.type === 'enum' || parameter.type === 'texture') {
 		return `one of: ${parameter.options.map((option) => option.name).join(', ')}`;
 	}
 	if (parameter.minimum === parameter.maximum) {

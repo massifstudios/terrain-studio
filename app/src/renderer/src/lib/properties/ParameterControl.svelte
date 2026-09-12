@@ -57,7 +57,7 @@
 			onchange={(event: Event) => onChange((event.currentTarget as HTMLInputElement).checked)}
 		/>
 	</label>
-{:else if schema.type === 'enum'}
+{:else if schema.type === 'enum' || schema.type === 'texture'}
 	<label class="flex flex-col gap-1 text-2xs text-muted">
 		<span>{schema.label}</span>
 		<Select

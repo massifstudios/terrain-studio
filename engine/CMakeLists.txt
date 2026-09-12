@@ -63,6 +63,7 @@ add_library(terrain_engine STATIC
     src/formats/point_files.cpp
     src/color_strip.cpp
     src/satmap_catalogue.cpp
+    src/texture_catalogue.cpp
     src/nodes/node_support.cpp
     src/nodes/color_lookup_support.cpp
     src/nodes/shape_support.cpp
