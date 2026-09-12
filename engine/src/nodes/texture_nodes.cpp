@@ -247,14 +247,14 @@ const char* const splatTextureLabels[splatLayerCount] = {"Base texture", "Layer 
 /// shows its layers apart.
 std::vector<TerrainParameterDescriptor> splatParametersFor(
     const std::vector<TerrainEnumOption>& textureOptions) {
-    const double lastTexture = static_cast<double>(textureOptions.size() - 1);
+    const std::size_t lastTexture = textureOptions.size() - 1;
     std::vector<TerrainParameterDescriptor> parameters;
     for (int layer = 0; layer < splatLayerCount; ++layer) {
-        const double preset = std::min(static_cast<double>(layer), lastTexture);
+        const std::size_t preset = std::min(static_cast<std::size_t>(layer), lastTexture);
         parameters.push_back({splatTextureParameterNames[layer], splatTextureLabels[layer],
                               "The texture the viewport tiles where this layer has weight", "",
-                              TerrainParameterType_Texture, preset, 0.0, lastTexture, "",
-                              textureOptions.data(),
+                              TerrainParameterType_Texture, 0.0, 0.0, 0.0,
+                              textureOptions[preset].name, textureOptions.data(),
                               static_cast<int32_t>(textureOptions.size())});
     }
     return parameters;

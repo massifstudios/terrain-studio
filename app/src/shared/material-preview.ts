@@ -27,10 +27,11 @@ function maskOutputPorts(schema: NodeSchema): number[] {
 	return ports;
 }
 
-/// A value naming no option falls back to the first, which is also what a
-/// project saved before the parameter existed gets.
+/// The value is the texture's file name. One naming no texture on disk falls
+/// back to the first, which is also what a project saved before the parameter
+/// existed gets.
 function textureNameFor(parameter: ParameterSchema, value: ParameterValue | undefined): string | null {
-	const chosen = parameter.options.find((option) => option.value === Number(value));
+	const chosen = parameter.options.find((option) => option.name === value);
 	if (chosen) {
 		return chosen.name;
 	}

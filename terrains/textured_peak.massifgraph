@@ -72,10 +72,10 @@
 			"x": 960,
 			"y": 120,
 			"parameters": {
-				"base_texture": 3,
-				"layer2_texture": 5,
-				"layer3_texture": 0,
-				"layer4_texture": 4
+				"base_texture": "rocky_gravel.jpg",
+				"layer2_texture": "leafy_grass.jpg",
+				"layer3_texture": "cliff_side.jpg",
+				"layer4_texture": "snow_02.jpg"
 			}
 		},
 		{

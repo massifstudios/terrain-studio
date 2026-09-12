@@ -19,8 +19,8 @@ function textureParameter(name: string, textures: string[]): ParameterSchema {
 		type: 'texture',
 		defaultValue: 0,
 		minimum: 0,
-		maximum: textures.length - 1,
-		defaultText: '',
+		maximum: 0,
+		defaultText: textures[0],
 		options: textures.map((texture, value) => ({ name: texture, label: texture, value }))
 	};
 }
@@ -49,7 +49,7 @@ describe('materialLayers', () => {
 			[maskPort('Base'), maskPort('Layer 2')],
 			[textureParameter('baseTexture', textures), textureParameter('layer2Texture', textures)]
 		);
-		expect(materialLayers(node, { baseTexture: 2, layer2Texture: 1 })).toEqual([
+		expect(materialLayers(node, { baseTexture: 'snow.jpg', layer2Texture: 'grass.jpg' })).toEqual([
 			{ outputPort: 0, textureName: 'snow.jpg' },
 			{ outputPort: 1, textureName: 'grass.jpg' }
 		]);
@@ -60,7 +60,7 @@ describe('materialLayers', () => {
 			[heightPort('Out'), maskPort('Snow')],
 			[textureParameter('snowTexture', textures)]
 		);
-		expect(materialLayers(node, { snowTexture: 0 })).toEqual([
+		expect(materialLayers(node, { snowTexture: 'rock.jpg' })).toEqual([
 			{ outputPort: 1, textureName: 'rock.jpg' }
 		]);
 	});
@@ -73,7 +73,7 @@ describe('materialLayers', () => {
 	test('a missing or stale value falls back to the first texture', () => {
 		const node = schema([maskPort('Base')], [textureParameter('baseTexture', textures)]);
 		expect(materialLayers(node, {})).toEqual([{ outputPort: 0, textureName: 'rock.jpg' }]);
-		expect(materialLayers(node, { baseTexture: 99 })).toEqual([
+		expect(materialLayers(node, { baseTexture: 'gone.jpg' })).toEqual([
 			{ outputPort: 0, textureName: 'rock.jpg' }
 		]);
 	});
@@ -83,7 +83,7 @@ describe('materialLayers', () => {
 			[maskPort('Base')],
 			[textureParameter('baseTexture', textures), textureParameter('layer2Texture', textures)]
 		);
-		expect(materialLayers(node, { baseTexture: 1, layer2Texture: 2 })).toHaveLength(1);
+		expect(materialLayers(node, { baseTexture: 'grass.jpg', layer2Texture: 'snow.jpg' })).toHaveLength(1);
 	});
 
 	test('no more than four layers are planned', () => {

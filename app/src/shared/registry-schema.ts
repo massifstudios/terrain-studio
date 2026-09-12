@@ -33,7 +33,8 @@ export const textualTypes: ReadonlySet<ParameterSchema['type']> = new Set([
 	'path',
 	'text',
 	'colorRamp',
-	'curve'
+	'curve',
+	'texture'
 ]);
 
 export function defaultParameterValue(parameter: ParameterSchema): ParameterValue {

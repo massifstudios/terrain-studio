@@ -432,11 +432,12 @@ TEST_CASE("splat weights name one texture per layer, each starting on its own",
         const terrain::ParameterDescriptor& parameter = splat->parameters[layer];
         REQUIRE(parameter.type == terrain::ParameterType::Texture);
         REQUIRE(parameter.enumOptions.size() == textures.size());
-        REQUIRE(parameter.defaultValue == static_cast<double>(layer));
+        REQUIRE(parameter.defaultText == textures[layer]);
         REQUIRE(parameter.enumOptions[layer].name == textures[layer]);
     }
     REQUIRE(splat->parameters[0].name == "baseTexture");
-    REQUIRE(splat->parameters[0].enumOptions[0].label == "Aerial rocks 02");
+    REQUIRE(splat->parameters[0].enumOptions[0].name == "aerial_grass_rock.jpg");
+    REQUIRE(splat->parameters[0].enumOptions[0].label == "Aerial grass rock");
 }
 
 /* ----------------------------------------------------------- GrowthMask -- */
