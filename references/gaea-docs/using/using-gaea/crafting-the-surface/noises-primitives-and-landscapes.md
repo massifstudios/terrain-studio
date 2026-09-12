@@ -1,0 +1,29 @@
+Source: https://docs.gaea.app/using/using-gaea/crafting-the-surface/noises-primitives-and-landscapes.html
+
+# Noises, Primitives, and Landscapes
+
+Gaea provides three types of building blocks:
+
+- Basic Primitives: Noises, Constants, File Inputs, Shapes.
+- Geological Primitives: Standalone Mountains, Hills, Craters, etc.
+- Landscapes: Mountain Ranges, Fields, Ridge Lines, Rolling Hills, etc.
+
+## Building with Geological Primitives
+
+The Geological Primitives and Landscapes are designed to provide fairly rudimentary yet clearly defined geological shapes to help you quickly establish a terrain. While you have the ability to wrangle Noises and Gradients/Shapes into various terrain-like shapes, these primitives provide a more efficient and friendly way of crafting terrains.
+
+![](https://docs.gaea.app/.data/assets/Gaea_2.0_09-49-50-PM.webp)
+
+Landscapes help create the "ground", while the Primitives help create standalone features that can be placed on the ground, or sometimes be used by themselves to create free-standing assets.
+
+![](https://docs.gaea.app/.data/assets/Gaea_2.0_09-49-36-PM.webp)
+
+Both Landscapes and Primitives will have some level of natural processing built-in, such as Erosion, and will mostly have the option to turn it off as well. However, these are meant only as a starting point. You will need to add proper [Erosion](https://docs.gaea.app/reference/nodes/simulate/erosion.html) and possibly other [Surface Nodes](https://docs.gaea.app/using/using-gaea/crafting-the-surface/surface-nodes.html) to turn it into a more realistic environment.
+
+## Basic Primitives
+
+Basic Primitives, while being deceptively simple, are foundational components of Gaea. They provide low-level access to shape generation that can be used to create both precise shapes - whether geometric or naturalistic - or create randomness that can mimic nature.
+
+![](https://docs.gaea.app/.data/assets/Gaea_-_explain_erosion.terrain_10-45-41-PM-(1).webp)
+
+Advanced users will be able to craft complex outputs from these primitives.
