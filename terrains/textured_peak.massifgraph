@@ -28,7 +28,14 @@
 			"type": "HydraulicErosion",
 			"x": 240,
 			"y": 0,
-			"parameters": {}
+			"parameters": {
+				"density": 2,
+				"erosion_rate": 0.5,
+				"deposition_rate": 0.25,
+				"capacity": 3,
+				"lifetime": 1500,
+				"radius": 40
+			}
 		},
 		{
 			"id": "snow",
@@ -45,35 +52,74 @@
 			}
 		},
 		{
-			"id": "meadow",
+			"id": "loose",
+			"type": "Max",
+			"x": 480,
+			"y": 200,
+			"parameters": {}
+		},
+		{
+			"id": "scree",
+			"type": "Curve",
+			"x": 720,
+			"y": 200,
+			"parameters": {
+				"curve": "0,0;0.3,1;1,1"
+			}
+		},
+		{
+			"id": "alpine",
 			"type": "HeightMask",
 			"x": 720,
-			"y": 160,
+			"y": 320,
 			"parameters": {
-				"minimum_altitude": -12000,
-				"maximum_altitude": 1600,
+				"minimum_altitude": 1900,
+				"maximum_altitude": 12000,
 				"falloff": 400
+			}
+		},
+		{
+			"id": "bare_ground",
+			"type": "Max",
+			"x": 960,
+			"y": 240,
+			"parameters": {}
+		},
+		{
+			"id": "worn",
+			"type": "Curve",
+			"x": 720,
+			"y": 440,
+			"parameters": {
+				"curve": "0,0;0.35,1;1,1"
 			}
 		},
 		{
 			"id": "steep",
 			"type": "SlopeMask",
 			"x": 720,
-			"y": 320,
+			"y": 560,
 			"parameters": {
-				"minimum_slope": 28,
+				"minimum_slope": 32,
 				"maximum_slope": 90,
-				"falloff": 12
+				"falloff": 8
 			}
+		},
+		{
+			"id": "rock",
+			"type": "Max",
+			"x": 960,
+			"y": 480,
+			"parameters": {}
 		},
 		{
 			"id": "materials",
 			"type": "SplatWeights",
-			"x": 960,
-			"y": 120,
+			"x": 1200,
+			"y": 200,
 			"parameters": {
-				"base_texture": "rocky_gravel.jpg",
-				"layer2_texture": "leafy_grass.jpg",
+				"base_texture": "leafy_grass.jpg",
+				"layer2_texture": "rocky_gravel.jpg",
 				"layer3_texture": "cliff_side.jpg",
 				"layer4_texture": "snow_02.jpg"
 			}
@@ -81,8 +127,8 @@
 		{
 			"id": "export_splat",
 			"type": "ExportSplat",
-			"x": 1200,
-			"y": 120,
+			"x": 1440,
+			"y": 200,
 			"parameters": {
 				"path": "terrains/textured_peak_splat.png"
 			}
@@ -91,11 +137,19 @@
 	"edges": [
 		{ "from_node_id": "mountain", "from_port": 0, "to_node_id": "eroded", "to_port": 0 },
 		{ "from_node_id": "eroded", "from_port": 0, "to_node_id": "snow", "to_port": 0 },
-		{ "from_node_id": "snow", "from_port": 0, "to_node_id": "meadow", "to_port": 0 },
+		{ "from_node_id": "eroded", "from_port": 2, "to_node_id": "loose", "to_port": 0 },
+		{ "from_node_id": "eroded", "from_port": 3, "to_node_id": "loose", "to_port": 1 },
+		{ "from_node_id": "loose", "from_port": 0, "to_node_id": "scree", "to_port": 0 },
+		{ "from_node_id": "snow", "from_port": 0, "to_node_id": "alpine", "to_port": 0 },
+		{ "from_node_id": "scree", "from_port": 0, "to_node_id": "bare_ground", "to_port": 0 },
+		{ "from_node_id": "alpine", "from_port": 0, "to_node_id": "bare_ground", "to_port": 1 },
+		{ "from_node_id": "eroded", "from_port": 1, "to_node_id": "worn", "to_port": 0 },
 		{ "from_node_id": "snow", "from_port": 0, "to_node_id": "steep", "to_port": 0 },
-		{ "from_node_id": "meadow", "from_port": 0, "to_node_id": "materials", "to_port": 1 },
-		{ "from_node_id": "steep", "from_port": 0, "to_node_id": "materials", "to_port": 2 },
-		{ "from_node_id": "snow", "from_port": 1, "to_node_id": "materials", "to_port": 3 },
+		{ "from_node_id": "worn", "from_port": 0, "to_node_id": "rock", "to_port": 0 },
+		{ "from_node_id": "steep", "from_port": 0, "to_node_id": "rock", "to_port": 1 },
+		{ "from_node_id": "bare_ground", "from_port": 0, "to_node_id": "materials", "to_port": 0 },
+		{ "from_node_id": "rock", "from_port": 0, "to_node_id": "materials", "to_port": 1 },
+		{ "from_node_id": "snow", "from_port": 1, "to_node_id": "materials", "to_port": 2 },
 		{ "from_node_id": "materials", "from_port": 0, "to_node_id": "export_splat", "to_port": 0 },
 		{ "from_node_id": "materials", "from_port": 1, "to_node_id": "export_splat", "to_port": 1 },
 		{ "from_node_id": "materials", "from_port": 2, "to_node_id": "export_splat", "to_port": 2 },
