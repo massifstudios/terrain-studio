@@ -27,6 +27,15 @@
 			"x": 0,
 			"y": 0,
 			"parameters": {}
+		},
+		{
+			"id": "dem",
+			"type": "Export",
+			"x": 240,
+			"y": 120,
+			"parameters": {
+				"path": "terrains/mountain_gauntlet.massifdem"
+			}
 		}
 	],
 	"edges": [
@@ -34,6 +43,12 @@
 			"from_node_id": "mountain",
 			"from_port": 0,
 			"to_node_id": "heightmap",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "mountain",
+			"from_port": 0,
+			"to_node_id": "dem",
 			"to_port": 0
 		}
 	]
