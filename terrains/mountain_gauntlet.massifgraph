@@ -27,14 +27,15 @@
 			"x": 0,
 			"y": 0,
 			"parameters": {
-				"radius": 6500,
+				"radius": 6000,
 				"height": 3200,
-				"peakSharpness": 1.5,
-				"irregularity": 0.5,
-				"reduceDetails": 0.25,
-				"detailStrength": 0.7,
-				"featureSize": 2400,
-				"spurElongation": 0.65
+				"peakSharpness": 1.3,
+				"irregularity": 0.6,
+				"reduceDetails": 0.0,
+				"detailStrength": 1.0,
+				"featureSize": 2200,
+				"spurElongation": 0.7,
+				"bulk": 2
 			}
 		},
 		{

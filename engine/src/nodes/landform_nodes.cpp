@@ -162,8 +162,9 @@ const TerrainParameterDescriptor mountainParameters[] = {
      TerrainParameterType_Float, 0.35, 0.0, 1.0, "", nullptr, 0},
     {"detailStrength", "Detail", "How deep the valleys are cut between the spurs", "",
      TerrainParameterType_Float, 0.7, 0.0, 1.0, "", nullptr, 0},
-    {"featureSize", "Spur spacing", "Ground distance between neighbouring spurs at the foot, before Scale",
-     "m", TerrainParameterType_Float, 700.0, 1.0, 100000.0, "", nullptr, 0},
+    {"featureSize", "Spur spacing",
+     "Ground distance between neighbouring major spurs at the foot, before Scale", "m",
+     TerrainParameterType_Float, 1400.0, 1.0, 100000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
      "How far the spurs are drawn out from the summit toward the foot", "",
      TerrainParameterType_Float, 0.7, 0.0, 0.95, "", nullptr, 0}};
@@ -187,12 +188,15 @@ float bulkExponentScale(int bulk) {
 /// distance the bend is drawn over. Past about a quarter the displacement's own
 /// gradient exceeds one and the field folds over itself.
 constexpr double mountainWarpShare = 0.25;
-constexpr double mountainWarpFeatureShare = 0.6;
+/// The bend is drawn over the whole reach rather than over a fraction of it,
+/// so it curves the major spurs along their length instead of only ruffling
+/// the ground they stand on.
+constexpr double mountainWarpFeatureShare = 1.0;
 
 /// How far the foot may stand in or out from the nominal reach at full
 /// irregularity. This is what makes the mass a massif rather than a cone: one
 /// flank runs far out, the next breaks off short.
-constexpr float outlineWanderLimit = 0.35f;
+constexpr float outlineWanderLimit = 0.45f;
 
 /// Roughly how many lobes the outline carries around the mountain. Fewer and
 /// the mass is an oval; many more and the foot scallops instead of leaning.
@@ -209,7 +213,10 @@ constexpr noise::FractalOptions outlineOptions{2, 0.5f, 2.0f};
 /// How long the summit crest is, as a share of the reach to the foot. A summit
 /// is the high point of an arête rather than the tip of a cone, so the mass
 /// falls away from a line and the ground leaves it at an angle on every side.
-constexpr double summitCrestShare = 0.3;
+/// Long enough that the spurs leave it at points spread along its length
+/// rather than all meeting at one, which is what draws a mountain as a
+/// pinwheel; the fall along the crest is what keeps it from reading as a bar.
+constexpr double summitCrestShare = 0.34;
 
 /* ---------------------------------------------------------------- gullies -- */
 
@@ -262,6 +269,17 @@ struct GullyField {
     /// them, and the size of that variation in streak widths.
     float depthWanderShare = 0.6f;
     float depthWanderFeatureStreaks = 2.5f;
+    /// How far from the crest the coarsest octave's streaks have merged into
+    /// the ground below them and stop cutting; each finer octave merges that
+    /// much sooner. This is what thins the network downslope, so a ring drawn
+    /// far out crosses fewer and wider valleys than one drawn close in.
+    /// Zero leaves every octave cutting all the way to the foot.
+    double coarsestMergeMeters = 0.0;
+    /// The narrowest a streak may be on the ground before its octave fades
+    /// out. Streaks in a frame about the summit thin toward it without bound,
+    /// and unbounded thinning draws the flanks as fur instead of as rock.
+    /// Zero leaves every octave cutting however fine it becomes.
+    double finestStreakMeters = 0.0;
     std::uint64_t seed = 0;
 };
 
@@ -270,8 +288,9 @@ struct GullyField {
 struct PolarPoint {
     double around = 0.0;
     double outward = 0.0;
-    /// The radius of the disc the crest maps to, scaled back to the ground.
-    double radiusMeters = 0.0;
+    /// How far a walk once around the frame covers on the ground where this
+    /// point stands, which is what turns a streak count into a ground width.
+    double aroundSpanMeters = 0.0;
     /// Ground distance from the crest.
     double fromCrestMeters = 0.0;
 };
@@ -298,11 +317,15 @@ PolarPoint polarAboutCrest(const RidgeSegment& crest, const GroundPoint& ground)
     const std::complex<double> unit =
         slitPoint + std::sqrt(slitPoint - 1.0) * std::sqrt(slitPoint + 1.0);
     const double turns = std::arg(unit) / (2.0 * std::numbers::pi) + 0.5;
-    const double radiusMeters = std::abs(unit) * halfLengthMeters;
+    // The map is the inverse of z = (w + 1/w) / 2, so a turn about the disc
+    // covers pi * halfLength * |w - 1/w| on the ground: two pi r far out, and
+    // closing to nothing against the crest, where the whole slit is one turn.
+    const double aroundSpanMeters =
+        std::numbers::pi * halfLengthMeters * std::abs(unit - 1.0 / unit);
     const double fromCrestMeters = segmentDistance(
         ground.eastingMeters, ground.northingMeters, crest.first.eastingMeters,
         crest.first.northingMeters, crest.second.eastingMeters, crest.second.northingMeters);
-    return PolarPoint{turns, std::log(std::max(std::abs(unit), 1.0)), radiusMeters,
+    return PolarPoint{turns, std::log(std::max(std::abs(unit), 1.0)), aroundSpanMeters,
                       fromCrestMeters};
 }
 
@@ -327,13 +350,19 @@ StreakWander streakWanderAt(const GroundPoint& ground, double featureMeters,
                             const GullyField& gullies, std::uint64_t seed) {
     const float x = static_cast<float>(ground.eastingMeters / featureMeters);
     const float y = static_cast<float>(ground.northingMeters / featureMeters);
-    constexpr noise::FractalOptions wanderOptions{3, 0.5f, 2.0f};
+    // Two octaves: a third would ruffle the edge of a streak at a finer scale
+    // than the streak itself, which draws the flank as fur rather than rock.
+    constexpr noise::FractalOptions wanderOptions{2, 0.5f, 2.0f};
     const float depthScale = gullies.wanderFeatureStreaks / gullies.depthWanderFeatureStreaks;
     StreakWander wander;
     wander.around = noise::fractalPerlin(x, y, terrainSeedForLane(seed, 101), wanderOptions)
                     * gullies.wanderStreaks;
+    // A step along the frame's outward axis covers `stretch` times the ground
+    // a step around it does, so the outward wander is divided by the stretch
+    // to bend a streak by the same distance either way. Left undivided it
+    // would slide the pattern up and down the slope by whole flank lengths.
     wander.outward = noise::fractalPerlin(x, y, terrainSeedForLane(seed, 102), wanderOptions)
-                     * gullies.wanderStreaks;
+                     * gullies.wanderStreaks / static_cast<float>(gullies.stretch);
     // Scaled so the deepest gully is still at most the full depth, which
     // keeps every finer octave cutting rather than filling.
     wander.depth = (1.0f
@@ -347,14 +376,14 @@ StreakWander streakWanderAt(const GroundPoint& ground, double featureMeters,
 /// octave alone would run a gully through every corner in a regular grid. A
 /// second octave at twice the frequency moves the zero set off the corners.
 float streakNoise(float x, float y, int countAround, std::uint64_t seed) {
-    return noise::perlinPeriodic(x, y, seed, countAround) * 0.65f
+    return noise::perlinPeriodic(x, y, seed, countAround) * 0.82f
            + noise::perlinPeriodic(x * 2.0f, y * 2.0f, terrainSeedForLane(seed, 7),
-                                   countAround * 2) * 0.35f;
+                                   countAround * 2) * 0.18f;
 }
 
 /// How much of the cut, from the top, is rounded off where it meets the
 /// spur back.
-constexpr float backRounding = 0.3f;
+constexpr float backRounding = 0.12f;
 
 /// The cut eased onto the spur back: a straight fall down into the V of the
 /// floor, and a parabola over the last stretch so the back is met without a
@@ -380,6 +409,45 @@ float gullyOctave(const PolarPoint& polar, const StreakWander& wander, int count
     return easedOntoBack(cut);
 }
 
+/// How much sooner each finer octave merges into the network below it than the
+/// octave above it does. Below two a finer generation outlives half its
+/// parent's reach, so the drainage stays as dense at the foot as it is in the
+/// headwaters and no valley ever comes to dominate.
+constexpr double gullyMergeRate = 1.25;
+
+/// How far an octave has merged away: 1 well inside its reach, 0 past it,
+/// faded over the outer half so a tributary shallows into the spur back it
+/// runs down rather than ending at a step.
+float octaveReaches(double fromCrestMeters, double mergeMeters) {
+    if (mergeMeters <= 0.0) {
+        return 1.0f;
+    }
+    const double left = (mergeMeters - fromCrestMeters) / (mergeMeters * 0.5);
+    return smoothStep(static_cast<float>(std::clamp(left, 0.0, 1.0)));
+}
+
+/// How far an octave has come in: 0 where its streaks are narrower than the
+/// finest gully the massif carries, 1 once they are twice that wide.
+float octaveWidens(double streakMeters, double finestStreakMeters) {
+    if (finestStreakMeters <= 0.0) {
+        return 1.0f;
+    }
+    const double widths = streakMeters / finestStreakMeters - 1.0;
+    return smoothStep(static_cast<float>(std::clamp(widths, 0.0, 1.0)));
+}
+
+/// How many gullies one streak carries. Gradient noise crosses zero about
+/// twice per lattice period along any line, and the fold puts a gully floor
+/// along every crossing, so a lattice laid out at one streak per spur draws
+/// twice as many valleys as it has streaks.
+constexpr int gulliesPerStreak = 2;
+
+/// The ground distance between neighbouring gullies of an octave where a point
+/// stands.
+double gullySpacingAt(const PolarPoint& polar, int countAround) {
+    return polar.aroundSpanMeters / (countAround * gulliesPerStreak);
+}
+
 /**
  * How deep the gullies cut at a point, 0 on the crest and 1 on the floor of
  * the deepest coarsest gully. A finer octave only cuts what the one before it
@@ -395,12 +463,16 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double st
     float standing = 1.0f;
     int countAround = gullies.countAround;
     double holdMeters = gullies.holdMeters;
+    double mergeMeters = gullies.coarsestMergeMeters;
     double featureMeters = streakWidthMeters * gullies.wanderFeatureStreaks;
     for (int octave = 0; octave < gullies.octaveCount; ++octave) {
         const float released = smoothStep(
             static_cast<float>(std::clamp(polar.fromCrestMeters / holdMeters, 0.0, 1.0)));
         const float hold = gullies.crestCut + (1.0f - gullies.crestCut) * released;
-        const float weight = amplitude * hold
+        const float present = octaveReaches(polar.fromCrestMeters, mergeMeters)
+                              * octaveWidens(gullySpacingAt(polar, countAround),
+                                             gullies.finestStreakMeters);
+        const float weight = amplitude * hold * present
                              * gullyOctaveWeight(gullies.detailRetention, octave,
                                                  gullies.octaveCount);
         const std::uint64_t octaveSeed =
@@ -411,6 +483,7 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double st
         total += gully * standing * weight;
         standing = 1.0f - gully;
         holdMeters *= 0.5;
+        mergeMeters /= gullyMergeRate;
         featureMeters *= 0.5;
         amplitude *= gullies.gain;
         countAround *= 2;
@@ -425,14 +498,62 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double st
 /// is a share of the mass standing there, so the gullies of a tall mountain
 /// are as deep as the mountain is tall, and the relief dies away with the
 /// mass into the apron at the foot.
-constexpr float gullyDepthLimit = 0.44f;
+constexpr float gullyDepthLimit = 0.5f;
 
 /// How many streaks the coarsest octave carries around the summit at least.
 constexpr int leastStreaksAround = 4;
 
 /// How far below the crest, as a share of the reach, the main valleys come to
 /// their full depth.
-constexpr double summitHoldShare = 0.22;
+constexpr double summitHoldShare = 0.5;
+
+/// How much of the main valleys' depth notches the summit crest where they
+/// begin, so the top of the massif is an arête with cols in it rather than a
+/// smooth cap.
+constexpr float summitColShare = 0.15f;
+
+/// How far out the coarsest valleys still cut, as a share of the reach. Past
+/// the foot, so the main valleys of a massif never merge away inside it.
+constexpr double mountainMergeShare = 2.0;
+
+/// The narrowest gully a massif carries, as a share of its reach. Anything
+/// finer is fur: it has no room to hold a floor and two walls, so it reads as
+/// a crinkle laid over the rock rather than as drainage cut into it.
+constexpr double finestStreakShare = 1.0 / 160.0;
+
+/// How many generations of gullies a massif holds. Past this a generation has
+/// merged into the network below it before its streaks were ever wide enough
+/// on the ground to cut anything.
+constexpr int mountainOctaveCount = 7;
+
+/// How steeply the ground climbs out of a mountain's gully floor onto the spur
+/// beside it. High enough that the back of a spur is a broad ramp running down
+/// the flank with a valley either side of it, not a crease between two cuts.
+constexpr float mountainGullySharpness = 1.7f;
+
+/// How much of an octave's depth the next finer one carries. A hillshade reads
+/// slope rather than relief, and a generation half the size at half the depth
+/// stands at the same angle as its parent; well under half is what leaves the
+/// main valleys reading as the shape of the mountain and the rest as texture
+/// on it.
+constexpr float mountainGullyGain = 0.45f;
+
+/// How far below the crest, as a share of the reach, the faces under the
+/// summit stay uncut. The tip of a massif is bare rock at the angle the mass
+/// stands at; the chutes and valleys begin below it.
+constexpr double summitBareShare = 0.08;
+
+/// How far a mountain's streaks wander on the ground, in streak widths, and
+/// over what distance. Enough to take the straightness out of a ridge line
+/// without folding the streak back over itself.
+constexpr float mountainWanderStreaks = 0.2f;
+constexpr float mountainWanderFeatureStreaks = 1.2f;
+
+/// How unevenly the coarsest valleys are cut around the massif, and over how
+/// many streak widths that unevenness turns. A little under two, so one major
+/// spur differs from the next rather than from the far side of the mountain.
+constexpr float mountainDepthWanderShare = 0.45f;
+constexpr float mountainDepthWanderFeatureStreaks = 1.5f;
 
 /// Everything about a mountain that is fixed before the first gully is read.
 struct MountainLayout {
@@ -479,20 +600,46 @@ float coneMass(double fromCrestMeters, double reachMeters, float exponent) {
     return static_cast<float>(std::pow(1.0 - unit, exponent));
 }
 
+/// How far out the rock core of a massif stands, as a share of the reach, and
+/// how much of the height is carried instead by the apron of shed ground that
+/// runs on past that core to the foot. The apron's own profile is flatter than
+/// any rock slope, so a massif meets the plain across a long low-angle skirt
+/// rather than dropping its spurs straight onto it.
+constexpr double coreReachShare = 0.93;
+constexpr float apronHeightShare = 0.14f;
+constexpr float apronExponent = 2.0f;
+
+/// A massif's profile: a steep rock core standing over a low-angle apron, 1 on
+/// the crest and 0 at the foot, tangent to the plane where each of the two
+/// comes to its own end.
+float massifMass(double fromCrestMeters, double reachMeters, float exponent) {
+    const float core = coneMass(fromCrestMeters, reachMeters * coreReachShare, exponent);
+    const float apron = coneMass(fromCrestMeters, reachMeters, apronExponent);
+    return core * (1.0f - apronHeightShare) + apron * apronHeightShare;
+}
+
 /// How far the ends of the summit arête stand below the summit, as a share of
 /// the height, so the crest is a line with one high point rather than a
 /// level wall.
-constexpr float crestFallShare = 0.12f;
+constexpr float crestFallShare = 0.14f;
 
-/// How far the crest rises and falls along its length between the summit and
-/// its ends, and how many such swells it carries.
-constexpr float crestSwellShare = 0.05f;
-constexpr float crestSwellsPerLength = 1.5f;
+/// How deep the cols along the crest are cut below the line from the summit to
+/// its ends, how many of them it carries, and how far out from the crest they
+/// still shape the ground, in crest half lengths.
+///
+/// The profile depends on where a point stands along the crest and on nothing
+/// else, so anything drawn into it runs right across the massif on a line: the
+/// cols have to be smooth, and they have to die out within a crest length of
+/// the crest, or the summit's own relief creases both flanks to the foot.
+constexpr float crestColShare = 0.08f;
+constexpr float crestColsPerLength = 2.2f;
+constexpr double crestColReachShare = 1.0;
 
 /// 1 at the summit in the middle of the crest, falling to `1 - crestFallShare`
 /// at either end and beyond it, so the mass is highest at one point and the
 /// massif runs longer along the crest than across it.
-float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, std::uint64_t seed) {
+float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, double fromCrestMeters,
+                   std::uint64_t seed) {
     const Heading along = headingFrom(crest.first, crest.second);
     const double halfLengthMeters =
         std::hypot(crest.second.eastingMeters - crest.first.eastingMeters,
@@ -509,18 +656,22 @@ float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, std::ui
     // where the profile stops changing would fold a crease across the whole
     // mass on a line through each end.
     const float fall = 1.0f - (1.0f - squared) * (1.0f - squared);
-    // The swell is zero at the summit so the summit keeps its height, and
-    // fades out at the ends so it never lifts an end above the fall.
-    const float swell = noise::perlin(clamped * crestSwellsPerLength + 0.5f, 0.5f, seed)
-                        * squared * (1.0f - squared);
-    return 1.0f - crestFallShare * fall + crestSwellShare * swell * 4.0f;
+    // The cols close to nothing at the summit, so the summit is the one point
+    // on the crest that keeps the whole height and nothing stands above it,
+    // and to nothing a crest length out, so they stay a feature of the crest.
+    const float nearCrest = 1.0f - smoothStep(static_cast<float>(std::clamp(
+                                       fromCrestMeters / (halfLengthMeters * crestColReachShare),
+                                       0.0, 1.0)));
+    const float cols = (0.5f + 0.5f * noise::perlin(clamped * crestColsPerLength + 0.5f, 0.5f, seed))
+                       * squared * nearCrest;
+    return 1.0f - crestFallShare * fall - crestColShare * cols;
 }
 
 /// The mass, 1 on the summit crest and 0 at the foot.
 float massAt(const MountainLayout& layout, const GroundPoint& ground, double fromCrestMeters,
              double reachMeters) {
-    return coneMass(fromCrestMeters, reachMeters, layout.profileExponent)
-           * crestProfile(layout.summitCrest, ground, layout.crestSeed);
+    return massifMass(fromCrestMeters, reachMeters, layout.profileExponent)
+           * crestProfile(layout.summitCrest, ground, fromCrestMeters, layout.crestSeed);
 }
 
 float mountainHeightAt(const MountainLayout& layout, double eastingMeters, double northingMeters) {
@@ -535,7 +686,9 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
     const double streakWidthMeters =
         2.0 * std::numbers::pi * layout.radiusMeters / layout.gullies.countAround;
     const float gullies = gullyDepthAt(polar, ground, streakWidthMeters, layout.gullies);
-    return mass * (1.0f - layout.gullyDepth * gullies) * layout.heightMeters
+    const float belowSummit = smoothStep(static_cast<float>(
+        std::clamp(fromCrestMeters / (layout.radiusMeters * summitBareShare), 0.0, 1.0)));
+    return mass * (1.0f - layout.gullyDepth * gullies * belowSummit) * layout.heightMeters
            + layout.baseAltitudeMeters;
 }
 
@@ -570,6 +723,20 @@ double streakStretchFor(const GullyField& gullies, double elongation) {
     return std::max(elongation * gullies.outwardSpan / streakWidth, 1.0);
 }
 
+/// How many streaks a walk from the crest to the foot crosses at full spur
+/// length. Well under one: a spur that gives way to the next part way down the
+/// flank is a chain of knolls, where a mountain's spur holds its line from the
+/// summit all the way out.
+constexpr double mountainStreaksDownFlank = 0.35;
+
+/// A mountain's stretch, set so the outward span of its frame is crossed by
+/// however many streaks the spur length allows.
+double mountainStreakStretch(const GullyField& gullies, double elongation) {
+    const double streakWidth = 2.0 * std::numbers::pi / gullies.countAround;
+    const double crossings = 1.0 - elongation * (1.0 - mountainStreaksDownFlank);
+    return std::max(gullies.outwardSpan / (streakWidth * crossings), 1.0);
+}
+
 MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
                                   const WorldFrame& frame) {
     const double scale = api->parameterNumber(context, 0);
@@ -586,14 +753,25 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
         summitCrestFor(layout.placement, layout.radiusMeters, terrainSeedForLane(seed, 5));
     layout.profileExponent =
         static_cast<float>(api->parameterNumber(context, 10)) * bulkExponentScale(bulk);
-    const double spacingMeters = api->parameterNumber(context, 13) * scale;
+    const double spacingMeters = api->parameterNumber(context, 13) * scale * gulliesPerStreak;
     layout.gullies.countAround = std::max(
         static_cast<int>(std::round(2.0 * std::numbers::pi * layout.radiusMeters / spacingMeters)),
         leastStreaksAround);
     layout.gullies.outwardSpan =
         std::log(2.0 * layout.radiusMeters / (layout.radiusMeters * summitCrestShare));
-    layout.gullies.stretch = streakStretchFor(layout.gullies, api->parameterNumber(context, 14));
+    layout.gullies.stretch =
+        mountainStreakStretch(layout.gullies, api->parameterNumber(context, 14));
     layout.gullies.holdMeters = layout.radiusMeters * summitHoldShare;
+    layout.gullies.octaveCount = mountainOctaveCount;
+    layout.gullies.crestCut = summitColShare;
+    layout.gullies.gullySharpness = mountainGullySharpness;
+    layout.gullies.gain = mountainGullyGain;
+    layout.gullies.coarsestMergeMeters = layout.radiusMeters * mountainMergeShare;
+    layout.gullies.finestStreakMeters = layout.radiusMeters * finestStreakShare;
+    layout.gullies.wanderStreaks = mountainWanderStreaks;
+    layout.gullies.wanderFeatureStreaks = mountainWanderFeatureStreaks;
+    layout.gullies.depthWanderShare = mountainDepthWanderShare;
+    layout.gullies.depthWanderFeatureStreaks = mountainDepthWanderFeatureStreaks;
     layout.gullies.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
     layout.gullies.seed = terrainSeedForLane(seed, 3);
     layout.outlineFeatureSizeMeters = layout.radiusMeters * std::numbers::pi / outlineLobeCount;
@@ -818,8 +996,8 @@ PolarPoint polarAboutSpine(const RangeFrame& frame, const GroundPoint& ground) {
         std::max(std::abs(offset.alongMeters) - frame.halfLengthMeters, 0.0);
     const double fromCrestMeters = std::hypot(beyondEnd, offset.acrossMeters);
     return PolarPoint{stadiumWalkTo(frame, offset) / frame.walkLengthMeters(),
-                      fromCrestMeters / frame.halfWidthMeters,
-                      frame.capRadiusMeters + fromCrestMeters, fromCrestMeters};
+                      fromCrestMeters / frame.halfWidthMeters, frame.walkLengthMeters(),
+                      fromCrestMeters};
 }
 
 /// The radius the gullies fan round at either end of the spine, as a share

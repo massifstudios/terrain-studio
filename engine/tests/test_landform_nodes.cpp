@@ -155,34 +155,86 @@ float heightOnRing(const terrain::Heightfield& field, int size, const Cell& cent
     return field.at(std::clamp(column, 0, size - 1), std::clamp(row, 0, size - 1));
 }
 
+/// How far a high must stand clear of the low beside it to be a ridge and not
+/// a wobble, as a share of the ring's own relief.
+constexpr float ridgeProminenceShare = 0.1f;
+
 /**
- * How many separate stretches of a ring stand above the middle of the ring's
- * own relief: how many ridges the ring crosses.
- *
- * Counted as arcs rather than as local highs, so a cell of sampling noise on a
- * flank cannot be mistaken for a ridge of its own.
+ * A walk round a ring that counts the highs it leaves behind. A high is
+ * confirmed once the ground has fallen clear of it by the band, so a cell of
+ * sampling noise on a flank is not mistaken for a ridge of its own.
  */
-int ridgeCrossingsOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
-                         double radiusCells) {
-    constexpr int sampleCount = 180;
+struct RidgeWalk {
+    float band = 0.0f;
+    float extreme = 0.0f;
+    bool climbing = true;
+    int ridges = 0;
+
+    void step(float height) {
+        if (climbing) {
+            stepClimbing(height);
+            return;
+        }
+        stepFalling(height);
+    }
+
+    void stepClimbing(float height) {
+        extreme = std::max(extreme, height);
+        if (height >= extreme - band) {
+            return;
+        }
+        ++ridges;
+        climbing = false;
+        extreme = height;
+    }
+
+    void stepFalling(float height) {
+        extreme = std::min(extreme, height);
+        if (height <= extreme + band) {
+            return;
+        }
+        climbing = true;
+        extreme = height;
+    }
+};
+
+std::vector<float> heightsOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                                 double radiusCells, int sampleCount) {
     std::vector<float> heights;
     heights.reserve(sampleCount);
     for (int sample = 0; sample < sampleCount; ++sample) {
         const double angle = 2.0 * std::numbers::pi * sample / sampleCount;
         heights.push_back(heightOnRing(field, size, centre, radiusCells, angle));
     }
+    return heights;
+}
 
+/**
+ * How many ridges a ring drawn about a centre crosses.
+ *
+ * Counted as highs that stand clear of the low beside them rather than as
+ * stretches above the middle of the ring's own relief, because a massif with
+ * one dominant crest stands above that middle along a whole half of the ring
+ * however many spurs it carries, and the count would then report the shape of
+ * the massif instead of the shape of its flanks.
+ */
+int ridgeCrossingsOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                         double radiusCells) {
+    constexpr int sampleCount = 180;
+    const std::vector<float> heights =
+        heightsOnRing(field, size, centre, radiusCells, sampleCount);
     const auto [lowest, highest] = std::minmax_element(heights.begin(), heights.end());
-    const float midHeight = (*lowest + *highest) * 0.5f;
-    int crossings = 0;
-    for (int sample = 0; sample < sampleCount; ++sample) {
-        const bool rises = heights[(sample + sampleCount - 1) % sampleCount] <= midHeight
-                           && heights[sample] > midHeight;
-        if (rises) {
-            ++crossings;
-        }
+
+    // The walk starts from the ring's lowest point, so it sets off climbing
+    // out of a valley and closes the round in the same one.
+    RidgeWalk walk;
+    walk.band = (*highest - *lowest) * ridgeProminenceShare;
+    walk.extreme = *lowest;
+    const std::size_t start = static_cast<std::size_t>(std::distance(heights.begin(), lowest));
+    for (std::size_t step = 0; step < heights.size(); ++step) {
+        walk.step(heights[(start + step) % heights.size()]);
     }
-    return crossings;
+    return walk.ridges;
 }
 
 /// The mean step between neighbouring cells across a band of distances from
