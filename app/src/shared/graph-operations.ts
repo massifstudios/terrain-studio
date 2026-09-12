@@ -168,6 +168,60 @@ export function withoutNodes(contents: GraphContents, nodeIds: string[]): GraphC
 	};
 }
 
+/* --------------------------------------------------------- copy and paste -- */
+
+/// The nodes named, with the edges that run between them. An edge to a node
+/// outside the selection is left behind: what is copied stands on its own.
+export function copiedSubgraph(contents: GraphContents, nodeIds: string[]): GraphContents {
+	const copying = new Set(nodeIds);
+	return {
+		nodes: contents.nodes.filter((node) => copying.has(node.id)),
+		edges: contents.edges.filter(
+			(edge) => copying.has(edge.fromNodeId) && copying.has(edge.toNodeId)
+		)
+	};
+}
+
+export interface PasteResult {
+	contents: GraphContents;
+	pastedNodeIds: string[];
+}
+
+/**
+ * The copied nodes added under fresh ids, moved by the offset, with the
+ * copied edges rewired between the new ids. The graph pasted into keeps every
+ * node and edge it had, so pasting over the source of the copy duplicates it.
+ */
+export function withPastedSubgraph(
+	contents: GraphContents,
+	copied: GraphContents,
+	deltaX: number,
+	deltaY: number
+): PasteResult {
+	const nodes = [...contents.nodes];
+	const renamed = new Map<string, string>();
+	for (const node of copied.nodes) {
+		const id = nextNodeId(nodes, node.typeName);
+		renamed.set(node.id, id);
+		nodes.push({
+			...node,
+			id,
+			positionX: node.positionX + deltaX,
+			positionY: node.positionY + deltaY,
+			parameters: { ...node.parameters }
+		});
+	}
+	const edges = copied.edges.map((edge) => ({
+		...edge,
+		fromNodeId: renamed.get(edge.fromNodeId) as string,
+		toNodeId: renamed.get(edge.toNodeId) as string
+	}));
+	return {
+		contents: { nodes, edges: [...contents.edges, ...edges] },
+		pastedNodeIds: [...renamed.values()]
+	};
+}
+
 export function withMovedNodes(
 	nodes: GraphNodeDocument[],
 	nodeIds: string[],

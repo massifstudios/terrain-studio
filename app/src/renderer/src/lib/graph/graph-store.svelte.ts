@@ -10,6 +10,7 @@ import type {
 import { emptyGraphSettings } from '$shared/graph-document';
 import {
 	canConnect,
+	copiedSubgraph,
 	findNode,
 	nextNodeId,
 	withConnection,
@@ -17,7 +18,9 @@ import {
 	withoutInput,
 	withoutNodes,
 	withParameter,
-	type ConnectionRequest
+	withPastedSubgraph,
+	type ConnectionRequest,
+	type GraphContents
 } from '$shared/graph-operations';
 import type { GraphProject } from '$shared/massifgraph';
 import { defaultParameters } from '$shared/registry-schema';
@@ -78,6 +81,52 @@ class GraphStore {
 		this.select([id]);
 		this.#touch();
 		return id;
+	}
+
+	/// What the last copy took, held for the session. It is a graph fragment
+	/// rather than text, so a paste is exact and needs no parsing.
+	#clipboard: GraphContents | null = null;
+
+	get hasClipboard(): boolean {
+		return this.#clipboard !== null;
+	}
+
+	copySelection(): void {
+		if (this.selectedNodeIds.length === 0) {
+			return;
+		}
+		this.#clipboard = copiedSubgraph(
+			{ nodes: $state.snapshot(this.nodes), edges: $state.snapshot(this.edges) },
+			this.selectedNodeIds
+		);
+	}
+
+	/// The copied nodes come in moved by the offset and become the selection.
+	paste(deltaX: number, deltaY: number): void {
+		if (this.#clipboard === null) {
+			return;
+		}
+		const pasted = withPastedSubgraph(
+			{ nodes: this.nodes, edges: this.edges },
+			this.#clipboard,
+			deltaX,
+			deltaY
+		);
+		this.nodes = pasted.contents.nodes;
+		this.edges = pasted.contents.edges;
+		this.select(pasted.pastedNodeIds);
+		this.#touch();
+	}
+
+	/// Where the copied nodes sit, so a paste can be placed relative to them.
+	clipboardOrigin(): { x: number; y: number } | null {
+		if (this.#clipboard === null || this.#clipboard.nodes.length === 0) {
+			return null;
+		}
+		return {
+			x: Math.min(...this.#clipboard.nodes.map((node) => node.positionX)),
+			y: Math.min(...this.#clipboard.nodes.map((node) => node.positionY))
+		};
 	}
 
 	moveNodes(nodeIds: string[], deltaX: number, deltaY: number): void {

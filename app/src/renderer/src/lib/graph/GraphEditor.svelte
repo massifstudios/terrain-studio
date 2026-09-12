@@ -439,7 +439,33 @@
 		}
 		if (event.key === 'Delete' || event.key === 'Backspace') {
 			graphStore.removeNodes(graphStore.selectedNodeIds);
+			return;
 		}
+		if (!event.ctrlKey && !event.metaKey) {
+			return;
+		}
+		if (event.key === 'c' || event.key === 'C') {
+			graphStore.copySelection();
+			return;
+		}
+		if (event.key === 'v' || event.key === 'V') {
+			event.preventDefault();
+			pasteClipboard();
+		}
+	}
+
+	/// Pasted nodes land under the pointer when it is over the editor, and a
+	/// grid step down and right of where they were copied from otherwise.
+	function pasteClipboard(): void {
+		const origin = graphStore.clipboardOrigin();
+		if (origin === null) {
+			return;
+		}
+		if (cursor === null) {
+			graphStore.paste(gridSpacing, gridSpacing);
+			return;
+		}
+		graphStore.paste(cursor.x - origin.x, cursor.y - origin.y);
 	}
 </script>
 

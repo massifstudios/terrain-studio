@@ -9,6 +9,7 @@ import type {
 } from './graph-document';
 import {
 	canConnect,
+	copiedSubgraph,
 	fileSourceNodeIds,
 	inDependencyOrder,
 	nextNodeId,
@@ -19,7 +20,8 @@ import {
 	withMovedNodes,
 	withoutInput,
 	withoutNodes,
-	withParameter
+	withParameter,
+	withPastedSubgraph
 } from './graph-operations';
 
 function port(name: string, type: PortSchema['type']): PortSchema {
@@ -291,5 +293,63 @@ describe('editing', () => {
 
 		expect(edited.find((entry) => entry.id === 'blur1')?.parameters.radius).toBe(120);
 		expect(edited.find((entry) => entry.id === 'blur2')?.parameters).toEqual({});
+	});
+});
+
+describe('copy and paste', () => {
+	function node(id: string, typeName: string, positionX: number): GraphNodeDocument {
+		return { id, typeName, positionX, positionY: 10, parameters: { seed: 3 } };
+	}
+	const contents = {
+		nodes: [node('perlin1', 'Perlin', 0), node('erode1', 'Erode', 200), node('export1', 'Export', 400)],
+		edges: [
+			{ fromNodeId: 'perlin1', fromPort: 0, toNodeId: 'erode1', toPort: 0 },
+			{ fromNodeId: 'erode1', fromPort: 0, toNodeId: 'export1', toPort: 0 }
+		]
+	};
+
+	test('a copy keeps only the edges that run between the copied nodes', () => {
+		const copied = copiedSubgraph(contents, ['perlin1', 'erode1']);
+		expect(copied.nodes.map((n) => n.id)).toEqual(['perlin1', 'erode1']);
+		expect(copied.edges).toEqual([contents.edges[0]]);
+	});
+
+	test('a paste adds the copy under fresh ids, offset, and rewired', () => {
+		const copied = copiedSubgraph(contents, ['perlin1', 'erode1']);
+		const pasted = withPastedSubgraph(contents, copied, 30, 40);
+		expect(pasted.pastedNodeIds).toEqual(['perlin2', 'erode2']);
+		expect(pasted.contents.nodes).toHaveLength(5);
+		expect(pasted.contents.nodes.slice(0, 3)).toEqual(contents.nodes);
+		const perlin2 = pasted.contents.nodes[3];
+		expect(perlin2.positionX).toBe(30);
+		expect(perlin2.positionY).toBe(50);
+		expect(perlin2.parameters).toEqual({ seed: 3 });
+		expect(pasted.contents.edges).toHaveLength(3);
+		expect(pasted.contents.edges[2]).toEqual({
+			fromNodeId: 'perlin2',
+			fromPort: 0,
+			toNodeId: 'erode2',
+			toPort: 0
+		});
+	});
+
+	test('pasting twice gives a second set of ids', () => {
+		const copied = copiedSubgraph(contents, ['perlin1']);
+		const once = withPastedSubgraph(contents, copied, 0, 0);
+		const twice = withPastedSubgraph(once.contents, copied, 0, 0);
+		expect(twice.pastedNodeIds).toEqual(['perlin3']);
+		expect(twice.contents.nodes.map((n) => n.id)).toEqual([
+			'perlin1',
+			'erode1',
+			'export1',
+			'perlin2',
+			'perlin3'
+		]);
+	});
+
+	test('pasted parameters are a copy, not the original object', () => {
+		const copied = copiedSubgraph(contents, ['perlin1']);
+		const pasted = withPastedSubgraph(contents, copied, 0, 0);
+		expect(pasted.contents.nodes[3].parameters).not.toBe(contents.nodes[0].parameters);
 	});
 });
