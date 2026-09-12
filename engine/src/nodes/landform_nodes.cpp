@@ -87,7 +87,7 @@ constexpr float summitReleaseRate = 16.0f;
 /// The mass at which the catchments reach their full depth. Easing off below
 /// it keeps the outwash at the foot from being cut as deeply as the flank
 /// above it, and keeps any cut from reaching below the plane.
-constexpr float carveHoldShare = 0.35f;
+constexpr float carveHoldShare = 0.5f;
 
 float cragged(float shaped, float ridges, float carveDepth) {
     const float summitFade = std::clamp((1.0f - shaped) * summitReleaseRate, 0.0f, 1.0f);
@@ -176,6 +176,39 @@ float craggyField(const ReadPointFor& readPointFor, float featureSizeMeters, flo
         octaveElongation *= elongationRelease;
     }
     return total / amplitudeSum;
+}
+
+/**
+ * How much wider the detail's gullies grow between the summit and the foot.
+ *
+ * Catchments merge downstream. A mountain carries fine, closely spaced ground
+ * near its crest and a few broad valleys at its foot, and detail drawn at one
+ * size everywhere is a comb of parallel streaks at a fixed spacing however it
+ * is bent — the spurs never coalesce, because nothing in the field lets them.
+ */
+constexpr double gullyGrowth = 1.7;
+
+/**
+ * The ground pulled in towards a centre so that a field read at a fixed size
+ * draws features that widen with distance from it.
+ *
+ * The remap is the integral of 1 / (1 + growth * r / R), so the wavelength at
+ * the foot is one plus the growth times the wavelength at the summit, and the
+ * zoom varies slowly enough over a wavelength that the features stay features
+ * rather than smearing.
+ */
+GroundPoint spreadOutward(const GroundPoint& ground, const ShapePlacement& placement,
+                          double radiusMeters, double growth) {
+    const double east = ground.eastingMeters - placement.centreEastingMeters;
+    const double north = ground.northingMeters - placement.centreNorthingMeters;
+    const double distance = std::hypot(east, north);
+    if (distance < 1.0e-6) {
+        return ground;
+    }
+    const double remapped =
+        radiusMeters / growth * std::log1p(growth * distance / radiusMeters);
+    return GroundPoint{placement.centreEastingMeters + east * remapped / distance,
+                       placement.centreNorthingMeters + north * remapped / distance};
 }
 
 /**
@@ -312,7 +345,7 @@ float bulkExponentScale(int bulk) {
 /// the straightness out of the skeleton's ridge lines, so it is drawn over a
 /// distance half again the mountain's own and can afford to be generous.
 constexpr double mountainWarpShare = 0.25;
-constexpr double mountainWarpFeatureShare = 1.5;
+constexpr double mountainWarpFeatureShare = 0.6;
 
 /// How far the foot may stand in or out from the nominal reach at full
 /// irregularity. This is what makes the mass a massif rather than a cone: one
@@ -365,27 +398,51 @@ float descentRateFor(float crestHeight) {
     return descentHeightMix + (1.0f - descentHeightMix) * std::max(crestHeight, 0.0f);
 }
 
+/// How far from a ridge line the floor of the valley beside it lies, as a
+/// share of the reach to the foot, and how much of the mountain's height the
+/// drop into that floor takes. Together they set the angle of the open
+/// mountainside between two ridges.
+constexpr double valleyRunShare = 0.13;
+constexpr float valleyReliefShare = 0.15f;
+
+/// The shape of that drop: the ground leaves the ridge at an angle and eases
+/// into the floor. Well below the profile's own exponent, because a wall as
+/// convex as the mountain gives up the whole relief in its first few metres
+/// and leaves the rest of the crossing level.
+constexpr float valleyWallExponent = 1.2f;
+
+/// How much of the mountain's own descent ground takes by crossing its slope
+/// rather than by running down it. At one, leaving a ridge sideways costs as
+/// much height as walking the same distance towards the foot, which makes
+/// every ridge the edge of its own cone and stands the whole massif at the
+/// angle of its summit.
+constexpr double flankSlideShare = 0.5;
+
 /**
- * How a ridge's flank falls: a short steep drop into the valley beside it,
- * over the mountain's own long fall towards the foot.
+ * How a ridge's flank falls away from it, as a share of the mountain's height.
  *
- * One scale cannot do both jobs. A fall drawn over the whole reach to the foot
- * gives up only a few per cent of the height over the few hundred metres
- * between one ridge and the next, so the valleys between the spurs come out as
- * creases in a dome; a fall drawn over the spacing alone reaches the plane a
- * few hundred metres from every ridge and leaves holes wherever the ridges are
- * far apart. Summing the two puts a valley of real depth beside every ridge
- * and still carries the mass out to the foot.
+ * Two things happen to ground that leaves a ridge line. It drops into the
+ * valley beside it, over the few hundred metres to the floor; and it moves
+ * down the mountain, because a flank faces outward and crossing one is partly
+ * descending it. The wall alone reaches its floor a few hundred metres from
+ * every ridge and leaves a plateau wherever the ridges are far apart; the
+ * slide alone leaves no valley at all. The slide is drawn against the
+ * mountain's own profile, so the fall is steep high on the massif and eases to
+ * a footslope near the foot, where the profile itself has gone tangent.
  */
 struct FlankProfile {
-    DescentProfile local;
-    DescentProfile broad;
-    float localShare = 0.3f;
+    DescentProfile descent;
+    double valleyRunMeters = 1.0;
+    float valleyShare = valleyReliefShare;
+    float wallExponent = valleyWallExponent;
 };
 
-float flankFall(double distanceMeters, const FlankProfile& flank) {
-    return flank.localShare * descentAt(distanceMeters, flank.local)
-           + (1.0f - flank.localShare) * descentAt(distanceMeters, flank.broad);
+float flankFall(double distanceMeters, double alongMeters, const FlankProfile& flank) {
+    const float slide = descentAt(alongMeters + distanceMeters * flankSlideShare, flank.descent)
+                        - descentAt(alongMeters, flank.descent);
+    const double toFloor = std::clamp(distanceMeters / flank.valleyRunMeters, 0.0, 1.0);
+    const float wall = 1.0f - static_cast<float>(std::pow(1.0 - toFloor, flank.wallExponent));
+    return slide + flank.valleyShare * wall;
 }
 
 /// One halving of the bracket a ridge's reach is known to lie in.
@@ -394,32 +451,33 @@ struct ReachBracket {
     double highMeters = 0.0;
 };
 
-ReachBracket halvedTowardReach(const ReachBracket& bracket, const FlankProfile& flank,
-                               float fallen) {
+ReachBracket halvedTowardReach(const ReachBracket& bracket, double alongMeters,
+                               const FlankProfile& flank, float fallen) {
     const double middleMeters = (bracket.lowMeters + bracket.highMeters) * 0.5;
-    if (flankFall(middleMeters, flank) < fallen) {
+    if (flankFall(middleMeters, alongMeters, flank) < fallen) {
         return ReachBracket{middleMeters, bracket.highMeters};
     }
     return ReachBracket{bracket.lowMeters, middleMeters};
 }
 
 /// How far from a ridge standing at `crestHeight` its own mass reaches before
-/// it meets the plane. The two-scale fall has no inverse in closed form, so the
-/// answer is bracketed in a fixed number of halvings — fixed, because a count
-/// that followed the numbers would make the skeleton depend on them.
+/// it meets the plane. The fall has no inverse in closed form, so the answer is
+/// bracketed in a fixed number of halvings — fixed, because a count that
+/// followed the numbers would make the skeleton depend on them.
 constexpr int reachHalvingCount = 28;
 
-double flankReach(float crestHeight, const FlankProfile& flank) {
+double flankReach(float crestHeight, double alongMeters, const FlankProfile& flank) {
     if (crestHeight <= 0.0f) {
         return 0.0;
     }
     const float fallen = crestHeight / descentRateFor(crestHeight);
-    if (fallen >= 1.0f) {
-        return flank.broad.runMeters;
+    const double limitMeters = flank.descent.runMeters / flankSlideShare;
+    if (flankFall(limitMeters, alongMeters, flank) <= fallen) {
+        return limitMeters;
     }
-    ReachBracket bracket{0.0, flank.broad.runMeters};
+    ReachBracket bracket{0.0, limitMeters};
     for (int halving = 0; halving < reachHalvingCount; ++halving) {
-        bracket = halvedTowardReach(bracket, flank, fallen);
+        bracket = halvedTowardReach(bracket, alongMeters, flank, fallen);
     }
     return bracket.highMeters;
 }
@@ -436,6 +494,12 @@ struct CrestSegment {
     /// Height at each end, as a share of the mountain's own height.
     float firstHeight = 1.0f;
     float secondHeight = 1.0f;
+    /// How far along the ridges each end sits from the summit, which is where
+    /// on the mountain's own profile the flank beside it falls from.
+    double firstAlongMeters = 0.0;
+    double secondAlongMeters = 0.0;
+    /// How broad this ridge's top is before the flank starts.
+    double crestMeters = 0.0;
     /// How far this ridge's mass reaches before it meets the plane, so ground
     /// beyond it can be passed over without paying for the profile.
     double reachMeters = 0.0;
@@ -454,9 +518,7 @@ struct RidgePoint {
 struct SkeletonPlan {
     double radiusMeters = 3000.0;
     double summitShoulderMeters = 200.0;
-    /// How the ridge lines themselves lose height as they run, which is the
-    /// mountain's own long fall and not the drop into the valley beside them.
-    DescentProfile descent;
+    double featureSizeMeters = 1200.0;
     FlankProfile flank;
 };
 
@@ -485,17 +547,17 @@ constexpr double crestWanderShare = 0.25;
 /// taller mountain gets a higher summit rather than a broader one.
 constexpr double summitShoulderOfFeature = 0.16;
 
-/// How much of a ridge's fall is taken in the valley beside it rather than on
-/// the way to the foot, and over what distance. The run is what sets how far
-/// apart two ridges have to be before the ground between them reads as a
-/// valley rather than as a crease.
-constexpr float flankLocalShare = 0.12f;
-constexpr double flankLocalRunShare = 0.26;
+/// How broad a ridge top is before the flank starts, as a share of the detail
+/// size. A ridge top is not a knife edge, and the main crest is a back of rock
+/// where the last generation of spur is a fin: ranking the generations by
+/// width is what lets the eye tell the big ridges from the small. The width
+/// belongs to the rock rather than to the massif, so a mountain twice the size
+/// does not get ridges twice as broad.
+constexpr double crestWidthOfFeature = 0.10;
+constexpr double spurWidthOfFeature[] = {0.06, 0.035, 0.022};
 
-/// How wide a ridge's own crest is, as a share of the detail size. A ridge top
-/// is not a knife edge: it holds its height over a few tens of metres before
-/// the flank starts. That width belongs to the rock rather than to the massif,
-/// so a mountain twice the size does not get ridges twice as broad.
+/// The width the fine detail is combed around, which follows the finest ridges
+/// rather than the broadest.
 constexpr double ridgeCrestOfFeature = 0.04;
 
 /// How far a gully wanders off the comb, and over what distance, both against
@@ -516,9 +578,9 @@ constexpr float crestSaddleRelief = 0.35f;
  * the most and each finer generation of spur keeps less, so the massif reads
  * as one mountain rather than a thicket of equal ridges.
  */
-constexpr float crestStandShare = 0.62f;
-constexpr float spurStandShares[] = {0.68f, 0.80f};
-constexpr int branchDepthLimit = 1;
+constexpr float crestStandShare = 0.55f;
+constexpr float spurStandShares[] = {0.66f, 0.80f, 0.90f};
+constexpr int branchDepthLimit = 2;
 
 /// A ridge gives up its stand as it nears the foot: one that kept it all the
 /// way out would end as a wall standing over the plane instead of dying into
@@ -531,35 +593,55 @@ float standShareAt(float share, double alongMeters, double radiusMeters) {
 RidgePoint ridgeStepTo(const RidgePoint& from, const Heading& heading, double runMeters,
                        const SkeletonPlan& plan, float standShare) {
     const double alongMeters = from.alongMeters + runMeters;
-    const float fallen =
-        descentAt(alongMeters, plan.descent) - descentAt(from.alongMeters, plan.descent);
+    const float fallen = descentAt(alongMeters, plan.flank.descent)
+                         - descentAt(from.alongMeters, plan.flank.descent);
     const float share = standShareAt(standShare, alongMeters, plan.radiusMeters);
     return RidgePoint{stepFrom(from.point, heading, runMeters), from.height - fallen * share,
                       alongMeters};
 }
 
 void appendRidge(const RidgePoint& first, const RidgePoint& second, const SkeletonPlan& plan,
-                 std::vector<CrestSegment>& segments) {
+                 double crestMeters, std::vector<CrestSegment>& segments) {
     const float tallest = std::max(first.height, second.height);
+    const double highest = std::min(first.alongMeters, second.alongMeters);
     segments.push_back(CrestSegment{RidgeSegment{first.point, second.point}, first.height,
-                                    second.height, flankReach(tallest, plan.flank)});
+                                    second.height, first.alongMeters, second.alongMeters,
+                                    crestMeters, flankReach(tallest, highest, plan.flank)});
 }
 
-/// How many spurs leave every crest node to either flank. A flank wants
-/// several: two ridges on a mountain is a starfish, a dozen is a mountain.
-constexpr int spursPerFlank = 4;
+/// Where a major spur leaves the crest, which flank it takes, and how far it
+/// runs as a share of the ground left between there and the foot.
+struct MajorSpur {
+    double alongShare = 0.0;
+    double side = 1.0;
+    double reachShare = 0.8;
+};
 
-/// How far a spur runs, as a share of the ground left between where it leaves
-/// its parent and the foot.
-constexpr double spurReachLow = 0.45;
-constexpr double spurReachHigh = 0.95;
+/// The major spurs, at no particular spacing, on no particular side and of no
+/// particular length. A massif carries a handful of big ridges off one crest;
+/// an even comb of them around the summit reads as a starburst however finely
+/// it is drawn.
+constexpr MajorSpur majorSpurs[] = {{-0.30, 1.0, 0.88},  {-0.11, -1.0, 0.96},
+                                    {0.07, 1.0, 0.58},   {0.26, -1.0, 0.82},
+                                    {0.52, 1.0, 0.94},   {0.80, -1.0, 0.66}};
+constexpr int majorSpurCount = 6;
+
+/// How far a spur of each generation after the first runs, as a share of the
+/// ground left between where it leaves its parent and the foot, and how many
+/// spurs of the next generation leave it. Each generation stops shorter than
+/// the one before, so the ridges between two tributaries die out where the
+/// tributaries meet and fewer, wider valleys reach the foot. The first
+/// generation takes its reach from the table of major spurs instead.
+constexpr double spurReachLow[] = {0.0, 0.34, 0.20};
+constexpr double spurReachHigh[] = {0.0, 0.62, 0.42};
+constexpr int spurBranchCount[] = {2, 1, 0};
 
 /// How far a spur may lean off the way it was sent, how far it may turn again
 /// at its knee, and how far the next generation leaves the spur it branches
 /// from.
-constexpr double spurLeanRadians = 38.0 * std::numbers::pi / 180.0;
-constexpr double spurBendRadians = 22.0 * std::numbers::pi / 180.0;
-constexpr double spurBranchRadians = 42.0 * std::numbers::pi / 180.0;
+constexpr double spurLeanRadians = 34.0 * std::numbers::pi / 180.0;
+constexpr double spurBendRadians = 26.0 * std::numbers::pi / 180.0;
+constexpr double spurBranchRadians = 46.0 * std::numbers::pi / 180.0;
 
 /// The shortest run worth drawing, as a share of the reach to the foot.
 constexpr double shortestSpurShare = 0.08;
@@ -567,7 +649,7 @@ constexpr double shortestSpurShare = 0.08;
 /// How many runs a spur is walked in. Two leave a ridge that reads as two
 /// straight lines meeting at an elbow, and the ground either side of them as
 /// flat facets; more runs let the ridge curve and the ground curve with it.
-constexpr int spurRunCount = 3;
+constexpr int spurRunCount = 4;
 
 /**
  * One spur running off the ridge that bore it: a walk of several runs losing
@@ -578,21 +660,40 @@ constexpr int spurRunCount = 3;
  * the one beside it is a valley; the ground between a spur and its own branch
  * is a tributary of that valley, and the two meet where the ridges do.
  */
-void appendSpur(const RidgePoint& origin, const Heading& outward, const SkeletonPlan& plan,
-                int depth, std::uint64_t seed, std::vector<CrestSegment>& segments);
+void appendSpur(const RidgePoint& origin, const Heading& outward, double reachShare,
+                const SkeletonPlan& plan, int depth, std::uint64_t seed,
+                std::vector<CrestSegment>& segments);
+
+/// Either side of a ridge, drawn evenly.
+double drawnSide(std::uint64_t* state) {
+    if (terrainRandomUnitFloat(state) < 0.5f) {
+        return -1.0;
+    }
+    return 1.0;
+}
+
+/// The side an ordered branch takes, so successive branches leave their parent
+/// to opposite flanks.
+double alternatingSide(int branch) {
+    if (branch % 2 == 0) {
+        return 1.0;
+    }
+    return -1.0;
+}
 
 /// The ridge line itself: a walk of several runs, each turned a little off the
 /// last and each lower than the last.
 std::vector<RidgePoint> walkSpur(const RidgePoint& origin, Heading heading, double reachMeters,
-                                 const SkeletonPlan& plan, float standShare, std::uint64_t* state,
+                                 const SkeletonPlan& plan, int depth, std::uint64_t* state,
                                  std::vector<CrestSegment>& segments) {
+    const double crestMeters = plan.featureSizeMeters * spurWidthOfFeature[depth];
     std::vector<RidgePoint> nodes;
     nodes.reserve(spurRunCount + 1);
     nodes.push_back(origin);
     for (int run = 0; run < spurRunCount; ++run) {
-        const RidgePoint next =
-            ridgeStepTo(nodes.back(), heading, reachMeters / spurRunCount, plan, standShare);
-        appendRidge(nodes.back(), next, plan, segments);
+        const RidgePoint next = ridgeStepTo(nodes.back(), heading, reachMeters / spurRunCount,
+                                            plan, spurStandShares[depth]);
+        appendRidge(nodes.back(), next, plan, crestMeters, segments);
         nodes.push_back(next);
         heading = heading.turned(spreadFrom(state, spurBendRadians));
     }
@@ -602,30 +703,45 @@ std::vector<RidgePoint> walkSpur(const RidgePoint& origin, Heading heading, doub
 /// A spur of the next generation, leaving one node of this one to the side it
 /// is given.
 void appendSpurBranch(const std::vector<RidgePoint>& nodes, std::size_t index, double turnRadians,
-                      const SkeletonPlan& plan, int depth, std::uint64_t seed,
+                      double reachShare, const SkeletonPlan& plan, int depth, std::uint64_t seed,
                       std::vector<CrestSegment>& segments) {
     const Heading along = headingFrom(nodes[index - 1].point, nodes[index].point);
-    appendSpur(nodes[index], along.turned(turnRadians), plan, depth + 1, seed, segments);
+    appendSpur(nodes[index], along.turned(turnRadians), reachShare, plan, depth + 1, seed,
+               segments);
 }
 
-void appendSpur(const RidgePoint& origin, const Heading& outward, const SkeletonPlan& plan,
-                int depth, std::uint64_t seed, std::vector<CrestSegment>& segments) {
+/// The tributary ridges of a spur, leaving its upper runs to alternating
+/// sides. Placed high on the parent and cut short by their own generation's
+/// reach, they divide the head of a valley and die out where its branches
+/// meet, which is what makes the valleys fewer and wider towards the foot.
+void appendSpurBranches(const std::vector<RidgePoint>& nodes, const SkeletonPlan& plan, int depth,
+                        std::uint64_t* state, std::uint64_t seed,
+                        std::vector<CrestSegment>& segments) {
+    const double firstSide = drawnSide(state);
+    const int childDepth = depth + 1;
+    for (int branch = 0; branch < spurBranchCount[depth]; ++branch) {
+        const double side = firstSide * alternatingSide(branch);
+        const double reachShare =
+            spurReachLow[childDepth]
+            + (spurReachHigh[childDepth] - spurReachLow[childDepth]) * terrainRandomUnitFloat(state);
+        appendSpurBranch(nodes, static_cast<std::size_t>(branch) + 1, side * spurBranchRadians,
+                         reachShare, plan, depth, terrainSeedForLane(seed, branch + 1), segments);
+    }
+}
+
+void appendSpur(const RidgePoint& origin, const Heading& outward, double reachShare,
+                const SkeletonPlan& plan, int depth, std::uint64_t seed,
+                std::vector<CrestSegment>& segments) {
     const double remainingMeters = plan.radiusMeters - origin.alongMeters;
     if (depth > branchDepthLimit || origin.height <= 0.0f
         || remainingMeters < plan.radiusMeters * shortestSpurShare) {
         return;
     }
     std::uint64_t state = seed;
-    const double reachMeters =
-        remainingMeters
-        * (spurReachLow + (spurReachHigh - spurReachLow) * terrainRandomUnitFloat(&state));
     const Heading start = outward.turned(spreadFrom(&state, spurLeanRadians));
-    const std::vector<RidgePoint> nodes = walkSpur(origin, start, reachMeters, plan,
-                                                   spurStandShares[depth], &state, segments);
-    appendSpurBranch(nodes, 1, spurBranchRadians, plan, depth, terrainSeedForLane(seed, 1),
-                     segments);
-    appendSpurBranch(nodes, 2, -spurBranchRadians, plan, depth, terrainSeedForLane(seed, 2),
-                     segments);
+    const std::vector<RidgePoint> nodes =
+        walkSpur(origin, start, remainingMeters * reachShare, plan, depth, &state, segments);
+    appendSpurBranches(nodes, plan, depth, &state, seed, segments);
 }
 
 /**
@@ -649,7 +765,7 @@ RidgePoint crestNodeAt(const GroundPoint& summit, const Heading& alongCrest,
 
     RidgePoint node;
     node.point = stepFrom(stepFrom(summit, alongCrest, alongMeters), acrossCrest, acrossMeters);
-    node.height = 1.0f - descentAt(fromSummitMeters, plan.descent) * share;
+    node.height = 1.0f - descentAt(fromSummitMeters, plan.flank.descent) * share;
     node.alongMeters = fromSummitMeters;
     return node;
 }
@@ -678,29 +794,49 @@ Crest crestFrom(const ShapePlacement& placement, const SkeletonPlan& plan, std::
 
 void appendCrestLine(const Crest& crest, const SkeletonPlan& plan,
                      std::vector<CrestSegment>& segments) {
+    const double crestMeters = plan.featureSizeMeters * crestWidthOfFeature;
     for (std::size_t index = 1; index < crest.nodes.size(); ++index) {
-        appendRidge(crest.nodes[index - 1], crest.nodes[index], plan, segments);
+        appendRidge(crest.nodes[index - 1], crest.nodes[index], plan, crestMeters, segments);
     }
 }
 
-void appendFlankSpurs(const RidgePoint& node, const Heading& outward, const SkeletonPlan& plan,
-                      std::uint64_t seed, std::vector<CrestSegment>& segments) {
-    for (int index = 0; index < spursPerFlank; ++index) {
-        appendSpur(node, outward, plan, 0, terrainSeedForLane(seed, index), segments);
-    }
+RidgePoint blendedRidgePoint(const RidgePoint& from, const RidgePoint& to, double share) {
+    RidgePoint blended;
+    blended.point = GroundPoint{
+        from.point.eastingMeters + (to.point.eastingMeters - from.point.eastingMeters) * share,
+        from.point.northingMeters + (to.point.northingMeters - from.point.northingMeters) * share};
+    blended.height = from.height + (to.height - from.height) * static_cast<float>(share);
+    blended.alongMeters = from.alongMeters + (to.alongMeters - from.alongMeters) * share;
+    return blended;
 }
 
-/// Spurs leave every crest node to both flanks, so the massif does not comb
-/// all its ridges one way.
+/// A point taken anywhere along the crest. Hung off the crest's own nodes the
+/// major spurs would leave it in a handful of clusters; taken along the line
+/// between them they leave wherever they are placed.
+RidgePoint crestPointAt(const Crest& crest, double alongShare) {
+    for (std::size_t index = 1; index < crest.nodes.size(); ++index) {
+        if (alongShare > crestNodeAlongShares[index]) {
+            continue;
+        }
+        const double span = crestNodeAlongShares[index] - crestNodeAlongShares[index - 1];
+        const double share = (alongShare - crestNodeAlongShares[index - 1]) / span;
+        return blendedRidgePoint(crest.nodes[index - 1], crest.nodes[index],
+                                 std::clamp(share, 0.0, 1.0));
+    }
+    return crest.nodes.back();
+}
+
+/// The major spurs, each leaving the crest at its own place and taking its own
+/// flank. Both flanks are served, so the massif does not comb all its ridges
+/// one way, but not in pairs, so the two sides of the crest do not mirror.
 void appendCrestSpurs(const Crest& crest, const SkeletonPlan& plan, std::uint64_t seed,
                       std::vector<CrestSegment>& segments) {
-    const Heading backCrest{-crest.acrossCrest.east, -crest.acrossCrest.north};
-    for (std::size_t index = 0; index < crest.nodes.size(); ++index) {
-        const std::uint64_t nodeSeed = terrainSeedForLane(seed, index);
-        appendFlankSpurs(crest.nodes[index], crest.acrossCrest, plan,
-                         terrainSeedForLane(nodeSeed, 0), segments);
-        appendFlankSpurs(crest.nodes[index], backCrest, plan, terrainSeedForLane(nodeSeed, 1),
-                         segments);
+    for (int index = 0; index < majorSpurCount; ++index) {
+        const MajorSpur& spur = majorSpurs[index];
+        const Heading outward{crest.acrossCrest.east * spur.side,
+                              crest.acrossCrest.north * spur.side};
+        appendSpur(crestPointAt(crest, spur.alongShare), outward, spur.reachShare, plan, 0,
+                   terrainSeedForLane(seed, index), segments);
     }
 }
 
@@ -825,14 +961,18 @@ double reachAt(const MountainLayout& layout, const GroundPoint& ground) {
 
 /// What one ridge of the skeleton holds up at a point.
 float ridgeMass(const CrestSegment& segment, const NearestOnRidge& nearest,
-                const FlankProfile& flank, double crestMeters) {
-    const double fromCrestMeters = std::max(nearest.distanceMeters - crestMeters, 0.0);
+                const FlankProfile& flank) {
+    const double fromCrestMeters = std::max(nearest.distanceMeters - segment.crestMeters, 0.0);
     if (fromCrestMeters >= segment.reachMeters) {
         return 0.0f;
     }
     const float crestHeight = static_cast<float>(
         segment.firstHeight + (segment.secondHeight - segment.firstHeight) * nearest.alongShare);
-    return crestHeight - flankFall(fromCrestMeters, flank) * descentRateFor(crestHeight);
+    const double alongMeters =
+        segment.firstAlongMeters
+        + (segment.secondAlongMeters - segment.firstAlongMeters) * nearest.alongShare;
+    return crestHeight
+           - flankFall(fromCrestMeters, alongMeters, flank) * descentRateFor(crestHeight);
 }
 
 /// 1 well inside the massif, 0 at the foot the outline draws.
@@ -864,7 +1004,7 @@ SkeletonSample skeletonSampleAt(const MountainLayout& layout, const GroundPoint&
     float mass = 0.0f;
     for (const CrestSegment& segment : layout.skeleton) {
         const NearestOnRidge nearest = nearestOnRidge(segment.line, ground);
-        mass = std::max(mass, ridgeMass(segment, nearest, layout.flank, layout.ridgeCrestMeters));
+        mass = std::max(mass, ridgeMass(segment, nearest, layout.flank));
         anchor.add(nearest.point, nearest.distanceMeters, layout.ridgeCrestMeters);
     }
     const LocalPoint point =
@@ -878,8 +1018,9 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
     const GroundPoint ground = warpedBy(layout.warp, eastingMeters, northingMeters);
     const SkeletonSample skeleton = skeletonSampleAt(layout, ground);
     const auto readPointFor = [&](float elongation) {
-        return warpedPoint(layout.meander,
-                           pulledToward(skeleton.fallAnchor, ground, elongation));
+        const GroundPoint combed = pulledToward(skeleton.fallAnchor, ground, elongation);
+        return spreadOutward(warpedPoint(layout.meander, combed), layout.placement,
+                             layout.radiusMeters, gullyGrowth);
     };
     const float ridges =
         craggyField(readPointFor, layout.featureSizeMeters, layout.spurElongation,
@@ -889,8 +1030,8 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
 }
 
 FlankProfile flankProfileFor(double radiusMeters, float exponent) {
-    return FlankProfile{DescentProfile{radiusMeters * flankLocalRunShare, exponent},
-                        DescentProfile{radiusMeters, exponent}, flankLocalShare};
+    return FlankProfile{DescentProfile{radiusMeters, exponent}, radiusMeters * valleyRunShare,
+                        valleyReliefShare, valleyWallExponent};
 }
 
 /// The slow bend that takes the straightness out of the skeleton's ridge lines.
@@ -936,7 +1077,7 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
     layout.skeleton = mountainSkeletonFrom(
         layout.placement,
         SkeletonPlan{layout.radiusMeters, layout.featureSizeMeters * summitShoulderOfFeature,
-                     layout.flank.broad, layout.flank},
+                     layout.featureSizeMeters, layout.flank},
         terrainSeedForLane(seed, 5));
     layout.outlineFeatureSizeMeters = layout.radiusMeters * std::numbers::pi / outlineLobeCount;
     layout.outlineWanderShare = irregularity * outlineWanderLimit;
