@@ -9,6 +9,10 @@ files:
 extraResources:
   - from: ../bridge/build/Release/engine.node
     to: engine.node
+  # Satellite colour strips and any other engine assets, read by the engine
+  # through TERRAIN_ASSET_PATH.
+  - from: ../engine/assets
+    to: assets
 linux:
   target: dir
   category: Graphics

@@ -1,133 +1,185 @@
 #include <algorithm>
 #include <cstddef>
+#include <memory>
+#include <string>
 #include <vector>
 
+#include "color_lookup_support.h"
 #include "node_support.h"
 #include "terrain/color_field.h"
-#include "terrain/color_ramp.h"
-#include "terrain/histogram.h"
+#include "terrain/satmap_catalogue.h"
 
 namespace terrain::nodes {
 namespace {
 
 /* --------------------------------------------------------------- SatMap -- */
 
-constexpr int satMapRampsPerLibrary = 4;
+/// How far the read position is scattered, per roughness step. The steps
+/// double so each is a visible change from the last.
+constexpr float roughnessJitter[] = {0.0f, 0.01f, 0.02f, 0.04f, 0.08f};
 
-/**
- * A family of gradients sampled from how one kind of ground reads in
- * satellite imagery, low ground on the left. Muted on purpose: a colour map is
- * a base for lighting and overlays, and saturated stops burn through both.
- */
-struct SatMapLibrary {
-    const char* name;
-    const char* ramps[satMapRampsPerLibrary];
-};
-
-const SatMapLibrary satMapLibraries[] = {
-    {"rock",
-     {"0:#2b2724;0.2:#4a423b;0.45:#6e6259;0.7:#8f857b;0.88:#aaa39a;1:#c9c4bd",
-      "0:#3a322c;0.25:#5c4f44;0.5:#7d6d5e;0.72:#9b8b78;0.9:#b8ab9a;1:#d3cabd",
-      "0:#23262a;0.3:#3f444a;0.55:#5f656b;0.75:#7f858a;0.9:#a1a6a9;1:#bfc3c5",
-      "0:#3d2f28;0.2:#5f4a3d;0.45:#7f6a55;0.65:#8e8069;0.85:#a39a86;1:#bab4a3"}},
-    {"green",
-     {"0:#1f2e1a;0.25:#33482a;0.5:#4f6b3a;0.7:#6f864a;0.85:#8f9c5c;1:#b1ad78",
-      "0:#14231a;0.3:#22392a;0.55:#375540;0.75:#5a7150;0.9:#7f8a64;1:#a3a082",
-      "0:#2a3a1e;0.2:#3e5426;0.45:#5e7330;0.65:#7e8d43;0.85:#9f9f5e;1:#c1b57e",
-      "0:#30401c;0.3:#4c5f2b;0.55:#6e7d3e;0.75:#8e9256;0.9:#aca277;1:#c8b899"}},
-    {"sand",
-     {"0:#8b7355;0.25:#a68a63;0.5:#c2a476;0.7:#d5ba8c;0.88:#e4cea5;1:#efdfc0",
-      "0:#7a5b3c;0.3:#9c7a52;0.55:#bb9a6e;0.75:#d2b48c;0.9:#e2caa8;1:#ecdcc2",
-      "0:#6f6a5d;0.25:#8e8672;0.5:#aca38a;0.7:#c4bba0;0.88:#d8d0b7;1:#e8e2cf",
-      "0:#9c4f2e;0.25:#b76a3d;0.5:#cd8752;0.7:#dba46e;0.88:#e6bd8d;1:#efd3ac"}},
-    {"snow",
-     {"0:#4b5560;0.3:#707a84;0.55:#9aa3ab;0.75:#c3c9ce;0.9:#e2e6e9;1:#f7f8f9",
-      "0:#3a3f47;0.25:#5f6a73;0.5:#8a969e;0.7:#b3bec4;0.85:#d6dde1;1:#f2f5f7",
-      "0:#565c58;0.3:#7d847e;0.55:#a4aaa4;0.75:#c6cac6;0.9:#e0e3e0;1:#f5f6f5",
-      "0:#405a6a;0.3:#6b8593;0.55:#98acb7;0.75:#c0ced6;0.9:#e0e8ec;1:#f6f9fa"}},
-    {"blue",
-     {"0:#0b1f33;0.3:#153a5a;0.55:#256485;0.75:#4a8fae;0.9:#7ab6cd;1:#b5dbe8",
-      "0:#102a2c;0.3:#1d4a4c;0.55:#2f6e6d;0.75:#4f918c;0.9:#7fb2ab;1:#b3d1cb",
-      "0:#1b2733;0.3:#2f4557;0.55:#4a6a80;0.75:#6f8fa3;0.9:#9bb3c2;1:#c9d8e1",
-      "0:#07141f;0.35:#0f2c44;0.6:#1d4d70;0.8:#3d7599;0.92:#6ea1bf;1:#a9cee0"}},
-    {"color",
-     {"0:#2c4a3a;0.2:#557b4a;0.4:#8c9a5a;0.55:#a98a5c;0.7:#8a6f57;0.85:#a39c94;1:#f2f2f0",
-      "0:#1e3f5a;0.15:#3b7a6a;0.3:#6c9a5a;0.5:#b3a860;0.68:#a07b4e;0.85:#8a7a72;1:#ffffff",
-      "0:#3b2f2f;0.2:#6a4b3a;0.4:#a2724a;0.6:#c9a466;0.8:#d8c79b;1:#f0ead9",
-      "0:#1a2a1a;0.25:#2f4f2f;0.45:#5f7a3a;0.6:#9a8f4a;0.75:#7f6a52;0.9:#b0aaa2;1:#ffffff"}}};
-
-constexpr int satMapLibraryCount = static_cast<int>(sizeof(satMapLibraries) / sizeof(SatMapLibrary));
-
-const TerrainEnumOption satMapLibraryOptions[] = {
-    {"rock", "Rock", 0}, {"green", "Green", 1}, {"sand", "Sand", 2},
-    {"snow", "Snow", 3}, {"blue", "Blue", 4},   {"color", "Color", 5}};
-
-enum class SatMapSpread { Range = 0, Equalized = 1 };
-
-const TerrainEnumOption satMapSpreadOptions[] = {{"range", "Range", 0},
-                                                 {"equalized", "Equalized", 1}};
+const TerrainEnumOption satMapRoughOptions[] = {{"none", "None", 0},
+                                                {"low", "Low", 1},
+                                                {"medium", "Medium", 2},
+                                                {"high", "High", 3},
+                                                {"ultra", "Ultra", 4}};
 
 const TerrainPortDescriptor satMapInputs[] = {
-    {"In", "The field to colour by", TerrainPortType_Field, TerrainFieldSemantics_Heightfield,
-     0}};
+    {"In", "The field to colour by: a heightfield, or a mask such as a texture base",
+     TerrainPortType_Field, TerrainFieldSemantics_Heightfield, 0}};
 
 const TerrainPortDescriptor satMapOutputs[] = {
     {"Out", "The colour map", TerrainPortType_Color, TerrainFieldSemantics_Heightfield, 0}};
 
-const TerrainParameterDescriptor satMapParameters[] = {
-    {"library", "Library", "Which kind of ground the gradients are sampled from", "",
-     TerrainParameterType_Enum, 0.0, 0.0, satMapLibraryCount - 1, "", satMapLibraryOptions,
-     satMapLibraryCount},
-    {"index", "Map", "Which gradient of the library is used; counts round past the last", "",
-     TerrainParameterType_Int, 0.0, 0.0, 63.0, "", nullptr, 0},
-    {"reverse", "Reverse", "Reads the gradient high ground first", "",
-     TerrainParameterType_Bool, 0.0, 0.0, 1.0, "", nullptr, 0},
-    {"spread", "Spread",
-     "Range lays the gradient over the field's own range; equalized gives every colour the "
-     "same share of ground",
-     "", TerrainParameterType_Enum, 0.0, 0.0, 1.0, "", satMapSpreadOptions, 2}};
+/// The library option list is built from what is on disk, so the palette
+/// shows the libraries that exist rather than a list typed in here.
+struct SatMapRegistration {
+    std::vector<std::string> optionNames;
+    std::vector<TerrainEnumOption> libraryOptions;
+    std::vector<TerrainParameterDescriptor> parameters;
+    TerrainNodeDescriptor descriptor;
+};
 
-const char* satMapRampText(int library, int index) {
-    const int clampedLibrary = std::clamp(library, 0, satMapLibraryCount - 1);
-    const int wrappedIndex = std::max(index, 0) % satMapRampsPerLibrary;
-    return satMapLibraries[clampedLibrary].ramps[wrappedIndex];
+std::string labelFor(const std::string& name) {
+    std::string label = name;
+    if (!label.empty()) {
+        label[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(label[0])));
+    }
+    return label;
 }
 
-/// Where each cell sits in [0, 1] before the gradient is read, per the spread.
-void rampPositions(const float* input, std::size_t count, SatMapSpread spread,
-                   float* positions) {
-    if (spread == SatMapSpread::Equalized) {
-        const Histogram histogram(input, count);
-        for (std::size_t index = 0; index < count; ++index) {
-            positions[index] = histogram.quantileOfValue(input[index]);
+std::vector<TerrainEnumOption> libraryOptionsFor(const SatMapCatalogue& catalogue,
+                                                 std::vector<std::string>& names) {
+    std::vector<TerrainEnumOption> options;
+    const std::vector<SatMapLibrary>& libraries = catalogue.libraries();
+    names.reserve(libraries.size() * 2);
+    for (std::size_t index = 0; index < libraries.size(); ++index) {
+        names.push_back(libraries[index].name);
+        names.push_back(labelFor(libraries[index].name));
+        options.push_back(TerrainEnumOption{names[names.size() - 2].c_str(),
+                                            names.back().c_str(), static_cast<int32_t>(index)});
+    }
+    if (options.empty()) {
+        options.push_back(TerrainEnumOption{"none", "No libraries found", 0});
+    }
+    return options;
+}
+
+std::vector<TerrainParameterDescriptor> satMapParametersFor(
+    const std::vector<TerrainEnumOption>& libraryOptions) {
+    const double lastLibrary = static_cast<double>(libraryOptions.size() - 1);
+    return {
+        {"library", "Library", "Which family of satellite strips to read from", "",
+         TerrainParameterType_Enum, 0.0, 0.0, lastLibrary, "", libraryOptions.data(),
+         static_cast<int32_t>(libraryOptions.size())},
+        {"item", "Map", "Which strip of the library; counts round past the last", "",
+         TerrainParameterType_Int, 0.0, 0.0, 255.0, "", nullptr, 0},
+        {"rangeStart", "Clip start", "Where along the strip the lowest ground reads", "",
+         TerrainParameterType_Float, 0.0, 0.0, 1.0, "", nullptr, 0},
+        {"rangeEnd", "Clip end", "Where along the strip the highest ground reads", "",
+         TerrainParameterType_Float, 1.0, 0.0, 1.0, "", nullptr, 0},
+        {"bias", "Bias", "Negative leans the strip's low end over more ground, positive the high end",
+         "", TerrainParameterType_Float, 0.0, -1.0, 1.0, "", nullptr, 0},
+        {"enhance", "Enhance",
+         "None reads the field as [0, 1]; autolevel stretches its range over the strip; "
+         "equalize gives every colour the same share of ground",
+         "", TerrainParameterType_Enum, 1.0, 0.0, 2.0, "", lookupEnhanceOptions, 3},
+        {"reverse", "Reverse", "Reads the strip high ground first", "",
+         TerrainParameterType_Bool, 0.0, 0.0, 1.0, "", nullptr, 0},
+        {"rough", "Roughness",
+         "Scatters where each cell reads the strip and which shade it takes, for grain", "",
+         TerrainParameterType_Enum, 0.0, 0.0, 4.0, "", satMapRoughOptions, 5},
+        {"hueShift", "Hue", "Turns every colour around the hue wheel", "deg",
+         TerrainParameterType_Float, 0.0, -180.0, 180.0, "", nullptr, 0},
+        {"saturation", "Saturation", "Drains the colour towards grey or pushes it to full", "",
+         TerrainParameterType_Float, 0.0, -1.0, 1.0, "", nullptr, 0},
+        {"lightness", "Lightness", "Darkens towards black or lifts towards white", "",
+         TerrainParameterType_Float, 0.0, -1.0, 1.0, "", nullptr, 0},
+        {"seed", "Seed", "Varies the roughness scatter", "", TerrainParameterType_Seed, 0.0,
+         0.0, 4294967295.0, "", nullptr, 0},
+        {"strip", "Own strip",
+         "A PNG of your own to read instead of the library: one column per position, any "
+         "number of rows of shades",
+         "", TerrainParameterType_Path, 0.0, 0.0, 0.0, "", nullptr, 0}};
+}
+
+struct SatMapSettings {
+    LookupSettings lookup;
+    ColorGrade grade;
+    int roughness = 0;
+    std::uint64_t seed = 0;
+};
+
+SatMapSettings satMapSettingsFor(const TerrainContextApi* api,
+                                 TerrainEvaluationContext* context) {
+    SatMapSettings settings;
+    settings.lookup.rangeStart = static_cast<float>(api->parameterNumber(context, 2));
+    settings.lookup.rangeEnd = static_cast<float>(api->parameterNumber(context, 3));
+    settings.lookup.bias = static_cast<float>(api->parameterNumber(context, 4));
+    settings.lookup.enhance =
+        static_cast<LookupEnhance>(static_cast<int>(api->parameterNumber(context, 5)));
+    settings.lookup.reverse = api->parameterNumber(context, 6) != 0.0;
+    settings.roughness =
+        std::clamp(static_cast<int>(api->parameterNumber(context, 7)), 0, 4);
+    settings.grade.hueShiftDegrees = static_cast<float>(api->parameterNumber(context, 8));
+    settings.grade.saturationShift = static_cast<float>(api->parameterNumber(context, 9));
+    settings.grade.lightnessShift = static_cast<float>(api->parameterNumber(context, 10));
+    settings.seed = api->randomSeed(context)
+                    ^ static_cast<std::uint64_t>(api->parameterNumber(context, 11));
+    return settings;
+}
+
+std::shared_ptr<const ColorStrip> stripFor(const TerrainContextApi* api,
+                                           TerrainEvaluationContext* context) {
+    const SatMapCatalogue& catalogue = SatMapCatalogue::shared();
+    const char* ownStrip = api->parameterText(context, 12);
+    if (ownStrip != nullptr && ownStrip[0] != '\0') {
+        std::shared_ptr<const ColorStrip> strip = catalogue.stripAt(ownStrip);
+        if (strip == nullptr) {
+            api->setError(context, (std::string("Could not read the strip ") + ownStrip).c_str());
         }
-        return;
+        return strip;
     }
-    const FieldRange range = fieldRange(input, count);
-    for (std::size_t index = 0; index < count; ++index) {
-        positions[index] = range.normalise(input[index]);
+
+    const int library = static_cast<int>(api->parameterNumber(context, 0));
+    const int item = static_cast<int>(api->parameterNumber(context, 1));
+    std::shared_ptr<const ColorStrip> strip = catalogue.strip(library, item);
+    if (strip == nullptr) {
+        api->setError(context,
+                      "No satellite strip found for this library. Set TERRAIN_ASSET_PATH to a "
+                      "directory holding satmaps/<library>/*.png");
     }
+    return strip;
+}
+
+RgbColor readStrip(const ColorStrip& strip, const SatMapSettings& settings, float position,
+                   std::size_t index) {
+    if (settings.roughness == 0) {
+        return strip.sampleAverage(position);
+    }
+    const float jitter = (cellNoise(settings.seed, index, 1) * 2.0f - 1.0f)
+                         * roughnessJitter[settings.roughness];
+    const int row = static_cast<int>(cellNoise(settings.seed, index, 2)
+                                     * static_cast<float>(strip.rowCount()));
+    return strip.sample(position + jitter, row);
 }
 
 void evaluateSatMap(const TerrainContextApi* api, TerrainEvaluationContext* context) {
+    const std::shared_ptr<const ColorStrip> strip = stripFor(api, context);
+    if (strip == nullptr) {
+        return;
+    }
     const std::size_t count = cellCount(api, context);
     const float* input = api->inputField(context, 0);
     float* output = api->outputColor(context, 0);
-    const ColorRamp ramp = ColorRamp::parse(
-        satMapRampText(static_cast<int>(api->parameterNumber(context, 0)),
-                       static_cast<int>(api->parameterNumber(context, 1))));
-    const bool reversed = api->parameterNumber(context, 2) != 0.0;
-    const auto spread = static_cast<SatMapSpread>(static_cast<int>(api->parameterNumber(context, 3)));
+    const SatMapSettings settings = satMapSettingsFor(api, context);
 
     std::vector<float> positions(count);
-    rampPositions(input, count, spread, positions.data());
+    lookupPositions(input, count, settings.lookup, positions.data());
 
     for (std::size_t index = 0; index < count; ++index) {
-        float position = positions[index];
-        if (reversed) {
-            position = 1.0f - position;
-        }
-        const RgbColor color = ramp.sample(position);
+        const RgbColor color =
+            gradeColor(readStrip(*strip, settings, positions[index], index), settings.grade);
         float* cell = output + index * ColorField::channelCount;
         cell[0] = color.red;
         cell[1] = color.green;
@@ -135,23 +187,32 @@ void evaluateSatMap(const TerrainContextApi* api, TerrainEvaluationContext* cont
     }
 }
 
-const TerrainNodeDescriptor satMapDescriptor = {
-    "SatMap",
-    "Texture",
-    "Colours a field through a library of satellite-sampled gradients",
-    1,
-    satMapInputs,
-    1,
-    satMapOutputs,
-    1,
-    satMapParameters,
-    4,
-    &evaluateSatMap};
+SatMapRegistration& satMapRegistration() {
+    static SatMapRegistration registration = [] {
+        SatMapRegistration built;
+        built.libraryOptions = libraryOptionsFor(SatMapCatalogue::shared(), built.optionNames);
+        built.parameters = satMapParametersFor(built.libraryOptions);
+        built.descriptor = TerrainNodeDescriptor{
+            "SatMap",
+            "Texture",
+            "Colours a field through strips sampled from real satellite imagery",
+            2,
+            satMapInputs,
+            1,
+            satMapOutputs,
+            1,
+            built.parameters.data(),
+            static_cast<int32_t>(built.parameters.size()),
+            &evaluateSatMap};
+        return built;
+    }();
+    return registration;
+}
 
 }  // namespace
 
 void registerSatMapNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
-    api.registerNode(registry, &satMapDescriptor);
+    api.registerNode(registry, &satMapRegistration().descriptor);
 }
 
 }  // namespace terrain::nodes

@@ -418,6 +418,20 @@ slower than the CPU it replaced.
   `app/src/shared/color-ramp.ts`, `curve.cpp` beside `transfer-curve.ts`. The
   engine applies them; the editor draws them. The comment in each names the
   other.
+- **A satellite strip is an image, not stops.** `SatMap` reads
+  `<asset directory>/satmaps/<library>/*.png`: one column per position along
+  the gradient and a row per shade that height shows, darkest row first. The
+  strips are built by `tools/satmaps/build_satmaps.py` from public Sentinel-2
+  imagery binned by elevation, never copied from another tool. Asset
+  directories come from `TERRAIN_ASSET_PATH`, decided by the process that
+  starts the engine exactly as plugin directories are, and fall back to the
+  source tree's `engine/assets` so tests and development builds need nothing
+  set. The library list is read from disk at registration, so a new library
+  is a new directory and no code.
+- **Every colour lookup shares one pipeline** — `color_lookup_support.h`:
+  enhance (none, autolevel, equalize), reverse, bias, clip, then the read,
+  then a hue/saturation/lightness grade. `ColorRamp` and `SatMap` differ only
+  in what is read at the position.
 - **`isFinalBuild` is part of the cache key.** A build is a different
   evaluation from a preview even when the numbers match, because it is the one
   allowed to write files. Without it, building straight after a preview serves

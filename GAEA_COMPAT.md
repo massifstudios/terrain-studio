@@ -243,8 +243,8 @@ export — was already there; W1 added the breadth around it.
 
 | Gaea node | What it does | Status | Notes |
 | --- | --- | --- | --- |
-| CLUTer | Build colour gradients for mapping | have | `ColorRamp` |
-| SatMap | Satellite-style palettes | partial | `ColorRamp` is the mechanism; presets are Gaea's own data |
+| CLUTer | Build colour gradients for mapping | have | `ColorRamp`: stops plus enhance, reverse, bias and an HSL grade |
+| SatMap | Satellite-style palettes | have | `SatMap`: strips built from public Sentinel-2 imagery by elevation, with clip, bias, enhance, roughness and grade |
 | Tint | Two-colour blend across a range | have | `MixColor` / `ColorRamp` |
 | Splat | RGBA channels into one heightfield | have | `SplatWeights` inverse |
 | RGBSplit | Colour to three heightfields | have | `RGBSplit` |

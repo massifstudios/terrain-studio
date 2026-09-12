@@ -149,6 +149,15 @@ const GraphNode* Graph::find(std::string_view id) const {
     return nullptr;
 }
 
+GraphNode* Graph::find(std::string_view id) {
+    for (GraphNode& node : nodes_) {
+        if (node.id == id) {
+            return &node;
+        }
+    }
+    return nullptr;
+}
+
 const GraphEdge* Graph::incoming(std::string_view nodeId, int port) const {
     for (const GraphEdge& edge : edges_) {
         if (edge.toNodeId == nodeId && edge.toPort == port) {

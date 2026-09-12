@@ -2,10 +2,16 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <array>
+#include <cstdint>
+#include <memory>
 #include <set>
+#include <vector>
 
 #include "node_test_support.h"
 #include "terrain/color_ramp.h"
+#include "terrain/color_space.h"
+#include "terrain/color_strip.h"
+#include "terrain/satmap_catalogue.h"
 #include "terrain/formats/png_image.h"
 #include "terrain/formats/point_files.h"
 #include "terrain/formats/texture_maps.h"
@@ -50,7 +56,7 @@ terrain::GraphNode& addMask(Graph& graph, const std::string& id, double low, dou
 }
 
 /// A satellite map over a north-facing gradient, so row 0 is the high end.
-Graph satMapOverRamp(double library, double index, double reverse, double spread) {
+Graph satMapOverRamp(double library, double item, double reverse, double enhance) {
     Graph graph = squareGraph(resolution, worldSize);
     terrain::GraphNode& ground = graph.addNode("ground", "Gradient");
     ground.parameters["direction"] = ParameterValue{0.0, ""};
@@ -59,9 +65,9 @@ Graph satMapOverRamp(double library, double index, double reverse, double spread
 
     terrain::GraphNode& colors = graph.addNode("colors", "SatMap");
     colors.parameters["library"] = ParameterValue{library, ""};
-    colors.parameters["index"] = ParameterValue{index, ""};
+    colors.parameters["item"] = ParameterValue{item, ""};
     colors.parameters["reverse"] = ParameterValue{reverse, ""};
-    colors.parameters["spread"] = ParameterValue{spread, ""};
+    colors.parameters["enhance"] = ParameterValue{enhance, ""};
     graph.connect("ground", 0, "colors", 0);
     return graph;
 }
@@ -136,32 +142,79 @@ TEST_CASE("mixing colour maps follows the amount", "[texture][nodes]") {
     REQUIRE(mixed->at(10, 10)[2] == Approx(0.25));
 }
 
-/* --------------------------------------------------------- SplatWeights -- */
-
 /* --------------------------------------------------------------- SatMap -- */
 
-TEST_CASE("a satmap reads its gradient from the foot of the field to its crest",
+const terrain::SatMapCatalogue& catalogue() {
+    return terrain::SatMapCatalogue::shared();
+}
+
+int libraryNamed(const std::string& name) {
+    const std::vector<terrain::SatMapLibrary>& libraries = catalogue().libraries();
+    for (std::size_t index = 0; index < libraries.size(); ++index) {
+        if (libraries[index].name == name) {
+            return static_cast<int>(index);
+        }
+    }
+    return -1;
+}
+
+TEST_CASE("the source tree's satmap libraries are found without configuration",
           "[texture][satmap]") {
-    const Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 0.0);
-    const auto colors = evaluateColor(graph, "colors");
-
-    // The first rock gradient runs #2b2724 to #c9c4bd.
-    REQUIRE(colors->at(0, 0)[0] == Approx(0xc9 / 255.0).margin(0.02));
-    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(0x2b / 255.0).margin(0.02));
+    const std::vector<terrain::SatMapLibrary>& libraries = catalogue().libraries();
+    REQUIRE(libraries.size() >= 6);
+    for (const terrain::SatMapLibrary& library : libraries) {
+        REQUIRE(!library.strips.empty());
+    }
+    for (std::size_t index = 1; index < libraries.size(); ++index) {
+        REQUIRE(libraries[index - 1].name < libraries[index].name);
+    }
 }
 
-TEST_CASE("reversing a satmap reads the gradient high ground first", "[texture][satmap]") {
-    const Graph graph = satMapOverRamp(0.0, 0.0, 1.0, 0.0);
-    const auto colors = evaluateColor(graph, "colors");
+TEST_CASE("a satellite strip reads dark shades first and blends between columns",
+          "[texture][satmap]") {
+    // Rock strips are ordered by elevation, so each column keeps the spread of
+    // shades that height shows; a strip ordered by luminance has none to keep.
+    const std::shared_ptr<const terrain::ColorStrip> strip =
+        catalogue().strip(libraryNamed("rock"), 0);
+    REQUIRE(strip != nullptr);
+    REQUIRE(strip->width() == 1024);
+    REQUIRE(strip->rowCount() == 16);
 
-    REQUIRE(colors->at(0, 0)[0] == Approx(0x2b / 255.0).margin(0.02));
-    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(0xc9 / 255.0).margin(0.02));
+    const terrain::RgbColor darkest = strip->sample(0.5f, 0);
+    const terrain::RgbColor brightest = strip->sample(0.5f, strip->rowCount() - 1);
+    REQUIRE(terrain::luminance(darkest) < terrain::luminance(brightest));
+
+    const terrain::RgbColor average = strip->sampleAverage(0.5f);
+    REQUIRE(average.red >= std::min(darkest.red, brightest.red) - 1e-5f);
+    REQUIRE(average.red <= std::max(darkest.red, brightest.red) + 1e-5f);
 }
 
-TEST_CASE("every satmap library and map paints a usable gradient", "[texture][satmap]") {
-    for (int library = 0; library < 6; ++library) {
-        for (int index = 0; index < 5; ++index) {
-            const Graph graph = satMapOverRamp(library, index, 0.0, 0.0);
+TEST_CASE("a satmap reads its strip from the foot of the field to its crest",
+          "[texture][satmap]") {
+    const std::shared_ptr<const terrain::ColorStrip> strip = catalogue().strip(0, 0);
+    const auto colors = evaluateColor(satMapOverRamp(0.0, 0.0, 0.0, 1.0), "colors");
+    REQUIRE(colors != nullptr);
+
+    REQUIRE(colors->at(0, 0)[0] == Approx(strip->sampleAverage(1.0f).red).margin(0.02));
+    REQUIRE(colors->at(resolution - 1, 0)[0]
+            == Approx(strip->sampleAverage(0.0f).red).margin(0.02));
+}
+
+TEST_CASE("reversing a satmap reads the strip high ground first", "[texture][satmap]") {
+    const std::shared_ptr<const terrain::ColorStrip> strip = catalogue().strip(0, 0);
+    const auto colors = evaluateColor(satMapOverRamp(0.0, 0.0, 1.0, 1.0), "colors");
+
+    REQUIRE(colors->at(0, 0)[0] == Approx(strip->sampleAverage(0.0f).red).margin(0.02));
+    REQUIRE(colors->at(resolution - 1, 0)[0]
+            == Approx(strip->sampleAverage(1.0f).red).margin(0.02));
+}
+
+TEST_CASE("every satmap library and strip paints a usable map", "[texture][satmap]") {
+    const std::vector<terrain::SatMapLibrary>& libraries = catalogue().libraries();
+    for (std::size_t library = 0; library < libraries.size(); ++library) {
+        for (std::size_t item = 0; item < libraries[library].strips.size(); ++item) {
+            const Graph graph = satMapOverRamp(static_cast<double>(library),
+                                               static_cast<double>(item), 0.0, 1.0);
             const auto colors = evaluateColor(graph, "colors");
             REQUIRE(colors != nullptr);
             REQUIRE(channelsWithinUnit(*colors));
@@ -170,40 +223,137 @@ TEST_CASE("every satmap library and map paints a usable gradient", "[texture][sa
     }
 }
 
-TEST_CASE("a satmap's map index counts round past the last gradient", "[texture][satmap]") {
-    const auto first = evaluateColor(satMapOverRamp(1.0, 0.0, 0.0, 0.0), "colors");
-    const auto wrapped = evaluateColor(satMapOverRamp(1.0, 4.0, 0.0, 0.0), "colors");
+TEST_CASE("a satmap's map index counts round past the last strip", "[texture][satmap]") {
+    const double stripCount = static_cast<double>(catalogue().libraries()[1].strips.size());
+    const auto first = evaluateColor(satMapOverRamp(1.0, 0.0, 0.0, 1.0), "colors");
+    const auto wrapped = evaluateColor(satMapOverRamp(1.0, stripCount, 0.0, 1.0), "colors");
     REQUIRE(first->at(resolution / 3, 5)[0] == Approx(wrapped->at(resolution / 3, 5)[0]));
 }
 
-TEST_CASE("an equalized satmap gives every colour the same share of ground",
-          "[texture][satmap]") {
-    // A mountain crowds most of its cells near the foot, so over its own range
-    // the high colours barely appear; by rank they take their even share.
-    for (const double spread : {0.0, 1.0}) {
-        Graph graph = squareGraph(resolution, worldSize);
-        graph.addNode("ground", "Mountain");
-        terrain::GraphNode& colors = graph.addNode("colors", "SatMap");
-        colors.parameters["spread"] = ParameterValue{spread, ""};
-        graph.connect("ground", 0, "colors", 0);
+TEST_CASE("a library that does not exist is an error, not a black map", "[texture][satmap]") {
+    REQUIRE(evaluateColor(satMapOverRamp(99.0, 0.0, 0.0, 1.0), "colors") == nullptr);
+}
 
-        const auto field = evaluateColor(graph, "colors");
-        int brightCells = 0;
-        for (int row = 0; row < resolution; ++row) {
-            for (int column = 0; column < resolution; ++column) {
-                if (field->at(row, column)[0] > 0x8f / 255.0f) {
-                    ++brightCells;
-                }
+TEST_CASE("clipping a satmap to one point paints that colour everywhere",
+          "[texture][satmap]") {
+    Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 1.0);
+    graph.find("colors")->parameters["rangeStart"] = ParameterValue{0.5, ""};
+    graph.find("colors")->parameters["rangeEnd"] = ParameterValue{0.5, ""};
+    const auto colors = evaluateColor(graph, "colors");
+    const terrain::RgbColor expected = catalogue().strip(0, 0)->sampleAverage(0.5f);
+
+    REQUIRE(colors->at(0, 0)[1] == Approx(expected.green).margin(1e-5));
+    REQUIRE(colors->at(resolution - 1, resolution - 1)[1] == Approx(expected.green).margin(1e-5));
+}
+
+TEST_CASE("a strip of the artist's own replaces the library", "[texture][satmap]") {
+    ScratchFile stripFile("own_strip.png");
+    const std::array<std::uint8_t, 6> pixels{255, 0, 0, 0, 0, 255};
+    terrain::formats::writePngRgb8(stripFile.path(), 2, 1, pixels);
+
+    Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 1.0);
+    graph.find("colors")->parameters["strip"] = ParameterValue{0.0, stripFile.path().string()};
+    const auto colors = evaluateColor(graph, "colors");
+    REQUIRE(colors != nullptr);
+
+    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(1.0).margin(0.03));
+    REQUIRE(colors->at(0, 0)[2] == Approx(1.0).margin(0.03));
+}
+
+TEST_CASE("roughness scatters the read but stays the same across threads and runs",
+          "[texture][satmap][determinism]") {
+    Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 1.0);
+    graph.find("colors")->parameters["rough"] = ParameterValue{4.0, ""};
+    const auto smooth = evaluateColor(satMapOverRamp(0.0, 0.0, 0.0, 1.0), "colors");
+    const auto roughOnce = evaluateColor(graph, "colors", 0, 1);
+    const auto roughAgain = evaluateColor(graph, "colors", 0, 8);
+
+    int differing = 0;
+    for (std::size_t index = 0; index < smooth->samples().size(); ++index) {
+        REQUIRE(roughOnce->samples()[index] == roughAgain->samples()[index]);
+        if (smooth->samples()[index] != roughOnce->samples()[index]) {
+            ++differing;
+        }
+    }
+    REQUIRE(differing > static_cast<int>(smooth->samples().size() / 2));
+}
+
+TEST_CASE("grading a satmap to full lightness paints white", "[texture][satmap]") {
+    Graph graph = satMapOverRamp(0.0, 0.0, 0.0, 1.0);
+    graph.find("colors")->parameters["lightness"] = ParameterValue{1.0, ""};
+    const auto colors = evaluateColor(graph, "colors");
+    REQUIRE(colors->at(5, 5)[0] == Approx(1.0).margin(1e-4));
+    REQUIRE(colors->at(5, 5)[2] == Approx(1.0).margin(1e-4));
+}
+
+/* ------------------------------------------------- shared colour lookup -- */
+
+/// A black-to-white ramp over a ramp that lingers low: the share of cells
+/// reading the dark half of the gradient says how the field was spread.
+float darkShareOverSkewedRamp(double enhance, double bias) {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& ground = graph.addNode("ground", "Gradient");
+    ground.parameters["direction"] = ParameterValue{0.0, ""};
+    ground.parameters["startValue"] = ParameterValue{0.0, ""};
+    ground.parameters["endValue"] = ParameterValue{1000.0, ""};
+    terrain::GraphNode& skew = graph.addNode("skew", "Curve");
+    skew.parameters["curve"] = ParameterValue{0.0, "0,0;0.5,0.08;1,1"};
+    terrain::GraphNode& colors = graph.addNode("colors", "ColorRamp");
+    colors.parameters["ramp"] = ParameterValue{0.0, "0:#000000;1:#ffffff"};
+    colors.parameters["enhance"] = ParameterValue{enhance, ""};
+    colors.parameters["bias"] = ParameterValue{bias, ""};
+    graph.connect("ground", 0, "skew", 0);
+    graph.connect("skew", 0, "colors", 0);
+
+    const auto field = evaluateColor(graph, "colors");
+    int darkCells = 0;
+    for (int row = 0; row < resolution; ++row) {
+        for (int column = 0; column < resolution; ++column) {
+            if (field->at(row, column)[0] <= 0.5f) {
+                ++darkCells;
             }
         }
-        const float brightShare = static_cast<float>(brightCells) / (resolution * resolution);
-        if (spread == 0.0) {
-            REQUIRE(brightShare < 0.15f);
-            continue;
-        }
-        REQUIRE(brightShare > 0.25f);
     }
+    return static_cast<float>(darkCells) / (resolution * resolution);
 }
+
+TEST_CASE("equalizing gives every colour the same share of ground", "[texture][ramp]") {
+    // The skewed ramp keeps most cells low, so over its own range the high
+    // colours barely appear; by rank they take their even share.
+    REQUIRE(darkShareOverSkewedRamp(1.0, 0.0) > 0.7f);
+    REQUIRE(darkShareOverSkewedRamp(2.0, 0.0) == Approx(0.5).margin(0.05));
+}
+
+TEST_CASE("bias leans the gradient towards one end", "[texture][ramp]") {
+    REQUIRE(darkShareOverSkewedRamp(2.0, -1.0) > 0.75f);
+    REQUIRE(darkShareOverSkewedRamp(2.0, 1.0) < 0.15f);
+}
+
+TEST_CASE("reading a mask with no enhancement keeps its own values", "[texture][ramp]") {
+    Graph graph = rampOverRamp("0:#000000;1:#ffffff");
+    graph.find("ground")->parameters["endValue"] = ParameterValue{0.5, ""};
+    graph.find("colors")->parameters["enhance"] = ParameterValue{0.0, ""};
+    const auto colors = evaluateColor(graph, "colors");
+    REQUIRE(colors->at(0, 0)[0] == Approx(0.5).margin(0.02));
+}
+
+TEST_CASE("a reversed ramp reads high ground first", "[texture][ramp]") {
+    Graph graph = rampOverRamp("0:#000000;1:#ffffff");
+    graph.find("colors")->parameters["reverse"] = ParameterValue{1.0, ""};
+    const auto colors = evaluateColor(graph, "colors");
+    REQUIRE(colors->at(0, 0)[0] == Approx(0.0).margin(0.02));
+    REQUIRE(colors->at(resolution - 1, 0)[0] == Approx(1.0).margin(0.02));
+}
+
+TEST_CASE("a ramp's hue turn goes round the wheel", "[texture][ramp]") {
+    Graph graph = rampOverRamp("0:#ff0000;1:#ff0000");
+    graph.find("colors")->parameters["hueShift"] = ParameterValue{120.0, ""};
+    const auto colors = evaluateColor(graph, "colors");
+    REQUIRE(colors->at(5, 5)[0] == Approx(0.0).margin(1e-4));
+    REQUIRE(colors->at(5, 5)[1] == Approx(1.0).margin(1e-4));
+}
+
+/* --------------------------------------------------------- SplatWeights -- */
 
 TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
     Graph graph = squareGraph(resolution, worldSize);

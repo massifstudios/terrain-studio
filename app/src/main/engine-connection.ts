@@ -43,6 +43,17 @@ function resolvePluginPath(): string {
 	return [userDirectory, join(app.getAppPath(), '..', 'plugins')].join(delimiter);
 }
 
+/// Asset directories the same way: the user's own strips first, then the
+/// ones shipped with the app. In development the engine's source tree holds
+/// the shipped set.
+function resolveAssetPath(): string {
+	const userDirectory = join(app.getPath('userData'), 'assets');
+	if (app.isPackaged) {
+		return [userDirectory, join(process.resourcesPath, 'assets')].join(delimiter);
+	}
+	return [userDirectory, join(app.getAppPath(), '..', 'engine', 'assets')].join(delimiter);
+}
+
 function setStatus(status: EngineStatus): void {
 	engineStatus = status;
 	for (const contents of statusListeners) {
@@ -62,7 +73,8 @@ export function startEngine(): void {
 		env: {
 			...process.env,
 			TERRAIN_ENGINE_ADDON: resolveAddonPath(),
-			TERRAIN_PLUGIN_PATH: resolvePluginPath()
+			TERRAIN_PLUGIN_PATH: resolvePluginPath(),
+			TERRAIN_ASSET_PATH: resolveAssetPath()
 		}
 	});
 

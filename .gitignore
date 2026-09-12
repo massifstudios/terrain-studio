@@ -17,3 +17,6 @@ compile_commands.json
 plugins/*.so
 plugins/*.dylib
 plugins/*.dll
+
+# Satellite tile cache of the satmap builder
+tools/satmaps/cache/

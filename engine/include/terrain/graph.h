@@ -55,6 +55,7 @@ public:
     void connect(std::string fromNodeId, int fromPort, std::string toNodeId, int toPort);
 
     const GraphNode* find(std::string_view id) const;
+    GraphNode* find(std::string_view id);
     const std::deque<GraphNode>& nodes() const { return nodes_; }
     const std::vector<GraphEdge>& edges() const { return edges_; }
 

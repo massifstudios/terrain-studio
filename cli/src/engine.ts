@@ -39,7 +39,19 @@ function reportPlugins(addon: EngineAddon): void {
 	}
 }
 
+/// The engine reads TERRAIN_ASSET_PATH itself. Left unset it falls back to
+/// the source tree it was built from, which is right for a development build
+/// but not for an addon built elsewhere, so the command names the repository's
+/// assets explicitly.
+function configureAssetPath(): void {
+	if (process.env.TERRAIN_ASSET_PATH) {
+		return;
+	}
+	process.env.TERRAIN_ASSET_PATH = join(repositoryRoot, 'engine', 'assets');
+}
+
 export function openEngine(): EngineAddon {
+	configureAssetPath();
 	const addon = createRequire(import.meta.url)(addonPath()) as EngineAddon;
 	reportPlugins(addon);
 	return addon;

@@ -61,7 +61,10 @@ add_library(terrain_engine STATIC
     src/formats/elevation_import.cpp
     src/formats/texture_maps.cpp
     src/formats/point_files.cpp
+    src/color_strip.cpp
+    src/satmap_catalogue.cpp
     src/nodes/node_support.cpp
+    src/nodes/color_lookup_support.cpp
     src/nodes/shape_support.cpp
     src/nodes/builtin_nodes.cpp
     src/nodes/input_nodes.cpp
@@ -149,8 +152,11 @@ if(TERRAIN_ENGINE_ENABLE_VULKAN)
 endif()
 
 target_compile_features(terrain_engine PUBLIC cxx_std_20)
+# The source tree's own assets are the fallback when TERRAIN_ASSET_PATH is
+# not set, so a development build and the test suite need no configuration.
 target_compile_definitions(terrain_engine PRIVATE
     TERRAIN_ENGINE_VERSION="${PROJECT_VERSION}"
+    TERRAIN_SOURCE_ASSET_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/assets"
 )
 
 # A contracted multiply-add rounds once where the GPU's rounds twice, or the

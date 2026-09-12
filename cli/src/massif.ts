@@ -42,7 +42,8 @@ const usage = `massif — Terrain Studio without a window
   massif version                   the engine's version
 
 The engine binary comes from TERRAIN_ENGINE_ADDON, or from the repository's own
-build. Plugin directories come from TERRAIN_PLUGIN_PATH.
+build. Plugin directories come from TERRAIN_PLUGIN_PATH, and asset directories
+(satellite colour strips) from TERRAIN_ASSET_PATH, else the repository's own.
 `;
 
 /// Reads and writes the file without asking the registry anything, so these

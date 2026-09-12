@@ -1,0 +1,457 @@
+{
+	"libraries": {
+		"rock": [
+			{
+				"name": "atacama_andes",
+				"title": "Andean flank above the Atacama, Chile",
+				"latitude": -23.35,
+				"longitude": -67.75,
+				"zoom": 11
+			},
+			{
+				"name": "death_valley",
+				"title": "Panamint Range and Death Valley, USA",
+				"latitude": 36.25,
+				"longitude": -117.05,
+				"zoom": 11
+			},
+			{
+				"name": "grand_canyon",
+				"title": "Grand Canyon, USA",
+				"latitude": 36.15,
+				"longitude": -112.15,
+				"zoom": 11
+			},
+			{
+				"name": "zagros",
+				"title": "Zagros folds, Iran",
+				"latitude": 29.85,
+				"longitude": 52.45,
+				"zoom": 11
+			},
+			{
+				"name": "hajar",
+				"title": "Al Hajar mountains, Oman",
+				"latitude": 23.2,
+				"longitude": 57.25,
+				"zoom": 11
+			},
+			{
+				"name": "sinai",
+				"title": "Southern Sinai, Egypt",
+				"latitude": 28.55,
+				"longitude": 33.95,
+				"zoom": 11
+			},
+			{
+				"name": "hoggar",
+				"title": "Hoggar massif, Algeria",
+				"latitude": 23.3,
+				"longitude": 5.55,
+				"zoom": 11
+			},
+			{
+				"name": "canyonlands",
+				"title": "Canyonlands, Utah, USA",
+				"latitude": 38.3,
+				"longitude": -109.9,
+				"zoom": 11
+			},
+			{
+				"name": "tibesti",
+				"title": "Tibesti mountains, Chad",
+				"latitude": 20.9,
+				"longitude": 17.05,
+				"zoom": 11
+			},
+			{
+				"name": "ladakh",
+				"title": "Ladakh, India",
+				"latitude": 34.15,
+				"longitude": 77.55,
+				"zoom": 11
+			}
+		],
+		"green": [
+			{
+				"name": "bernese_alps",
+				"title": "Bernese Oberland, Switzerland",
+				"latitude": 46.6,
+				"longitude": 7.95,
+				"zoom": 11
+			},
+			{
+				"name": "appalachians",
+				"title": "Blue Ridge, USA",
+				"latitude": 36.4,
+				"longitude": -81.6,
+				"zoom": 11
+			},
+			{
+				"name": "highlands",
+				"title": "Scottish Highlands, UK",
+				"latitude": 56.95,
+				"longitude": -4.65,
+				"zoom": 11
+			},
+			{
+				"name": "fjords",
+				"title": "Sognefjord, Norway",
+				"latitude": 61.35,
+				"longitude": 6.85,
+				"zoom": 11
+			},
+			{
+				"name": "carpathians",
+				"title": "Eastern Carpathians, Romania",
+				"latitude": 47.45,
+				"longitude": 25.05,
+				"zoom": 11
+			},
+			{
+				"name": "pyrenees",
+				"title": "Central Pyrenees, Spain and France",
+				"latitude": 42.7,
+				"longitude": 0.55,
+				"zoom": 11
+			},
+			{
+				"name": "tasmania",
+				"title": "Central Highlands, Tasmania",
+				"latitude": -41.95,
+				"longitude": 146.3,
+				"zoom": 11
+			},
+			{
+				"name": "cascades",
+				"title": "North Cascades, USA",
+				"latitude": 48.55,
+				"longitude": -121.05,
+				"zoom": 11
+			},
+			{
+				"name": "dolomites",
+				"title": "Dolomites, Italy",
+				"latitude": 46.5,
+				"longitude": 11.85,
+				"zoom": 11
+			},
+			{
+				"name": "hokkaido",
+				"title": "Daisetsuzan, Japan",
+				"latitude": 43.6,
+				"longitude": 142.85,
+				"zoom": 11
+			}
+		],
+		"sand": [
+			{
+				"name": "erg_chebbi",
+				"title": "Erg Chebbi, Morocco",
+				"latitude": 31.15,
+				"longitude": -3.95,
+				"zoom": 11
+			},
+			{
+				"name": "namib",
+				"title": "Namib sand sea, Namibia",
+				"latitude": -24.75,
+				"longitude": 15.4,
+				"zoom": 11
+			},
+			{
+				"name": "rub_al_khali",
+				"title": "Rub al Khali, Saudi Arabia",
+				"latitude": 20.5,
+				"longitude": 52.0,
+				"zoom": 11
+			},
+			{
+				"name": "taklamakan",
+				"title": "Taklamakan, China",
+				"latitude": 39.0,
+				"longitude": 83.0,
+				"zoom": 11
+			},
+			{
+				"name": "simpson",
+				"title": "Simpson Desert, Australia",
+				"latitude": -25.0,
+				"longitude": 137.0,
+				"zoom": 11
+			},
+			{
+				"name": "white_sands",
+				"title": "White Sands, USA",
+				"latitude": 32.8,
+				"longitude": -106.3,
+				"zoom": 11
+			},
+			{
+				"name": "gobi",
+				"title": "Gobi, Mongolia",
+				"latitude": 43.6,
+				"longitude": 103.9,
+				"zoom": 11
+			},
+			{
+				"name": "sonoran",
+				"title": "Algodones dunes, USA",
+				"latitude": 32.9,
+				"longitude": -115.05,
+				"zoom": 11
+			},
+			{
+				"name": "grand_erg",
+				"title": "Grand Erg Oriental, Algeria",
+				"latitude": 30.8,
+				"longitude": 7.4,
+				"zoom": 11
+			},
+			{
+				"name": "wadi_rum",
+				"title": "Wadi Rum, Jordan",
+				"latitude": 29.6,
+				"longitude": 35.4,
+				"zoom": 11
+			}
+		],
+		"snow": [
+			{
+				"name": "mont_blanc",
+				"title": "Mont Blanc massif, France and Italy",
+				"latitude": 45.85,
+				"longitude": 6.9,
+				"zoom": 11
+			},
+			{
+				"name": "karakoram",
+				"title": "Baltoro glacier, Pakistan",
+				"latitude": 35.75,
+				"longitude": 76.45,
+				"zoom": 11
+			},
+			{
+				"name": "everest",
+				"title": "Khumbu, Nepal",
+				"latitude": 27.95,
+				"longitude": 86.85,
+				"zoom": 11
+			},
+			{
+				"name": "alaska_range",
+				"title": "Denali, USA",
+				"latitude": 63.05,
+				"longitude": -151.0,
+				"zoom": 11
+			},
+			{
+				"name": "patagonia",
+				"title": "Southern Patagonian Icefield, Chile",
+				"latitude": -49.3,
+				"longitude": -73.3,
+				"zoom": 11
+			},
+			{
+				"name": "skaftafell",
+				"title": "Skaftafell outlet glaciers, Iceland",
+				"latitude": 64.05,
+				"longitude": -16.95,
+				"zoom": 11
+			},
+			{
+				"name": "columbia_icefield",
+				"title": "Columbia Icefield, Canada",
+				"latitude": 52.2,
+				"longitude": -117.3,
+				"zoom": 11
+			},
+			{
+				"name": "svalbard",
+				"title": "Spitsbergen, Svalbard",
+				"latitude": 78.2,
+				"longitude": 16.0,
+				"zoom": 11
+			},
+			{
+				"name": "southern_alps",
+				"title": "Aoraki, New Zealand",
+				"latitude": -43.6,
+				"longitude": 170.2,
+				"zoom": 11
+			},
+			{
+				"name": "greenland_edge",
+				"title": "Ice sheet margin near Kangerlussuaq, Greenland",
+				"latitude": 67.1,
+				"longitude": -50.05,
+				"zoom": 11
+			}
+		],
+		"blue": [
+			{
+				"name": "bahamas",
+				"title": "Exuma banks, Bahamas",
+				"latitude": 24.0,
+				"longitude": -76.6,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "barrier_reef",
+				"title": "Great Barrier Reef, Australia",
+				"latitude": -16.6,
+				"longitude": 145.95,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "maldives",
+				"title": "Ari atoll, Maldives",
+				"latitude": 4.0,
+				"longitude": 72.9,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "red_sea",
+				"title": "Red Sea coast, Egypt",
+				"latitude": 27.3,
+				"longitude": 33.85,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "lake_powell",
+				"title": "Lake Powell, USA",
+				"latitude": 37.05,
+				"longitude": -111.1,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "bora_bora",
+				"title": "Society Islands, French Polynesia",
+				"latitude": -16.5,
+				"longitude": -151.75,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "dalmatia",
+				"title": "Dalmatian coast, Croatia",
+				"latitude": 43.15,
+				"longitude": 16.75,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "tahoe",
+				"title": "Lake Tahoe, USA",
+				"latitude": 39.1,
+				"longitude": -120.05,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "lofoten",
+				"title": "Lofoten, Norway",
+				"latitude": 68.2,
+				"longitude": 14.0,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			},
+			{
+				"name": "andaman",
+				"title": "Andaman coast, Thailand",
+				"latitude": 8.0,
+				"longitude": 98.4,
+				"zoom": 11,
+				"order": "luminance",
+				"keep_sea": true
+			}
+		],
+		"color": [
+			{
+				"name": "painted_desert",
+				"title": "Painted Desert, USA",
+				"latitude": 35.1,
+				"longitude": -109.8,
+				"zoom": 11
+			},
+			{
+				"name": "danakil",
+				"title": "Danakil depression, Ethiopia",
+				"latitude": 14.2,
+				"longitude": 40.3,
+				"zoom": 11,
+				"keep_sea": true
+			},
+			{
+				"name": "landmannalaugar",
+				"title": "Landmannalaugar, Iceland",
+				"latitude": 63.98,
+				"longitude": -19.06,
+				"zoom": 11
+			},
+			{
+				"name": "zhangye",
+				"title": "Zhangye Danxia, China",
+				"latitude": 38.95,
+				"longitude": 100.1,
+				"zoom": 11
+			},
+			{
+				"name": "vinicunca",
+				"title": "Vinicunca, Peru",
+				"latitude": -13.87,
+				"longitude": -71.3,
+				"zoom": 11
+			},
+			{
+				"name": "kamchatka",
+				"title": "Klyuchevskaya group, Russia",
+				"latitude": 56.05,
+				"longitude": 160.6,
+				"zoom": 11
+			},
+			{
+				"name": "hawaii",
+				"title": "Mauna Loa flank, USA",
+				"latitude": 19.5,
+				"longitude": -155.5,
+				"zoom": 11
+			},
+			{
+				"name": "etna",
+				"title": "Mount Etna, Italy",
+				"latitude": 37.75,
+				"longitude": 15.0,
+				"zoom": 11
+			},
+			{
+				"name": "bryce",
+				"title": "Bryce Canyon, USA",
+				"latitude": 37.6,
+				"longitude": -112.2,
+				"zoom": 11
+			},
+			{
+				"name": "tenerife",
+				"title": "Teide, Spain",
+				"latitude": 28.27,
+				"longitude": -16.64,
+				"zoom": 11
+			}
+		]
+	}
+}
