@@ -1,0 +1,245 @@
+{
+	"version": 1,
+	"settings": {
+		"resolution": 512,
+		"world_size_meters": 6000,
+		"seed": 11,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "weathered",
+	"nodes": [
+		{
+			"id": "eroded",
+			"type": "HydraulicErosion",
+			"x": 240,
+			"y": 0,
+			"parameters": {}
+		},
+		{
+			"id": "export_color",
+			"type": "ExportColor",
+			"x": 1680,
+			"y": 100,
+			"parameters": {
+				"path": "terrains/satmap_showcase_color.png"
+			}
+		},
+		{
+			"id": "export_dem",
+			"type": "Export",
+			"x": 1680,
+			"y": 300,
+			"parameters": {
+				"label": "satmap showcase",
+				"path": "terrains/satmap_showcase.massifdem"
+			}
+		},
+		{
+			"id": "green_color",
+			"type": "SatMap",
+			"x": 720,
+			"y": 400,
+			"parameters": {
+				"item": 0,
+				"library": 2,
+				"rough": 1
+			}
+		},
+		{
+			"id": "ground_color",
+			"type": "MixColor",
+			"x": 960,
+			"y": 300,
+			"parameters": {}
+		},
+		{
+			"id": "mountain",
+			"type": "Mountain",
+			"x": 0,
+			"y": 0,
+			"parameters": {
+				"base_altitude": 400,
+				"height": 2600,
+				"radius": 2600
+			}
+		},
+		{
+			"id": "rock_color",
+			"type": "SatMap",
+			"x": 720,
+			"y": 200,
+			"parameters": {
+				"item": 2,
+				"library": 3,
+				"rough": 2
+			}
+		},
+		{
+			"id": "snow",
+			"type": "Snow",
+			"x": 480,
+			"y": 0,
+			"parameters": {
+				"direction": 180,
+				"intensity": 4,
+				"melt": 0.25,
+				"melt_type": 1,
+				"snow_line": 1800,
+				"snow_line_falloff": 300
+			}
+		},
+		{
+			"id": "snow_color",
+			"type": "SatMap",
+			"x": 960,
+			"y": 0,
+			"parameters": {
+				"item": 0,
+				"library": 5,
+				"rough": 1
+			}
+		},
+		{
+			"id": "snowed_color",
+			"type": "MixColor",
+			"x": 1200,
+			"y": 100,
+			"parameters": {}
+		},
+		{
+			"id": "steep",
+			"type": "SlopeMask",
+			"x": 720,
+			"y": 600,
+			"parameters": {
+				"falloff": 12,
+				"minimum_slope": 28
+			}
+		},
+		{
+			"id": "texture_base",
+			"type": "TextureBase",
+			"x": 480,
+			"y": 200,
+			"parameters": {}
+		},
+		{
+			"id": "weathered",
+			"type": "Weathering",
+			"x": 1440,
+			"y": 100,
+			"parameters": {
+				"amount": 0.35,
+				"dirt": 0.4
+			}
+		}
+	],
+	"edges": [
+		{
+			"from_node_id": "mountain",
+			"from_port": 0,
+			"to_node_id": "eroded",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "weathered",
+			"from_port": 0,
+			"to_node_id": "export_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow",
+			"from_port": 0,
+			"to_node_id": "export_dem",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "eroded",
+			"from_port": 0,
+			"to_node_id": "green_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "green_color",
+			"from_port": 0,
+			"to_node_id": "ground_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "rock_color",
+			"from_port": 0,
+			"to_node_id": "ground_color",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "steep",
+			"from_port": 0,
+			"to_node_id": "ground_color",
+			"to_port": 2
+		},
+		{
+			"from_node_id": "texture_base",
+			"from_port": 0,
+			"to_node_id": "rock_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "eroded",
+			"from_port": 0,
+			"to_node_id": "snow",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow",
+			"from_port": 0,
+			"to_node_id": "snow_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "ground_color",
+			"from_port": 0,
+			"to_node_id": "snowed_color",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow_color",
+			"from_port": 0,
+			"to_node_id": "snowed_color",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "snow",
+			"from_port": 1,
+			"to_node_id": "snowed_color",
+			"to_port": 2
+		},
+		{
+			"from_node_id": "eroded",
+			"from_port": 0,
+			"to_node_id": "steep",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "eroded",
+			"from_port": 0,
+			"to_node_id": "texture_base",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snowed_color",
+			"from_port": 0,
+			"to_node_id": "weathered",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "snow",
+			"from_port": 0,
+			"to_node_id": "weathered",
+			"to_port": 1
+		}
+	]
+}

@@ -48,25 +48,28 @@ Rules that hold while working through this list:
 
 ## 1. What Terrain Studio has today
 
-56 registered node types, by the category each one registers under:
+72 registered node types, by the category each one registers under:
 
 **Input** — `ImportDEM`, `Constant`, `Gradient`, `RadialGradient`, `Shape`
 **Generate** — `Perlin`, `RidgedNoise`, `Voronoi`, `Pattern`, `Noise`
-**Terrain** — `Mountain`, `MountainRange`
+**Terrain** — `Mountain`, `MountainRange`, `DuneSea`
 **Filter** — `Blur`, `Sharpen`, `Clamp`, `Terrace`, `Curve`, `Warp`, `Flip`,
-`Repeat`, `Pixelate`, `Edge`, `Autolevel`, `Equalize`, `Match`, `SoftClip`
+`Repeat`, `Pixelate`, `Edge`, `Autolevel`, `Equalize`, `Match`, `SoftClip`, `Sand`
 **Combine** — `Add`, `Subtract`, `Multiply`, `Min`, `Max`, `Lerp`, `Compare`
-**Mask** — `HeightMask`, `SlopeMask`, `AspectMask`, `CurvatureMask`, `FlowMask`
-**Erode** — `HydraulicErosion`, `ThermalErosion`, `Deposit`
+**Mask** — `HeightMask`, `SlopeMask`, `AspectMask`, `CurvatureMask`, `FlowMask`,
+`TextureBase`, `RockMap`, `Soil`, `Occlusion`, `Peaks`
+**Erode** — `HydraulicErosion`, `ThermalErosion`, `FluvialErosion`, `Deposit`
+**Simulate** — `Snow`, `Snowfield`, `Dusting`, `Debris`, `Scree`, `Sediments`
 **Vegetation** — `GrowthMask`, `Scatter`
-**Texture** — `ColorRamp`, `MixColor`, `SplatWeights`, `Gamma`, `HSL`,
-`RGBSplit`, `RGBMerge`, `ColorThreshold`
+**Texture** — `ColorRamp`, `SatMap`, `MixColor`, `SplatWeights`, `Gamma`, `HSL`,
+`RGBSplit`, `RGBMerge`, `ColorThreshold`, `Weathering`
 **Output** — `Export`, `ExportPNG16`, `ExportColor`, `ExportSplat`,
 `ExportPoints`
 
-Coverage against Gaea: **56 of 183 covered or partially covered (~31%)**. The
+Coverage against Gaea: **72 of 183 covered or partially covered (~39%)**. The
 load-bearing machinery — noise, erosion, flow accumulation, masking, colour,
-export — was already there; W1 added the breadth around it.
+export — was already there; W1 added the breadth around it, and the texturing
+wave added satellite strips, the derive masks, snow, debris and sand.
 
 ---
 
@@ -89,7 +92,7 @@ export — was already there; W1 added the breadth around it.
 | CraterField | Landscape of craters | gap | Crater + deterministic scatter |
 | Volcano | Cone with central crater | gap | Analytic; shares Crater profile code |
 | Island | Landmass from a drawn shape | gap | Needs distance field + shoreline falloff |
-| DuneSea | Wind-shaped dune fields | gap | Directional; shares machinery with Sand |
+| DuneSea | Wind-shaped dune fields | have | `DuneSea`: transverse, barchan, star and linear dunes |
 
 ### 2.2 Primitive (23) — base shapes, gradients, noise
 
@@ -130,12 +133,12 @@ export — was already there; W1 added the breadth around it.
 | Thermal | Thermal erosion, talus and debris | have | `ThermalErosion` |
 | Thermal2 | Evolved thermal erosion | partial | Multi-material talus is the delta |
 | Crumble | Collapse driven by existing crevices | gap | Curvature-gated thermal variant |
-| Scree | Loose rock accumulation on slopes | gap | Thermal deposit with size sorting |
-| Debris | Loose debris across the surface | gap | Scatter + deposit |
-| Sediments | Thick generic sediment layer | gap | Deposit-only pass |
-| Dusting | Thin snow sprinkle | gap | Cheap variant of Snow |
-| Snow | Snow fall, melt, adhesion, flow | gap | Needs slope + aspect + optional sun input |
-| Snowfield | Broad settled snow coverage | gap | Shares Snow's solver |
+| Scree | Loose rock accumulation on slopes | have | `Scree`: stones shed from steep faces gather at the foot |
+| Debris | Loose debris across the surface | have | `Debris`: rocks roll downhill to rest, stamped and reported as points |
+| Sediments | Thick generic sediment layer | have | `Sediments`: fine/bulky/classic grain over the layer slump |
+| Dusting | Thin snow sprinkle | have | `Dusting`: per-cell weights, no simulation |
+| Snow | Snow fall, melt, adhesion, flow | have | `Snow`: cascaded fall, slip-off slump, adhered crust, directional melt with remnants |
+| Snowfield | Broad settled snow coverage | have | `Snowfield`: cascades, taper, furrows, drift |
 | Glacier | Flowing glaciers on peaks | gap | Viscous flow; expensive |
 | IceFloe | Flat ice plates inside water bodies | gap | Needs water mask from Lake/Sea |
 | Rivers | River networks on any terrain | gap | Flow accumulation + channel carve + banks |
@@ -171,7 +174,7 @@ export — was already there; W1 added the breadth around it.
 | Pockmarks | Scattered pits and dents | gap | Scatter + negative stamp |
 | Bulbous | Inflates shapes volumetrically | gap | Morphological dilation with falloff |
 | Bomber | Stamps an input across the surface | gap | Core stamping node — unlocks the family |
-| Sand | Medium and small sand patterns | gap | Directional ripple |
+| Sand | Medium and small sand patterns | have | `Sand`: asymmetric wind ripples with domain warp |
 | Grid | Regular grid pattern | have | `Pattern`, grid mode |
 
 ### 2.5 Modify (41) — filters and transforms
@@ -228,14 +231,14 @@ export — was already there; W1 added the breadth around it.
 | Slope | Slope-angle selection mask | have | `SlopeMask` |
 | Angle | Facing-direction selection mask | have | `AspectMask` |
 | Curvature | Convexity mask | have | `CurvatureMask` |
-| Peaks | Peak and ridgeline mask | partial | Inverse curvature at a chosen scale |
+| Peaks | Peak and ridgeline mask | have | `Peaks`: protrusion over a local mean at a scale in meters |
 | FlowMap | Modern flow map | have | `FlowMask` |
 | FlowMapClassic | Legacy flow behaviour | skip | Back-compat for Gaea only |
 | Normals | Normal map | gap | Colour output; needed by several nodes |
-| Occlusion | Sediment/crevice-favouring occlusion | gap | Multi-direction horizon scan |
-| Soil | Soil settling mask | partial | `GrowthMask` overlaps |
-| RockMap | Rock coverage mask | gap | Slope + curvature + noise composite |
-| TextureBase | Material distribution base for colour | partial | `Texture` overlaps |
+| Occlusion | Sediment/crevice-favouring occlusion | have | `Occlusion`: eight-azimuth horizon scan over octaves of reach |
+| Soil | Soil settling mask | have | `Soil`: a tracer layer slumped over the rock, biased by curvature |
+| RockMap | Rock coverage mask | have | `RockMap`: exposure cut into outcrop shapes by cellular noise |
+| TextureBase | Material distribution base for colour | have | `TextureBase`: slope, flow, soil, patches, chaos and peaks weighted into one mask |
 | Texturizer | Preset-driven texture masks | skip | Preset wrapper |
 | ColorThreshold | Threshold on colour input | have | `ColorThreshold`, on luminance or one channel |
 
@@ -251,7 +254,7 @@ export — was already there; W1 added the breadth around it.
 | RGBMerge | Three heightfields to colour | have | `RGBMerge`; an absent channel reads as 0 |
 | HSL | Hue/saturation/lightness adjust | have | `HSL` |
 | Gamma | Gamma adjust | have | `Gamma` |
-| Weathering | Brightens protrusions, darkens crevices | gap | Curvature-driven colour |
+| Weathering | Brightens protrusions, darkens crevices | have | `Weathering`: protrusion-driven highlight and dirt over a colour map |
 | ColorErosion | Erosion-style colour transport | gap | Reuses erosion transport on colour |
 | WaterColor | Shallow/deep water tinting | gap | Needs a water depth map |
 | SuperColor | Composite procedural colourisation | skip | Bundle of the above |
