@@ -65,66 +65,6 @@ GroundPoint warpedPoint(const DomainWarp& warp, const GroundPoint& point) {
     return warpedBy(warp, point.eastingMeters, point.northingMeters);
 }
 
-constexpr int ridgeOctaveCount = 4;
-
-/// Each octave doubles in frequency and halves in depth, so every network
-/// carves in proportion to how far apart its own ridges are. Any shallower
-/// fall-off buries the main valleys under gullies as deep as they are; any
-/// steeper one fades the fine ground out before it reaches a readable size.
-constexpr float ridgeLacunarity = 2.0f;
-constexpr float ridgeGain = 1.0f / ridgeLacunarity;
-
-/// How much of an octave's stretch the next finer one keeps. A range lets go
-/// of it quickly, because the crumple on a distant flank of a chain is not
-/// read as a gully.
-constexpr float rangeElongationRelease = 0.4f;
-
-/**
- * How much of one octave survives when the finest detail is held back.
- *
- * Retention counts octaves rather than scaling amplitude, so holding detail
- * back drops the smallest ridges outright and leaves the larger ones at full
- * depth: the surviving octaves keep the share of the network they always had,
- * so what is left is a coarser network rather than a fainter one. The coarsest
- * octave is always kept, so the network never vanishes.
- */
-float octaveWeight(float detailRetention, int octave) {
-    const float keptOctaves = std::max(detailRetention * ridgeOctaveCount, 1.0f);
-    return std::clamp(keptOctaves - static_cast<float>(octave), 0.0f, 1.0f);
-}
-
-/**
- * The ridge network the catchments are cut from, with the stretch that draws
- * the ridges into spurs released as the octaves get finer.
- *
- * Each octave asks for its own reading position at its own share of the
- * stretch, so a caller can keep the coarse network combed down the slope while
- * letting the finest crumple settle back towards isotropy.
- */
-template <typename ReadPointFor>
-float craggyField(const ReadPointFor& readPointFor, float featureSizeMeters, float elongation,
-                  float detailRetention, float elongationRelease, std::uint64_t seed) {
-    float total = 0.0f;
-    float amplitude = 1.0f;
-    float amplitudeSum = 0.0f;
-    float octaveScale = 1.0f / featureSizeMeters;
-    float octaveElongation = elongation;
-
-    for (int octave = 0; octave < ridgeOctaveCount; ++octave) {
-        const float weight = amplitude * octaveWeight(detailRetention, octave);
-        const GroundPoint read = readPointFor(octaveElongation);
-        total += noise::ridgeOctave(static_cast<float>(read.eastingMeters) * octaveScale,
-                                    static_cast<float>(read.northingMeters) * octaveScale,
-                                    terrainSeedForLane(seed, static_cast<std::uint64_t>(octave)))
-                 * weight;
-        amplitudeSum += amplitude;
-        amplitude *= ridgeGain;
-        octaveScale *= ridgeLacunarity;
-        octaveElongation *= elongationRelease;
-    }
-    return total / amplitudeSum;
-}
-
 /**
  * The ground point pulled radially toward a fixed ring about a centre, which
  * is how a field is read in a direction about that centre without reading it
@@ -309,6 +249,10 @@ struct GullyField {
     /// summit stands over faces cut by chutes while the main valleys open
     /// well below it.
     double holdMeters = 2000.0;
+    /// How much of every octave cuts even on the crest, so the main valleys
+    /// notch it with a col where each of them begins and the chutes between
+    /// them score the crest band.
+    float crestCut = 0.0f;
     /// Wander of the streaks on the ground, in streak widths, and the size
     /// of that wander in streak widths.
     float wanderStreaks = 0.5f;
@@ -408,6 +352,20 @@ float streakNoise(float x, float y, int countAround, std::uint64_t seed) {
                                    countAround * 2) * 0.35f;
 }
 
+/// How much of the cut, from the top, is rounded off where it meets the
+/// spur back.
+constexpr float backRounding = 0.3f;
+
+/// The cut eased onto the spur back: a straight fall down into the V of the
+/// floor, and a parabola over the last stretch so the back is met without a
+/// crease, which would draw the edge of every spur as a line.
+float easedOntoBack(float cut) {
+    if (cut < backRounding) {
+        return cut * cut / (2.0f * backRounding) / (1.0f - backRounding * 0.5f);
+    }
+    return (cut - backRounding * 0.5f) / (1.0f - backRounding * 0.5f);
+}
+
 /// One octave of gullies: 1 on a gully floor, falling to 0 on the back of the
 /// spur beside it.
 float gullyOctave(const PolarPoint& polar, const StreakWander& wander, int countAround,
@@ -418,13 +376,18 @@ float gullyOctave(const PolarPoint& polar, const StreakWander& wander, int count
                                        / (2.0 * std::numbers::pi * gullies.stretch))
                     + wander.outward;
     const float signal = streakNoise(x, y, countAround, seed);
-    return std::max(1.0f - std::abs(signal) * gullies.gullySharpness, 0.0f);
+    const float cut = std::max(1.0f - std::abs(signal) * gullies.gullySharpness, 0.0f);
+    return easedOntoBack(cut);
 }
 
-float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double radiusMeters,
+/**
+ * How deep the gullies cut at a point, 0 on the crest and 1 on the floor of
+ * the deepest coarsest gully. A finer octave only cuts what the one before it
+ * left standing, so the total never exceeds the coarsest octave's amplitude.
+ */
+float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double streakWidthMeters,
                    const GullyField& gullies) {
     float total = 0.0f;
-    float weightSum = 0.0f;
     float amplitude = 1.0f;
     // A finer gully is a tributary: it cuts the back of the spur above it and
     // ends where it meets the floor of the coarser gully, so each octave is
@@ -432,11 +395,11 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double ra
     float standing = 1.0f;
     int countAround = gullies.countAround;
     double holdMeters = gullies.holdMeters;
-    double featureMeters = 2.0 * std::numbers::pi * radiusMeters / countAround
-                           * gullies.wanderFeatureStreaks;
+    double featureMeters = streakWidthMeters * gullies.wanderFeatureStreaks;
     for (int octave = 0; octave < gullies.octaveCount; ++octave) {
-        const float hold = smoothStep(
+        const float released = smoothStep(
             static_cast<float>(std::clamp(polar.fromCrestMeters / holdMeters, 0.0, 1.0)));
+        const float hold = gullies.crestCut + (1.0f - gullies.crestCut) * released;
         const float weight = amplitude * hold
                              * gullyOctaveWeight(gullies.detailRetention, octave,
                                                  gullies.octaveCount);
@@ -449,11 +412,10 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double ra
         standing = 1.0f - gully;
         holdMeters *= 0.5;
         featureMeters *= 0.5;
-        weightSum += amplitude;
         amplitude *= gullies.gain;
         countAround *= 2;
     }
-    return total / weightSum;
+    return total;
 }
 
 /* ----------------------------------------------------------- the massif -- */
@@ -463,7 +425,7 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double ra
 /// is a share of the mass standing there, so the gullies of a tall mountain
 /// are as deep as the mountain is tall, and the relief dies away with the
 /// mass into the apron at the foot.
-constexpr float gullyDepthLimit = 0.8f;
+constexpr float gullyDepthLimit = 0.44f;
 
 /// How many streaks the coarsest octave carries around the summit at least.
 constexpr int leastStreaksAround = 4;
@@ -570,7 +532,9 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
     const double reachMeters = reachAt(layout, ground);
     const float mass = massAt(layout, ground, fromCrestMeters, reachMeters);
     const PolarPoint polar = polarAboutCrest(layout.summitCrest, ground);
-    const float gullies = gullyDepthAt(polar, ground, layout.radiusMeters, layout.gullies);
+    const double streakWidthMeters =
+        2.0 * std::numbers::pi * layout.radiusMeters / layout.gullies.countAround;
+    const float gullies = gullyDepthAt(polar, ground, streakWidthMeters, layout.gullies);
     return mass * (1.0f - layout.gullyDepth * gullies) * layout.heightMeters
            + layout.baseAltitudeMeters;
 }
@@ -699,21 +663,14 @@ const TerrainParameterDescriptor rangeParameters[] = {
     {"detailStrength", "Valley depth",
      "How deep the valleys are cut between the ridges, as a share of the mass above them", "",
      TerrainParameterType_Float, 0.5, 0.0, 1.0, "", nullptr, 0},
-    {"featureSize", "Detail size", "Ground distance between neighbouring gullies on a flank", "m",
+    {"featureSize", "Valley spacing",
+     "Ground distance between neighbouring valleys leaving the crest", "m",
      TerrainParameterType_Float, 1900.0, 1.0, 100000.0, "", nullptr, 0},
     {"baseAltitude", "Base altitude", "The altitude the foot of the range sits at", "m",
      TerrainParameterType_Float, 0.0, -12000.0, 12000.0, "", nullptr, 0},
-    {"spurElongation", "Gully stretch",
-     "How far the fine relief is drawn out into gullies running down the flanks", "",
+    {"spurElongation", "Spur length",
+     "How far the spurs are drawn out from the crest toward the foot", "",
      TerrainParameterType_Float, 0.7, 0.0, 0.95, "", nullptr, 0}};
-
-struct RangePeak {
-    double eastingMeters = 0.0;
-    double northingMeters = 0.0;
-    /// Where the summit sits along the range's axis, measured from the centre.
-    double alongMeters = 0.0;
-    float heightFraction = 1.0f;
-};
 
 struct RangeAxis {
     double alongEast = 0.0;
@@ -727,317 +684,333 @@ RangeAxis axisFor(double bearingDegrees) {
     return RangeAxis{std::sin(radians), std::cos(radians), std::cos(radians), -std::sin(radians)};
 }
 
-/**
- * Summits are spread evenly along the spine and then jittered, each from a
- * seed derived from its own index. Deriving per index rather than drawing from
- * a running generator means changing the peak count renumbers nothing: the
- * summits that were already there stay where they were.
- */
-std::vector<RangePeak> spineFrom(const ShapePlacement& placement, const RangeAxis& axis,
-                                 double lengthMeters, double widthMeters, int peakCount,
-                                 float heightVariation, std::uint64_t seed) {
-    std::vector<RangePeak> peaks;
-    peaks.reserve(static_cast<std::size_t>(peakCount));
-    for (int index = 0; index < peakCount; ++index) {
-        std::uint64_t state = terrainSeedForLane(seed, static_cast<std::uint64_t>(index));
-        const double alongUnit = (index + 0.5) / peakCount - 0.5;
-        const double alongJitter =
-            (terrainRandomUnitFloat(&state) - 0.5) * lengthMeters / peakCount * 0.5;
-        const double acrossJitter = (terrainRandomUnitFloat(&state) - 0.5) * widthMeters * 0.5;
-
-        RangePeak peak;
-        peak.alongMeters = alongUnit * lengthMeters + alongJitter;
-        peak.eastingMeters = placement.centreEastingMeters + axis.alongEast * peak.alongMeters
-                             + axis.acrossEast * acrossJitter;
-        peak.northingMeters = placement.centreNorthingMeters + axis.alongNorth * peak.alongMeters
-                              + axis.acrossNorth * acrossJitter;
-        peak.heightFraction = 1.0f - heightVariation * terrainRandomUnitFloat(&state);
-        peaks.push_back(peak);
-    }
-    return peaks;
-}
-
-GroundPoint pointOf(const RangePeak& peak) {
-    return GroundPoint{peak.eastingMeters, peak.northingMeters};
-}
-
-GroundPoint midpointOf(const RangePeak& first, const RangePeak& second) {
-    return GroundPoint{(first.eastingMeters + second.eastingMeters) * 0.5,
-                       (first.northingMeters + second.northingMeters) * 0.5};
-}
-
-std::vector<RidgeSegment> spineSegmentsFrom(const std::vector<RangePeak>& peaks) {
-    std::vector<RidgeSegment> segments;
-    if (peaks.size() == 1) {
-        segments.push_back(RidgeSegment{pointOf(peaks.front()), pointOf(peaks.front())});
-        return segments;
-    }
-    for (std::size_t index = 1; index < peaks.size(); ++index) {
-        segments.push_back(RidgeSegment{pointOf(peaks[index - 1]), pointOf(peaks[index])});
-    }
-    return segments;
-}
-
-/// How far a transverse ridge may lean from square across the spine, either way.
-constexpr double branchLeanRadians = 40.0 * std::numbers::pi / 180.0;
-/// How sharply a transverse ridge may bend at its knee.
-constexpr double branchBendRadians = 30.0 * std::numbers::pi / 180.0;
-
-/**
- * One transverse ridge leaving the spine towards a flank: two straight runs
- * with a bend between them, reaching roughly to the foot of the range.
- */
-void appendBranch(const GroundPoint& origin, const Heading& outward, double halfWidthMeters,
-                  std::uint64_t seed, std::vector<RidgeSegment>& segments) {
-    std::uint64_t state = seed;
-    const double lean = (terrainRandomUnitFloat(&state) - 0.5) * 2.0 * branchLeanRadians;
-    const double reach = halfWidthMeters * (0.7 + 0.6 * terrainRandomUnitFloat(&state));
-    const double bend = (terrainRandomUnitFloat(&state) - 0.5) * 2.0 * branchBendRadians;
-    const double kneeShare = 0.4 + 0.3 * terrainRandomUnitFloat(&state);
-
-    const Heading firstHeading = outward.turned(lean);
-    const GroundPoint knee = stepFrom(origin, firstHeading, reach * kneeShare);
-    const GroundPoint tip = stepFrom(knee, firstHeading.turned(bend), reach * (1.0 - kneeShare));
-    segments.push_back(RidgeSegment{origin, knee});
-    segments.push_back(RidgeSegment{knee, tip});
-}
-
-/**
- * The transverse ridges that make a range a massif rather than a wall: one
- * pair leaves each summit and one pair each pass, to either flank. The
- * valleys draining the flanks are the gaps between them.
- */
-std::vector<RidgeSegment> branchSegmentsFrom(const std::vector<RangePeak>& peaks,
-                                             const RangeAxis& axis, double halfWidthMeters,
-                                             std::uint64_t seed) {
-    std::vector<RidgeSegment> segments;
-    const Heading eastFlank{axis.acrossEast, axis.acrossNorth};
-    const Heading westFlank{-axis.acrossEast, -axis.acrossNorth};
-    const std::size_t originCount = peaks.size() * 2 - 1;
-
-    for (std::size_t originIndex = 0; originIndex < originCount; ++originIndex) {
-        const std::size_t peakIndex = originIndex / 2;
-        GroundPoint origin = pointOf(peaks[peakIndex]);
-        if (originIndex % 2 == 1) {
-            origin = midpointOf(peaks[peakIndex], peaks[peakIndex + 1]);
-        }
-        const std::uint64_t originSeed = terrainSeedForLane(seed, originIndex);
-        appendBranch(origin, eastFlank, halfWidthMeters, terrainSeedForLane(originSeed, 0),
-                     segments);
-        appendBranch(origin, westFlank, halfWidthMeters, terrainSeedForLane(originSeed, 1),
-                     segments);
-    }
-    return segments;
-}
-
-double nearestSegmentDistance(const std::vector<RidgeSegment>& segments,
-                              const GroundPoint& ground) {
-    double nearest = 1.0e30;
-    for (const RidgeSegment& segment : segments) {
-        nearest = std::min(nearest, segmentDistance(ground.eastingMeters, ground.northingMeters,
-                                                    segment.first.eastingMeters,
-                                                    segment.first.northingMeters,
-                                                    segment.second.eastingMeters,
-                                                    segment.second.northingMeters));
-    }
-    return nearest;
-}
-
 float smoothFall(double share) {
     const float clamped = static_cast<float>(std::clamp(share, 0.0, 1.0));
     return 1.0f - clamped * clamped * (3.0f - 2.0f * clamped);
 }
 
-/**
- * How high the crest stands at a position along the range: the summits'
- * own heights, dipping to the saddle height in each pass and tapering off
- * beyond the end summits over one summit spacing.
- */
-float crestHeightAlong(const std::vector<RangePeak>& peaks, double alongMeters,
-                       float saddleHeight, double spacingMeters) {
-    const RangePeak& first = peaks.front();
-    const RangePeak& last = peaks.back();
-    if (alongMeters <= first.alongMeters) {
-        return first.heightFraction * smoothFall((first.alongMeters - alongMeters) / spacingMeters);
-    }
-    if (alongMeters >= last.alongMeters) {
-        return last.heightFraction * smoothFall((alongMeters - last.alongMeters) / spacingMeters);
-    }
+/// How many octaves of summits the crest carries below the coarsest, and how
+/// each finer one shrinks. Every octave folds a gradient field about zero, so
+/// the summits are the points the field crosses zero at: pointed, and spaced
+/// as the field happens to cross rather than at one interval.
+constexpr int crestOctaveCount = 3;
+constexpr float crestGain = 0.5f;
+/// How much the coarsest octave's summits are spread out or bunched by the
+/// octave below them, so no two passes are alike.
+constexpr float crestSharpness = 1.6f;
+constexpr float crestTipRounding = 0.08f;
 
-    std::size_t index = 1;
-    while (peaks[index].alongMeters < alongMeters) {
-        ++index;
+/// The crest line's own ups and downs, 1 on a summit and 0 in the deepest
+/// pass, read along the spine at one coarsest summit per spacing.
+float crestReliefAlong(double alongMeters, double spacingMeters, std::uint64_t seed) {
+    float pass = 0.0f;
+    float amplitude = 1.0f;
+    float amplitudeSum = 0.0f;
+    double frequency = 1.0 / spacingMeters;
+    for (int octave = 0; octave < crestOctaveCount; ++octave) {
+        const float x = static_cast<float>(alongMeters * frequency);
+        const float field = noise::perlin(x, 0.5f, terrainSeedForLane(seed, octave));
+        // Folded with a rounded tip: a sharp fold would put a crease down the
+        // whole cross-section under every summit.
+        const float folded = std::sqrt(field * field + crestTipRounding * crestTipRounding)
+                             - crestTipRounding;
+        pass += std::min(folded * crestSharpness, 1.0f) * amplitude;
+        amplitudeSum += amplitude;
+        amplitude *= crestGain;
+        frequency *= 2.0;
     }
-    const RangePeak& before = peaks[index - 1];
-    const RangePeak& after = peaks[index];
-    const double share = (alongMeters - before.alongMeters)
-                         / std::max(after.alongMeters - before.alongMeters, 1.0e-6);
-    const float crest = static_cast<float>(before.heightFraction
-                                           + (after.heightFraction - before.heightFraction) * share);
-    const float dip = static_cast<float>(std::sin(share * std::numbers::pi));
-    return crest * (1.0f - (1.0f - saddleHeight) * dip * dip);
+    return 1.0f - pass / amplitudeSum;
 }
 
 /**
- * The range's answer to `ringReadPoint`: the ground point pulled toward the
- * spine across the range rather than toward a summit. Damping the across-spine
- * coordinate stretches the noise the same way, so its features become gullies
- * running down the flanks instead of crumple laid over the whole chain.
+ * How high the crest stands at a position along the range: summits and the
+ * passes between them, the summits themselves standing at different heights
+ * along the range, and the whole tapering off past either end over one
+ * summit spacing.
  */
-GroundPoint ribReadPoint(const GroundPoint& ground, const ShapePlacement& placement,
-                         const RangeAxis& axis, float elongation) {
-    const double east = ground.eastingMeters - placement.centreEastingMeters;
-    const double north = ground.northingMeters - placement.centreNorthingMeters;
-    const double along = east * axis.alongEast + north * axis.alongNorth;
-    const double across =
-        (east * axis.acrossEast + north * axis.acrossNorth) * (1.0 - elongation);
-    return GroundPoint{placement.centreEastingMeters + axis.alongEast * along
-                           + axis.acrossEast * across,
-                       placement.centreNorthingMeters + axis.alongNorth * along
-                           + axis.acrossNorth * across};
+struct CrestProfile {
+    double halfLengthMeters = 6000.0;
+    double spacingMeters = 2400.0;
+    float saddleHeight = 0.5f;
+    float heightVariation = 0.4f;
+    std::uint64_t seed = 0;
+};
+
+float crestHeightAlong(const CrestProfile& profile, double alongMeters) {
+    const double beyondEnd = std::abs(alongMeters) - profile.halfLengthMeters;
+    const float taper = smoothFall(beyondEnd / profile.spacingMeters);
+    const float relief = crestReliefAlong(alongMeters, profile.spacingMeters, profile.seed);
+    // The summits' own heights vary over a few spacings, so one stretch of
+    // the range stands over the next.
+    const float stature =
+        noise::perlin(static_cast<float>(alongMeters / (profile.spacingMeters * 3.0)), 0.5f,
+                      terrainSeedForLane(profile.seed, 9))
+        * 0.5f
+        + 0.5f;
+    const float summit = 1.0f - profile.heightVariation * stature;
+    return taper * summit * (1.0f - (1.0f - profile.saddleHeight) * (1.0f - relief));
 }
 
-/// How much of the ridge structure the transverse ridges set, against the
-/// fine gullies laid over them.
-constexpr float transverseShare = 0.7f;
+/**
+ * The frame the range's gullies are read in: a stadium about the spine, in
+ * place of the disc a mountain's slit maps to.
+ *
+ * Along either flank the way round is the distance along the spine, so the
+ * gullies keep one spacing from end to end however long the range is; past
+ * either end it turns with the angle about the end, so the gullies fan out
+ * round the caps. Distance out is linear over the half width, so a streak
+ * keeps one width from the crest to the foot: a flank's valleys run parallel
+ * down it, and it is the finer octaves dying out between them that thins
+ * the network toward the foot.
+ *
+ * The two flanks mirror each other: a point on the west flank reads the
+ * streaks at the same place along the spine as its twin on the east flank,
+ * so the field is continuous across the spine and the valley that notches
+ * the crest with a col runs down from it on both sides, the way a pass
+ * drains both ways.
+ */
+struct RangeFrame {
+    GroundPoint centre;
+    RangeAxis axis;
+    double halfLengthMeters = 6000.0;
+    /// How far out the frame reaches: one unit of distance out.
+    double halfWidthMeters = 2000.0;
+    /// The radius the walk turns round at either end.
+    double capRadiusMeters = 300.0;
+
+    /// How far the mirrored walk runs from the near cap's apex to the far one's.
+    double walkLengthMeters() const { return 2.0 * halfLengthMeters + 2.0 * capRadiusMeters; }
+};
+
+/// Where a point stands along and across the spine.
+struct SpineOffset {
+    double alongMeters = 0.0;
+    double acrossMeters = 0.0;
+};
+
+SpineOffset spineOffsetOf(const RangeFrame& frame, const GroundPoint& ground) {
+    const double east = ground.eastingMeters - frame.centre.eastingMeters;
+    const double north = ground.northingMeters - frame.centre.northingMeters;
+    return SpineOffset{east * frame.axis.alongEast + north * frame.axis.alongNorth,
+                       east * frame.axis.acrossEast + north * frame.axis.acrossNorth};
+}
+
+/// The distance walked along the spine to reach the point nearest to
+/// `offset`, continued round either cap by the angle about the end so the
+/// walk turns back on itself at each cap's apex.
+double stadiumWalkTo(const RangeFrame& frame, const SpineOffset& offset) {
+    const double halfLength = frame.halfLengthMeters;
+    const double beyondEnd = std::abs(offset.alongMeters) - halfLength;
+    if (beyondEnd <= 0.0) {
+        return offset.alongMeters + halfLength;
+    }
+    const double turn = std::atan2(beyondEnd, std::abs(offset.acrossMeters));
+    const double capWalk = frame.capRadiusMeters * std::sin(turn);
+    if (offset.alongMeters > 0.0) {
+        return 2.0 * halfLength + capWalk;
+    }
+    return -capWalk;
+}
+
+PolarPoint polarAboutSpine(const RangeFrame& frame, const GroundPoint& ground) {
+    const SpineOffset offset = spineOffsetOf(frame, ground);
+    const double beyondEnd =
+        std::max(std::abs(offset.alongMeters) - frame.halfLengthMeters, 0.0);
+    const double fromCrestMeters = std::hypot(beyondEnd, offset.acrossMeters);
+    return PolarPoint{stadiumWalkTo(frame, offset) / frame.walkLengthMeters(),
+                      fromCrestMeters / frame.halfWidthMeters,
+                      frame.capRadiusMeters + fromCrestMeters, fromCrestMeters};
+}
+
+/// The radius the gullies fan round at either end of the spine, as a share
+/// of the half width.
+constexpr double rangeCapShare = 0.15;
+
+/// How long the spine's meanders are, in summit spacings, and how far it
+/// strays per unit of irregularity as a share of that length. Past about a
+/// sixth the shift's own gradient exceeds one and a bend folds over.
+constexpr double rangeMeanderSpacings = 2.5;
+constexpr double rangeMeanderShare = 0.12;
+
+/// How far a streak at full elongation runs, in half widths. Well past the
+/// foot, because the floor of every valley is a zero line of the folded
+/// field, and a zero line that turns back within the flank closes into a
+/// ring round a knoll instead of running out to the foot.
+constexpr double rangeStreakReachShare = 3.0;
+
+/// How steeply the ground climbs out of a valley floor onto the spur. Low
+/// enough that a spur is a ridge line rather than a rounded back, so the
+/// cross-section of a flank is ridge, valley, ridge all the way along.
+constexpr float rangeGullySharpness = 2.0f;
+
+/// How much of the main valleys' depth notches the crest where they begin.
+constexpr float rangeColShare = 0.2f;
 
 /// The deepest a valley may be cut, as a share of the mass above its floor.
 /// Cutting to the base leaves walls no rock stands at.
 constexpr float deepestValleyShare = 0.85f;
 
-/// How far the ground may be bent per unit of irregularity, as a share of the
-/// distance the bend is drawn over. Past about a quarter the displacement's own
-/// gradient exceeds one and the field folds over itself, which stretches one
-/// side of every fold into a smear and stacks the other into a cliff.
-constexpr double rangeWarpShare = 0.2;
+/// How far down the flank, as a share of the half width, the main valleys
+/// come to their full depth. A range's valleys open as they run out: shallow
+/// notches in the crest, deep troughs whose floors run out to the base at
+/// the foot while the spurs between them still stand.
+constexpr double rangeValleyOpeningShare = 0.5;
+
+/// The spurs of a range keep their height well out from the crest, so the
+/// profile they fall on is close to straight where a lone mountain's is
+/// concave; the sharpness parameter is scaled down to suit.
+constexpr float rangeSpurExponentScale = 0.65f;
+
+/// How far the foot may stand in or out from the nominal half width at full
+/// irregularity, and how many such lobes fit round the range per half width.
+constexpr float rangeFootWanderLimit = 0.35f;
+constexpr double rangeFootLobesPerHalfWidth = 1.0;
 
 /**
- * Everything about a range that is fixed before the first cell is read. The
- * per-cell work is a handful of distance queries against these.
+ * Everything about a range that is fixed before the first cell is read.
  */
 struct RangeLayout {
-    ShapePlacement placement;
-    RangeAxis axis;
-    std::vector<RangePeak> peaks;
-    std::vector<RidgeSegment> spine;
-    std::vector<RidgeSegment> branches;
-    double halfWidthMeters = 0.0;
-    double summitSpacingMeters = 0.0;
-    /// How far from the nearest ridge line the ground is still that ridge's
-    /// flank rather than the valley floor between two of them.
-    double valleyReachMeters = 0.0;
-    float saddleHeight = 0.5f;
-    float peakSharpness = 1.6f;
+    RangeFrame frame;
+    DomainWarp warp;
+    GullyField gullies;
+    CrestProfile crest;
+    /// The spine's wander across the range, read along it.
+    double meanderFeatureMeters = 6000.0;
+    double meanderMeters = 0.0;
+    std::uint64_t meanderSeed = 0;
+    double halfWidthMeters = 2000.0;
+    double summitSpacingMeters = 2400.0;
+    double streakWidthMeters = 1900.0;
+    int footLobeCount = 4;
+    float footWanderShare = 0.0f;
+    float profileExponent = 1.6f;
+    float valleyDepth = 0.0f;
+    float heightMeters = 1800.0f;
+    float baseAltitudeMeters = 0.0f;
+    std::uint64_t footSeed = 0;
 };
 
 /**
- * The mass of the range at a point: the crest height at that position along
- * the axis, falling straight to the foot across the spine, concave where the
- * peaks are sharpened.
+ * How far the foot stands from the spine in the direction of a point: the
+ * half width bent by a slow field read round the crest zone, so one flank
+ * runs out further than the next. The field closes round the stadium, and
+ * it depends only on where the point is round the range, never on how far
+ * out it is, so the reach never terraces a flank.
  */
-float rangeMass(const RangeLayout& layout, const GroundPoint& ground) {
-    const double east = ground.eastingMeters - layout.placement.centreEastingMeters;
-    const double north = ground.northingMeters - layout.placement.centreNorthingMeters;
-    const double along = east * layout.axis.alongEast + north * layout.axis.alongNorth;
-    const float crest =
-        crestHeightAlong(layout.peaks, along, layout.saddleHeight, layout.summitSpacingMeters);
-    const float across = radialProfileValue(RadialProfile::Linear,
-                                            nearestSegmentDistance(layout.spine, ground),
-                                            layout.halfWidthMeters);
-    return std::pow(across, layout.peakSharpness) * crest;
+double rangeReachAt(const RangeLayout& layout, const PolarPoint& polar) {
+    const float x = static_cast<float>(polar.around * layout.footLobeCount);
+    const float field =
+        noise::perlinPeriodic(x, 0.5f, layout.footSeed, layout.footLobeCount) * 0.65f
+        + noise::perlinPeriodic(x * 2.0f, 0.5f, terrainSeedForLane(layout.footSeed, 1),
+                                layout.footLobeCount * 2)
+              * 0.35f;
+    const float wander = std::tanh(field * outlineGain);
+    return layout.halfWidthMeters * (1.0 + layout.footWanderShare * wander);
 }
 
 /**
- * 1 on a ridge line, 0 on the valley floor between two of them. The fall is
- * steepest at the crest and flattens into the floor, so ridges stand sharp
- * over broad valleys rather than rolling over into narrow gullies.
+ * The ground shifted across the range by a slow field read along it, so the
+ * spine meanders. Every point at one position along shifts by the same
+ * amount, so the shift never folds the ground however far the spine strays.
  */
-float transverseRidges(const RangeLayout& layout, const GroundPoint& ground) {
-    const double toRidge = std::min(nearestSegmentDistance(layout.spine, ground),
-                                    nearestSegmentDistance(layout.branches, ground));
-    const float acrossValley =
-        static_cast<float>(std::clamp(toRidge / layout.valleyReachMeters, 0.0, 1.0));
-    return (1.0f - acrossValley) * (1.0f - acrossValley);
+GroundPoint meanderedBy(const RangeLayout& layout, const GroundPoint& ground) {
+    const SpineOffset offset = spineOffsetOf(layout.frame, ground);
+    const float field = noise::fractalPerlin(
+        static_cast<float>(offset.alongMeters / layout.meanderFeatureMeters), 0.5f,
+        layout.meanderSeed, noise::FractalOptions{3, 0.5f, 2.0f});
+    const double shift = field * layout.meanderMeters;
+    return GroundPoint{ground.eastingMeters - layout.frame.axis.acrossEast * shift,
+                       ground.northingMeters - layout.frame.axis.acrossNorth * shift};
 }
 
-/**
- * The valleys are cut at full depth right up to the crest and released only at
- * the summits themselves, so the tallest summit still reaches the height it
- * was given while every flank below it is ridge and valley all the way down.
- */
-float carvedRange(float mass, float ridges, float valleyDepth) {
-    const float summitFade = std::clamp((1.0f - mass) * 8.0f, 0.0f, 1.0f);
-    return mass * (1.0f - valleyDepth * summitFade * (1.0f - ridges));
+float rangeHeightAt(const RangeLayout& layout, double eastingMeters, double northingMeters) {
+    const GroundPoint ground =
+        meanderedBy(layout, warpedBy(layout.warp, eastingMeters, northingMeters));
+    const PolarPoint polar = polarAboutSpine(layout.frame, ground);
+    const SpineOffset offset = spineOffsetOf(layout.frame, ground);
+    const float crest = crestHeightAlong(layout.crest, offset.alongMeters);
+    const float mass = coneMass(polar.fromCrestMeters, rangeReachAt(layout, polar),
+                                layout.profileExponent)
+                       * crest;
+    const float gullies =
+        gullyDepthAt(polar, ground, layout.streakWidthMeters, layout.gullies);
+    return mass * (1.0f - layout.valleyDepth * gullies) * layout.heightMeters
+           + layout.baseAltitudeMeters;
+}
+
+RangeLayout rangeLayoutFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                            const WorldFrame& frame) {
+    const double lengthMeters = api->parameterNumber(context, 3);
+    const int peakCount = static_cast<int>(api->parameterNumber(context, 5));
+    const std::uint64_t seed = terrainSeedForLane(
+        api->randomSeed(context), static_cast<std::uint64_t>(api->parameterNumber(context, 10)));
+    const float irregularity = static_cast<float>(api->parameterNumber(context, 11));
+    const ShapePlacement placement = placementFrom(frame, api->parameterNumber(context, 0),
+                                                   api->parameterNumber(context, 1), 0.0);
+
+    RangeLayout layout;
+    layout.halfWidthMeters = api->parameterNumber(context, 4) * 0.5;
+    layout.frame.centre = GroundPoint{placement.centreEastingMeters, placement.centreNorthingMeters};
+    layout.frame.axis = axisFor(api->parameterNumber(context, 2));
+    layout.frame.halfLengthMeters = lengthMeters * 0.5;
+    layout.frame.halfWidthMeters = layout.halfWidthMeters;
+    layout.frame.capRadiusMeters = layout.halfWidthMeters * rangeCapShare;
+    layout.summitSpacingMeters = lengthMeters / peakCount;
+    layout.crest.halfLengthMeters = layout.frame.halfLengthMeters;
+    layout.crest.spacingMeters = layout.summitSpacingMeters;
+    layout.crest.heightVariation = static_cast<float>(api->parameterNumber(context, 7));
+    layout.crest.saddleHeight = static_cast<float>(api->parameterNumber(context, 8));
+    layout.crest.seed = terrainSeedForLane(seed, 4);
+    layout.meanderFeatureMeters = layout.summitSpacingMeters * rangeMeanderSpacings;
+    layout.meanderMeters = irregularity * layout.meanderFeatureMeters * rangeMeanderShare;
+    layout.meanderSeed = terrainSeedForLane(seed, 8);
+    layout.profileExponent =
+        static_cast<float>(api->parameterNumber(context, 9)) * rangeSpurExponentScale;
+    layout.valleyDepth =
+        static_cast<float>(api->parameterNumber(context, 12)) * deepestValleyShare;
+    layout.heightMeters = static_cast<float>(api->parameterNumber(context, 6));
+    layout.baseAltitudeMeters = static_cast<float>(api->parameterNumber(context, 14));
+
+    const double walkMeters = layout.frame.walkLengthMeters();
+    layout.streakWidthMeters = api->parameterNumber(context, 13);
+    layout.gullies.countAround = std::max(
+        static_cast<int>(std::round(walkMeters / layout.streakWidthMeters)),
+        leastStreaksAround);
+    layout.gullies.outwardSpan = rangeStreakReachShare;
+    layout.gullies.stretch = streakStretchFor(layout.gullies, api->parameterNumber(context, 15));
+    layout.gullies.holdMeters = layout.halfWidthMeters * rangeValleyOpeningShare;
+    layout.gullies.crestCut = rangeColShare;
+    layout.gullies.gullySharpness = rangeGullySharpness;
+    layout.gullies.seed = terrainSeedForLane(seed, 3);
+
+    layout.footLobeCount = std::max(
+        static_cast<int>(std::round(walkMeters / layout.halfWidthMeters
+                                    * rangeFootLobesPerHalfWidth)),
+        2);
+    layout.footWanderShare = irregularity * rangeFootWanderLimit;
+    layout.footSeed = terrainSeedForLane(seed, 6);
+
+    layout.warp = mountainWarpFor(layout.halfWidthMeters, irregularity, seed);
+    return layout;
 }
 
 void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
-    const double lengthMeters = api->parameterNumber(context, 3);
-    const double widthMeters = api->parameterNumber(context, 4);
-    const int peakCount = static_cast<int>(api->parameterNumber(context, 5));
-    const float height = static_cast<float>(api->parameterNumber(context, 6));
-    const std::uint64_t seed = terrainSeedForLane(
-        api->randomSeed(context),
-        static_cast<std::uint64_t>(api->parameterNumber(context, 10)));
-    const float valleyDepth =
-        static_cast<float>(api->parameterNumber(context, 12)) * deepestValleyShare;
-    const float featureSizeMeters = static_cast<float>(api->parameterNumber(context, 13));
-    const float baseAltitude = static_cast<float>(api->parameterNumber(context, 14));
-    const float spurElongation = static_cast<float>(api->parameterNumber(context, 15));
-
-    RangeLayout layout;
-    layout.placement = placementFrom(frame, api->parameterNumber(context, 0),
-                                     api->parameterNumber(context, 1), 0.0);
-    layout.axis = axisFor(api->parameterNumber(context, 2));
-    layout.peaks = spineFrom(layout.placement, layout.axis, lengthMeters, widthMeters, peakCount,
-                             static_cast<float>(api->parameterNumber(context, 7)),
-                             terrainSeedForLane(seed, 4));
-    layout.spine = spineSegmentsFrom(layout.peaks);
-    layout.halfWidthMeters = widthMeters * 0.5;
-    layout.branches = branchSegmentsFrom(layout.peaks, layout.axis, layout.halfWidthMeters,
-                                         terrainSeedForLane(seed, 5));
-    layout.summitSpacingMeters = lengthMeters / peakCount;
-    layout.valleyReachMeters = layout.summitSpacingMeters * 0.3;
-    layout.saddleHeight = static_cast<float>(api->parameterNumber(context, 8));
-    layout.peakSharpness = static_cast<float>(api->parameterNumber(context, 9));
-
-    // The bend is drawn at the summit spacing rather than the width, so a
-    // long range meanders between its summits instead of swaying as one.
-    DomainWarp warp;
-    warp.eastingSeed = terrainSeedForLane(seed, 1);
-    warp.northingSeed = terrainSeedForLane(seed, 2);
-    warp.featureSizeMeters = static_cast<float>(layout.summitSpacingMeters);
-    warp.amountMeters = static_cast<float>(api->parameterNumber(context, 11)
-                                           * layout.summitSpacingMeters * rangeWarpShare);
-    const std::uint64_t detailSeed = terrainSeedForLane(seed, 3);
+    const RangeLayout layout = rangeLayoutFrom(api, context, frame);
     float* output = api->outputField(context, 0);
 
     forEachRowRange(api, context, frame.size, [&](int firstRow, int lastRow) {
-        for (int row = firstRow; row < lastRow; ++row) {
-            float* line = output + static_cast<std::size_t>(row) * frame.size;
-            for (int column = 0; column < frame.size; ++column) {
-                const GroundPoint ground =
-                    warpedBy(warp, frame.eastingAt(column), frame.northingAt(row));
-                const auto readPointFor = [&](float elongation) {
-                    return ribReadPoint(ground, layout.placement, layout.axis, elongation);
-                };
-                const float gullies =
-                    craggyField(readPointFor, featureSizeMeters, spurElongation, 1.0f,
-                                rangeElongationRelease, detailSeed);
-                const float ridges = transverseRidges(layout, ground) * transverseShare
-                                     + gullies * (1.0f - transverseShare);
-                line[column] =
-                    carvedRange(rangeMass(layout, ground), ridges, valleyDepth) * height
-                    + baseAltitude;
-            }
-        }
+        writeLandformRows(frame, firstRow, lastRow, output,
+                          [&](double eastingMeters, double northingMeters) {
+                              return rangeHeightAt(layout, eastingMeters, northingMeters);
+                          });
     });
 }
 
 const TerrainNodeDescriptor mountainRangeDescriptor = {
     "MountainRange",
     "Terrain",
-    "A chain of summits on one spine, with transverse ridges and the valleys between them",
+    "A chain of summits on one spine, with spurs running out to either foot and the valleys between them",
     1,
     nullptr,
     0,

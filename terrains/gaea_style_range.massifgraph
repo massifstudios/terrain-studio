@@ -10,22 +10,8 @@
 			"northing_max_meters": 0
 		}
 	},
-	"preview_node_id": "colorRamp1",
+	"preview_node_id": "hydraulicErosion1",
 	"nodes": [
-		{
-			"id": "add1",
-			"type": "Add",
-			"x": -502.4219244524085,
-			"y": 1446.1396190475728,
-			"parameters": {}
-		},
-		{
-			"id": "add2",
-			"type": "Add",
-			"x": -268.5159792238038,
-			"y": 1647.0578007362983,
-			"parameters": {}
-		},
 		{
 			"id": "colorRamp1",
 			"type": "ColorRamp",
@@ -38,23 +24,23 @@
 		{
 			"id": "fluvialErosion1",
 			"type": "FluvialErosion",
-			"x": -7.442906296493916,
-			"y": 1541.7267994679555,
+			"x": 357.60503066679615,
+			"y": 1627.277871992237,
 			"parameters": {
-				"concavity": 0.2,
-				"creep": 5,
-				"incision": 5,
-				"passes": 20
+				"concavity": 0.4,
+				"creep": 8,
+				"incision": 8,
+				"passes": 30
 			}
 		},
 		{
 			"id": "hydraulicErosion1",
 			"type": "HydraulicErosion",
-			"x": 293.8575206850845,
-			"y": 1630.3277032424264,
+			"x": -16.37526438509244,
+			"y": 1622.1122854232026,
 			"parameters": {
 				"capacity": 1,
-				"density": 1,
+				"density": 3,
 				"deposition_rate": 0.3,
 				"erosion_rate": 0.3,
 				"evaporation": 0.02,
@@ -62,8 +48,24 @@
 				"inertia": 0.05,
 				"lifetime": 600,
 				"radius": 60,
-				"seed": 0
+				"seed": 1095705245
 			}
+		},
+		{
+			"id": "lerp1",
+			"type": "Lerp",
+			"x": -230.38891302907152,
+			"y": 1650.1109233566815,
+			"parameters": {
+				"amount": 0.5
+			}
+		},
+		{
+			"id": "max1",
+			"type": "Max",
+			"x": -608.797696298625,
+			"y": 1464.594079669526,
+			"parameters": {}
 		},
 		{
 			"id": "mountain1",
@@ -75,16 +77,16 @@
 				"bulk": 2,
 				"centre_east": 0.5,
 				"centre_north": 0.5,
-				"detail_strength": 0.5,
-				"feature_size": 1200,
-				"height": 1800,
-				"irregularity": 0.35,
-				"peak_sharpness": 1.6,
+				"detail_strength": 0.15,
+				"feature_size": 800,
+				"height": 2700,
+				"irregularity": 1,
+				"peak_sharpness": 1.962,
 				"radius": 4000,
 				"reduce_details": 0,
-				"scale": 1.5,
-				"seed": 935392982,
-				"spur_elongation": 0.6,
+				"scale": 1,
+				"seed": 1491804178,
+				"spur_elongation": 0.7779,
 				"style": 1
 			}
 		},
@@ -98,17 +100,17 @@
 				"bearing": 45,
 				"centre_east": 0.5,
 				"centre_north": 0.5,
-				"detail_strength": 0.5,
-				"feature_size": 1900,
-				"height": 1400,
-				"height_variation": 0.4,
-				"irregularity": 0.4,
+				"detail_strength": 1,
+				"feature_size": 55510,
+				"height": 2500,
+				"height_variation": 0.8,
+				"irregularity": 1,
 				"length": 18000,
-				"peak_count": 8,
-				"peak_sharpness": 1.6,
-				"saddle_height": 0.5,
-				"seed": 0,
-				"spur_elongation": 0.7,
+				"peak_count": 6,
+				"peak_sharpness": 1.5,
+				"saddle_height": 0.4,
+				"seed": 2135688455,
+				"spur_elongation": 0.95,
 				"width": 12000
 			}
 		},
@@ -116,15 +118,15 @@
 			"id": "mountainRange2",
 			"type": "MountainRange",
 			"x": -923.0818678198672,
-			"y": 1778.0156993506782,
+			"y": 1779.2662470106131,
 			"parameters": {
 				"base_altitude": 0,
-				"bearing": 135,
+				"bearing": 96.8,
 				"centre_east": 0.5,
 				"centre_north": 0.5,
 				"detail_strength": 0.5,
 				"feature_size": 1900,
-				"height": 1400,
+				"height": 3000,
 				"height_variation": 0.4,
 				"irregularity": 0.4,
 				"length": 18000,
@@ -150,49 +152,49 @@
 	],
 	"edges": [
 		{
-			"from_node_id": "mountainRange1",
-			"from_port": 0,
-			"to_node_id": "add1",
-			"to_port": 0
-		},
-		{
-			"from_node_id": "mountain1",
-			"from_port": 0,
-			"to_node_id": "add1",
-			"to_port": 1
-		},
-		{
-			"from_node_id": "add1",
-			"from_port": 0,
-			"to_node_id": "add2",
-			"to_port": 0
-		},
-		{
-			"from_node_id": "mountainRange2",
-			"from_port": 0,
-			"to_node_id": "add2",
-			"to_port": 1
-		},
-		{
 			"from_node_id": "thermalErosion1",
 			"from_port": 0,
 			"to_node_id": "colorRamp1",
 			"to_port": 0
 		},
 		{
-			"from_node_id": "add2",
+			"from_node_id": "hydraulicErosion1",
 			"from_port": 0,
 			"to_node_id": "fluvialErosion1",
 			"to_port": 0
 		},
 		{
-			"from_node_id": "fluvialErosion1",
+			"from_node_id": "lerp1",
 			"from_port": 0,
 			"to_node_id": "hydraulicErosion1",
 			"to_port": 0
 		},
 		{
-			"from_node_id": "hydraulicErosion1",
+			"from_node_id": "max1",
+			"from_port": 0,
+			"to_node_id": "lerp1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "mountainRange2",
+			"from_port": 0,
+			"to_node_id": "lerp1",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "mountain1",
+			"from_port": 0,
+			"to_node_id": "max1",
+			"to_port": 0
+		},
+		{
+			"from_node_id": "mountainRange1",
+			"from_port": 0,
+			"to_node_id": "max1",
+			"to_port": 1
+		},
+		{
+			"from_node_id": "fluvialErosion1",
 			"from_port": 0,
 			"to_node_id": "thermalErosion1",
 			"to_port": 0
