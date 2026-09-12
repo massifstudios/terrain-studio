@@ -1,145 +1,123 @@
 ---
 name: gauntlet-loop
-description: Turns a terrain goal into one short, paste-ready "gauntlet loop" prompt - a prompt that makes an agent set a concrete quality bar (a named terrain render or real DEM), split a graph or engine change into small judgeable pieces, run one builder and a separate harsh critic on each, compare the built export blind against the bar, and loop until it wins. Works for .massifgraph authoring, new engine nodes, erosion tuning, colouring and export work. Triggers on "/gauntlet-loop", "gauntlet loop", "gauntlet this", "make a gauntlet prompt", "loop until it beats X".
+description: Runs a terrain gauntlet loop in this session. The user gives a terrain-generation task, a picture of what the output looks like now, and a reference of what it should look like. You analyse the gap, spawn one Opus 5 builder to close it, hand the built export and the reference to a fresh Sonnet 5 critic for a harsh verdict, write the next builder prompt from that verdict, and repeat until the critic says ours matches. State lives in terrains/<name>.gauntlet.md so the loop survives compaction; every two rounds it pauses for /compact. Terrain only - .massifgraph authoring, engine nodes, erosion, colour, export. Never UI. Triggers on "/gauntlet-loop", "gauntlet loop", "gauntlet this", "loop until it matches X".
 ---
 
 # Gauntlet Loop
 
-The user gives a terrain goal. You give back ONE short prompt they can paste into a fresh agent session in this repository.
+You are the lead. You do not write terrain code and you do not judge the result yourself. You analyse, brief the builder, brief the critic, turn the critic's verdict into the next brief, and keep the progress file current. The builder and the critic are separate subagents with fresh context every round.
 
-You are not doing the work. You are writing the prompt that makes another agent grind on a graph or an engine node until its built output beats a real reference.
+## Inputs
 
-## Flow
+Three things, all from the user:
 
-1. **Read the goal.** One line restatement in your head, not on screen. Decide whether it is a graph goal (a `.massifgraph` and its exports) or an engine goal (a node in `engine/src/nodes/`, then a graph that shows it).
-2. **Set the bar.** If the user supplied a reference, use it. If not, offer **2 or 3 candidate bars**, one line each, and stop. Wait for their pick. Do not write the prompt yet.
-3. **Write the prompt.** One block, paste-ready, no preamble, no headings inside it, no narration after it.
-4. **Offer to run it.** One flat line under the prompt: "I can run this here." Not a question.
+1. **Task.** What to change. A graph under `terrains/`, a node in `engine/src/nodes/`, an erosion or colour pass, an export. Terrain generation only. If the task touches UI, Svelte, Electron, or the viewport, say the skill does not cover it and stop.
+2. **Now.** What the output looks like today. An image path, or a graph to build and export. If a graph, build it yourself with `bun cli/src/massif.ts build <graph> --resolution N` and use the exported PNG.
+3. **Target.** What it should look like. An image path, a DEM tile, a named render. Copy it under `terrains/reference/` and commit it before round zero so every critic sees the same file.
 
-If they say run it, you become the lead agent and follow the prompt you just wrote.
+If any of the three is missing, ask for it in one line and stop. Do not guess a target. A vague target ("realistic", "like Gaea") makes the critic invent a comparison and approve everything.
 
-## The bar is the whole trick
+Resolution: the one the user will ship at. Default to the graph's `settings.resolution`. Author low, judge at shipping resolution. Erosion at 512 is a different solve from erosion at 2048.
 
-Everything else in a gauntlet loop is scaffolding. The loop only produces quality if the thing it compares against is real.
+## Roles
 
-A bar has to pass three tests:
+| Role    | Model    | Context      | Sees                                                   | Does not see                              |
+| ------- | -------- | ------------ | ------------------------------------------------------ | ----------------------------------------- |
+| Lead    | you      | this session | everything                                             |                                           |
+| Builder | Opus 5   | fresh        | task, gap brief, files, CLAUDE.md, massif command      | the critic's transcript, previous builders |
+| Critic  | Sonnet 5 | fresh        | our export, the target, the measurement instructions   | the builder's notes, how hard anyone tried |
 
-- **Named.** A specific thing, not a category. "The Copernicus GLO-30 tile over the Bernese Oberland" works. "Realistic alpine terrain" does not.
-- **Fetchable.** The critic can actually get it - download the DEM tile, open the published render, clone the repo and run its test suite. If the agent cannot obtain it, it will hallucinate the comparison.
-- **Comparable.** The bar and our export can sit side by side at the same world size and resolution and a judge can pick one. If you cannot imagine the A/B, it is not a bar.
+One builder at a time. Never fan out. Spawn with `Agent`, `model: opus` for the builder and `model: sonnet` for the critic, `subagent_type: general-purpose`. Never `subagent_type: fork`, for either role. A fork inherits this whole session, so the builder would see every critic verdict and the critic would see every builder receipt. Fresh context is the point. Everything a subagent needs goes into its brief, nothing else.
 
-Bars by goal type:
+## Round zero: analysis
 
-| Goal                             | Bar that works                                                                                               |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| Whole graph (a range, a valley)  | A real DEM tile of a named massif at matching world size, rendered as a 16-bit heightmap and a hillshade      |
-| Landform primitive node          | A real DEM of the landform it imitates (a named cirque, a named volcano), cropped to the same extent           |
-| Erosion or weathering node       | A named open-source implementation's output on the same input, plus its published test or benchmark          |
-| Colour, SatMap, texturing        | A named satellite tile (Sentinel-2 true colour over the same massif) at the same resolution                   |
-| Export, format, DEM round-trip   | The owning tool's reference file (`../massif/Tools/massif_dem.py` output), judged on byte equality            |
-| Performance                      | The erosion baseline in memory (seconds at 1024 and 2048) or a named engine's published timing                |
+Read the now image and the target image with the `Read` tool. Write down, in terrain terms, everything that differs, ranked by how much it changes the read of the terrain. Terrain terms means ridge network, spur spacing, valley floor width, talus apron, relief in metres, slope distribution, drainage pattern, colour banding. Not "looks off".
 
-When you propose bars, prefer the hardest one the agent can genuinely reach. A bar that is too easy makes the loop exit on round one.
+Pick the first piece: the single biggest gap that can be built and judged on its own from an export. Then create the progress file and commit it.
 
-If the goal has a measurable half, name it alongside the reference. Terrain nearly always has one: slope histogram, hypsometric curve, drainage density, ridge-to-valley relief in metres, determinism hash across thread counts, build seconds at a resolution. Taste plus a number beats taste alone.
-
-## What the critic judges
-
-The critic judges **exported files**, never the app. `bun cli/src/massif.ts build <graph> --resolution N` writes the `ExportPNG16` heightmap and the `ExportColor` image the graph declares. Those files, next to the bar, are the A/B. The critic must not open Terrain Studio or take screenshots of it - `CLAUDE.md` forbids judging the app's own look, and a viewport screenshot is not a comparable artifact anyway.
-
-Author at a low resolution for speed, judge at the resolution the user will build at. Erosion at 512 is a different solve from erosion at 2048, so a round is not won until the full-resolution export wins.
-
-## Prompt template
-
-Adapt the wording every time. Fill the brackets, keep it short, keep the last line.
+Progress file at `terrains/<name>.gauntlet.md`:
 
 ```
-Build [GOAL] in this repository, as [a .massifgraph under terrains/ | an engine node plus a graph that shows it].
+# <name> gauntlet
 
-The bar is [BAR]. Get the real thing first - [download the tile | clone the repo | run the reference tool] - and compare against it directly, not against a description of it. [Measure MEASURABLE HALF on both.]
+Task: <one line>
+Graph: terrains/<graph>.massifgraph, judged at <resolution>
+Now: <path>   Target: <path>
+Measured every round: <slope histogram | relief in metres | determinism hash | build seconds>
 
-Break this into the smallest pieces that can be improved and judged on their own from a built export. Spawn exactly one builder subagent on Opus 5 to do the work, one piece at a time. It authors with the massif command - nodes, describe, print, apply, validate, build - and obeys CLAUDE.md: terrain math in the engine, deterministic, tests green before every commit. For each piece, run a separate critic with fresh context on [CRITIC MODEL]. The critic builds the graph at [RESOLUTION], puts the exported heightmap and colour image next to the bar blind with the labels stripped, says which one is better, and names the single biggest remaining gap in terrain terms. Then it goes back to the builder.
+## Gaps (ranked, round zero)
+1. ...
+2. ...
 
-The critic should be a harsh critic. Praise is not useful. If ours does not win, it keeps going.
+## Log
+| Round | Piece | Builder change | Critic verdict | Biggest remaining gap |
+|-------|-------|----------------|----------------|-----------------------|
 
-/loop on each piece until the critic picks ours blind. Do not stop before that. Commit each round the critic advances.
-
-Keep a progress file at terrains/[NAME].gauntlet.md updating as the work evolves so I can watch it.
-
-Only one subagent works on the task at any time. Do not fan out.
+## Next builder brief
+<the exact prompt for the next builder, verbatim>
 ```
 
-Rules for what you fill in:
+The file is the loop's memory. After compaction it is the only thing you have, so every round writes the next builder brief into it verbatim before spawning.
 
-- The builder is always a single Opus 5 subagent. Never more than one builder.
-- `[CRITIC MODEL]` is Opus 5 when the judgement is visual or geomorphological (does the ridge network read as alpine, is the erosion carving where water would run, does the colour sit like the satellite tile). Sonnet 5 when the measurable half dominates (byte equality, determinism hash, build seconds, a benchmark from the reference repo).
-- `[RESOLUTION]` is the resolution the user will ship at. Default to the graph's own `settings.resolution` if they did not say.
-- Bake the bar in as a concrete, fetchable thing. Tile id, dataset name, repo URL, file path.
-- Add a build-time or resolution ceiling line **only if the user named one**. No default cap.
-- Add tool names only if the goal needs them beyond `massif` (a DEM downloader, a Python plotting environment for the measurable half).
-- Everything else stays out. No node chain, no parameter values, no erosion pass counts, no round count. The builder decides those after reading `massif nodes`, and it decides better than a spec written before the work started.
+## The round
 
-## Length and voice
+### 1. Builder
 
-Short. Around 150 to 200 words. If the prompt needs a heading to stay readable, it is too long.
+Spawn one Opus 5 agent with the brief from the progress file. The brief contains:
 
-Plain sentences. No bullet lists inside the prompt. It should read like someone telling an agent what a real mountain looks like and refusing to accept less.
+- The task in one line and the graph or node file to touch.
+- The one gap to close this round, in terrain terms, with the measurement if there is one. Nothing about how to implement it. The builder reads `massif nodes` and `massif describe` and decides better than a brief written before the work started.
+- What to keep: registration name, parameter surface, anything a previous round already won.
+- Rules: obey CLAUDE.md, terrain math in the engine, deterministic, `task test` green, commit with an AI-authored message, no push.
+- Deliverable: the exported PNG at the judging resolution, the commit hash, and a five-line receipt of what changed. No self-assessment.
 
-## Portability
+Wait for it. Confirm the export exists and the commit landed. Do not judge the picture.
 
-`/loop` is a Claude Code feature. It reruns the prompt on an interval or lets the model pace itself.
+### 2. Critic
 
-For any other agent, swap the `/loop` line for: "Keep looping until the critic picks ours." The single-builder line, the critic model line and the massif command carry over unchanged.
-
-## Two filled examples
-
-**Graph goal.** User: "the range graph should look like a real alpine massif, not a noise field."
-
-Bars offered: A) Copernicus GLO-30 over the Bernese Oberland at 16 km B) swissALTI3D over the Mont Blanc massif at 16 km C) USGS 3DEP over the Teton Range at 16 km. User picks A.
+Spawn one Sonnet 5 agent. It gets our export path, the target path, the measurement instruction, and nothing else. Brief:
 
 ```
-Build terrains/gaea_style_range.massifgraph into a range that reads as a real alpine massif at 16 km world size.
+Two terrain images. A is <our export>, B is <target>. B is the reference; A is an attempt to match it.
 
-The bar is the Copernicus GLO-30 tile over the Bernese Oberland, cropped to 16 km around the Jungfrau. Download it, resample it to 2048, export it as a 16-bit heightmap and a hillshade, and compare against those directly, not against a description of the Alps. Measure the slope histogram and ridge-to-valley relief in metres on both.
+Judge A against B harshly. Harsh means precise and unsparing about the terrain, not about the person who made it. No praise, no softening, no score out of ten.
 
-Break this into the smallest pieces that can be improved and judged on their own from a built export - the spine, the transverse ridges, the erosion, the valley floors, the colour. Spawn exactly one builder subagent on Opus 5 to do the work, one piece at a time. It authors with the massif command and obeys CLAUDE.md. For each piece, run a separate critic with fresh context on Opus 5. The critic builds the graph at 2048, puts the exported heightmap and colour image next to the tile blind with the labels stripped, says which one is the real mountain, and names the single biggest remaining gap in terrain terms. Then it goes back to the builder.
+Answer in this order:
+1. MATCH or NO MATCH. Would a terrain artist accept A as the same kind of landform as B at this resolution.
+2. Ranked list of gaps, largest first, each in terrain terms with a measurement where you can take one (<measurement instruction>). Name what B has that A lacks, or what A has that B does not.
+3. The single gap the next builder should close, one sentence.
 
-The critic should be a harsh critic. Praise is not useful. If ours does not win, it keeps going.
-
-/loop on each piece until the critic picks ours blind. Do not stop before that. Commit each round the critic advances.
-
-Keep a progress file at terrains/gaea_style_range.gauntlet.md updating as the work evolves so I can watch it.
-
-Only one subagent works on the task at any time. Do not fan out.
+Do not suggest code, node chains or parameter values. Do not open the app or take screenshots. Judge the files only.
 ```
 
-**Engine goal.** User: "ThermalErosion should make proper scree slopes, right now it just blurs."
+### 3. Next brief
 
-Bars offered: A) the Copernicus GLO-30 tile over a named scree field with its measured talus angle B) a named open-source terrain library's thermal erosion run on the same input plus its test suite C) both. User picks C.
+Take the critic's item 3 and item 2. Write the next builder brief: the gap to close, the critic's measurements, what to keep from this round. Add one row to the log. Write the brief into the progress file. Commit the file.
+
+If the critic said MATCH, the loop is over. Say so, point at the commit, stop.
+
+### 4. Compaction checkpoint
+
+After every second round, stop before spawning the next builder. Check that the progress file has the full log and the next brief verbatim. Then print exactly one line and end the turn:
 
 ```
-Rework the ThermalErosion node in engine/src/nodes/ so it settles real scree, and add a graph under terrains/ that shows it on the existing Mountain primitive.
-
-The bar is two things. The Copernicus GLO-30 tile over the Grosser Aletsch scree fields, cropped to 4 km, for what real talus looks like, and the named open-source library's thermal erosion run on our own Mountain export, for what a correct solver produces. Fetch both and compare against them directly. Measure the slope histogram on all three - real scree settles near its talus angle and the histogram should show it.
-
-Break this into the smallest pieces that can be judged on their own from a built export - the talus angle rule, the material transport, the mask input, the determinism across thread counts. Spawn exactly one builder subagent on Opus 5 to do the work, one piece at a time. It keeps the node's registration and parameters stable, extends the Catch2 determinism test with every change, authors the graph with the massif command, and obeys CLAUDE.md. For each piece, run a separate critic with fresh context on Sonnet 5. The critic builds the graph at 1024, puts our heightmap next to the two references blind with the labels stripped, says which one is better, and names the single biggest remaining gap. Then it goes back to the builder.
-
-The critic should be a harsh critic. Praise is not useful. If ours does not win, it keeps going.
-
-/loop on each piece until the critic picks ours blind. Do not stop before that. Commit each round the critic advances.
-
-Keep a progress file at terrains/thermal_erosion.gauntlet.md updating as the work evolves so I can watch it.
-
-Only one subagent works on the task at any time. Do not fan out.
+Round <N> done. Run: /compact focus on terrains/<name>.gauntlet.md, resume the gauntlet loop at round <N+1>
 ```
+
+You cannot trigger `/compact` yourself. When the user comes back with "continue" or the compacted context, re-read the progress file, do not redo round zero, spawn the builder with the stored brief, and carry on.
+
+## Exit
+
+The critic says MATCH, or the user stops the run. Never a round count. Never the lead deciding it looks close enough.
 
 ## What breaks a gauntlet loop
 
-- **A vague bar.** "Looks like Gaea" or "realistic mountains" - the critic invents a comparison and approves everything. Most common failure by far.
-- **Judging the app instead of the export.** A viewport screenshot has lighting and camera baked in and cannot sit next to a DEM. Only built files count.
-- **Judging at the wrong resolution.** A win at 512 says nothing about 2048. The critic builds at the shipping resolution.
-- **The builder judging its own work.** The critic must be a separate agent with fresh context. It should not know how hard the builder tried.
-- **More than one builder.** Parallel builders fight over the same graph file and the critic cannot tell whose gap it is naming. One Opus 5 builder, sequential pieces.
-- **A soft critic.** Say "harsh" in the prompt and give it a binary job: which one is the real mountain, A or B. Scores out of 10 drift upward every round.
-- **Named exit after N rounds.** The exit is winning the comparison, or the user stopping the run. Never a round count.
-- **Over-specifying.** Every parameter value in the prompt is one fewer decision the builder makes after reading `massif describe`. Minimal wins.
+- **A vague target.** Most common failure. The critic needs a file, not a description.
+- **The lead judging.** You have seen every round and you want it to be done. The critic has fresh eyes. Trust the verdict over your own read.
+- **Judging the app.** A viewport screenshot has lighting and camera baked in. Only built exports count, and CLAUDE.md forbids judging the app's look.
+- **Judging at the wrong resolution.** A win at 512 says nothing about 2048.
+- **Builder sees the critic's transcript.** It starts arguing with the verdict instead of fixing the terrain. Give it the gap, not the conversation.
+- **A forked subagent.** `subagent_type: fork` carries this session into the builder or the critic. Both must start empty.
+- **A brief that specifies the fix.** Every parameter value in the brief is one fewer decision the builder makes after reading `massif describe`.
+- **Skipping the progress file write.** Compaction hits and the next brief is gone. Write before spawn, every round.
+- **Two builders.** They fight over the same graph file and the critic cannot tell whose gap it is naming.
