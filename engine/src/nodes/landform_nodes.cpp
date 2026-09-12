@@ -223,7 +223,7 @@ const TerrainParameterDescriptor mountainParameters[] = {
     {"detailStrength", "Detail", "How deep the valleys are cut between the spurs", "",
      TerrainParameterType_Float, 0.7, 0.0, 1.0, "", nullptr, 0},
     {"featureSize", "Spur spacing", "Ground distance between neighbouring spurs at the foot, before Scale",
-     "m", TerrainParameterType_Float, 1400.0, 1.0, 100000.0, "", nullptr, 0},
+     "m", TerrainParameterType_Float, 700.0, 1.0, 100000.0, "", nullptr, 0},
     {"spurElongation", "Spur length",
      "How far the spurs are drawn out from the summit toward the foot", "",
      TerrainParameterType_Float, 0.7, 0.0, 0.95, "", nullptr, 0}};
@@ -303,7 +303,7 @@ struct GullyField {
     float gain = 0.45f;
     float detailRetention = 1.0f;
     /// How steeply the ground climbs out of a gully floor onto the spur.
-    float gullySharpness = 1.6f;
+    float gullySharpness = 2.0f;
     /// How far below the crest the coarsest gullies come to their full depth.
     /// Each finer octave comes to its depth in half that distance, so the
     /// summit stands over faces cut by chutes while the main valleys open
@@ -467,7 +467,7 @@ constexpr int leastStreaksAround = 4;
 
 /// How far below the crest, as a share of the reach, the main valleys come to
 /// their full depth.
-constexpr double summitHoldShare = 0.3;
+constexpr double summitHoldShare = 0.22;
 
 /// Everything about a mountain that is fixed before the first gully is read.
 struct MountainLayout {
