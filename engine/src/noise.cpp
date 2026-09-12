@@ -60,20 +60,31 @@ constexpr float catchmentReach = 0.55f;
 /// the one thing no mountain crest has.
 constexpr float wallWarpCellWidths = 0.4f;
 
-}  // namespace
+std::int64_t wrappedCell(std::int64_t cell, int period) {
+    if (period <= 0) {
+        return cell;
+    }
+    const std::int64_t wrapped = cell % period;
+    if (wrapped < 0) {
+        return wrapped + period;
+    }
+    return wrapped;
+}
 
-float perlin(float x, float y, std::uint64_t seed) {
+float perlinWithPeriod(float x, float y, std::uint64_t seed, int periodX) {
     const float flooredX = std::floor(x);
     const float flooredY = std::floor(y);
     const std::int64_t cellX = static_cast<std::int64_t>(flooredX);
     const std::int64_t cellY = static_cast<std::int64_t>(flooredY);
+    const std::int64_t leftX = wrappedCell(cellX, periodX);
+    const std::int64_t rightX = wrappedCell(cellX + 1, periodX);
     const float localX = x - flooredX;
     const float localY = y - flooredY;
 
-    const float bottomLeft = cornerDot(seed, cellX, cellY, localX, localY);
-    const float bottomRight = cornerDot(seed, cellX + 1, cellY, localX - 1.0f, localY);
-    const float topLeft = cornerDot(seed, cellX, cellY + 1, localX, localY - 1.0f);
-    const float topRight = cornerDot(seed, cellX + 1, cellY + 1, localX - 1.0f, localY - 1.0f);
+    const float bottomLeft = cornerDot(seed, leftX, cellY, localX, localY);
+    const float bottomRight = cornerDot(seed, rightX, cellY, localX - 1.0f, localY);
+    const float topLeft = cornerDot(seed, leftX, cellY + 1, localX, localY - 1.0f);
+    const float topRight = cornerDot(seed, rightX, cellY + 1, localX - 1.0f, localY - 1.0f);
 
     const float weightX = fade(localX);
     const float weightY = fade(localY);
@@ -81,6 +92,16 @@ float perlin(float x, float y, std::uint64_t seed) {
     // into [-1, 1].
     return mix(mix(bottomLeft, bottomRight, weightX), mix(topLeft, topRight, weightX), weightY)
            * 1.4142135623730951f;
+}
+
+}  // namespace
+
+float perlin(float x, float y, std::uint64_t seed) {
+    return perlinWithPeriod(x, y, seed, 0);
+}
+
+float perlinPeriodic(float x, float y, std::uint64_t seed, int periodX) {
+    return perlinWithPeriod(x, y, seed, periodX);
 }
 
 float fractalPerlin(float x, float y, std::uint64_t seed, const FractalOptions& options) {
@@ -142,17 +163,6 @@ float ridgeOctave(float x, float y, std::uint64_t seed) {
 }
 
 namespace {
-
-std::int64_t wrappedCell(std::int64_t cell, int period) {
-    if (period <= 0) {
-        return cell;
-    }
-    const std::int64_t wrapped = cell % period;
-    if (wrapped < 0) {
-        return wrapped + period;
-    }
-    return wrapped;
-}
 
 VoronoiSample voronoiWithPeriod(float x, float y, std::uint64_t seed, float jitter, int periodX) {
     const std::int64_t baseX = static_cast<std::int64_t>(std::floor(x));

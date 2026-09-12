@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cmath>
+#include <complex>
 #include <numbers>
 #include <vector>
 
@@ -268,138 +269,172 @@ constexpr noise::FractalOptions outlineOptions{2, 0.5f, 2.0f};
 /// How long the summit crest is, as a share of the reach to the foot. A summit
 /// is the high point of an arête rather than the tip of a cone, so the mass
 /// falls away from a line and the ground leaves it at an angle on every side.
-constexpr double summitCrestShare = 0.2;
+constexpr double summitCrestShare = 0.3;
 
-/* ------------------------------------------------------------ spur cells -- */
+/* ---------------------------------------------------------------- gullies -- */
 
 /**
- * The spurs and the valleys between them, drawn as Gaea's docs describe their
- * own Mountain: a modulated Voronoi pattern under distortion.
+ * The gullies cut into the flanks and the spurs left standing between them,
+ * drawn the way Gaea's docs describe their own Mountain: a modulated cell
+ * pattern under distortion.
  *
- * The cells are laid out around the summit in a log-polar frame, so every
- * cell is a wedge pointing at the summit and the cells are as fine near the
- * summit as they are coarse at the foot. Each cell is a cone falling away
- * from its own point, stretched along the wedge: a spur with a rounded back,
- * meeting its neighbours in the V of a gully along every cell edge. The frame
- * is read around the loop with a whole number of cells, so it closes without
- * a seam. Finer octaves lay smaller spurs and gullies over the large ones.
+ * The field is read in a log-polar frame about the summit, stretched along the
+ * outward axis, so every feature is a streak running down the slope and the
+ * streaks are as fine near the summit as they are coarse at the foot. Gradient
+ * noise in that frame is folded about zero: its zero set is a connected
+ * network of lines, and folding puts a V-shaped gully floor along every one
+ * of them, with a rounded spur between. Two gullies that enclose a spur meet
+ * again below it, which is a confluence, so the network drains rather than
+ * closing into hanging bowls the way a network of folded ridges would.
+ *
+ * Finer octaves lay smaller gullies between the large ones, and each octave
+ * only comes in once its streaks are wider than a set ground distance, so
+ * the network branches as it runs out from the summit.
  */
-struct SpurCells {
-    /// How many cells the coarsest octave carries around the summit.
+struct GullyField {
+    /// How many streaks the coarsest octave carries around the summit.
     int countAround = 12;
-    /// How far a cell runs toward the foot against its width around.
+    /// How far a streak runs toward the foot against its width around.
     double stretch = 3.0;
-    /// The radius the log-polar frame is read from, so cells near the summit
-    /// stay about this size rather than shrinking without end.
-    double innerMeters = 100.0;
-    int octaveCount = 5;
-    float gain = 0.3f;
-    /// How much smaller than a cell the ground held clear around the summit
-    /// is.
-    float summitHoldSharpness = 4.0f;
-    /// How sharply the ground leaves a ridge. Below one the crest is a knife
-    /// edge over steep upper flanks that ease into the valley.
-    float ridgeSharpness = 0.75f;
+    /// The outward span of the frame from the summit to the foot, in the
+    /// frame's own units.
+    double outwardSpan = 4.0;
+    int octaveCount = 6;
+    float gain = 0.45f;
     float detailRetention = 1.0f;
-    /// How much the depth of the valleys varies slowly around the mountain,
-    /// so some spurs stand well clear of their neighbours and others barely
-    /// show.
-    float depthWanderShare = 0.5f;
-    float depthWanderFeatureCells = 2.5f;
-    /// Wander of the cell edges, in cells, and the size of that wander.
-    float edgeWanderCells = 0.35f;
-    float edgeWanderFeatureCells = 1.5f;
+    /// How steeply the ground climbs out of a gully floor onto the spur.
+    float gullySharpness = 1.6f;
+    /// How far below the crest the coarsest gullies come to their full depth.
+    /// Each finer octave comes to its depth in half that distance, so the
+    /// summit stands over faces cut by chutes while the main valleys open
+    /// well below it.
+    double holdMeters = 2000.0;
+    /// Wander of the streaks on the ground, in streak widths, and the size
+    /// of that wander in streak widths.
+    float wanderStreaks = 0.5f;
+    float wanderFeatureStreaks = 1.5f;
     std::uint64_t seed = 0;
 };
 
-/// A point in the frame the cells are read in: turns around the summit and
+/// A point in the frame the gullies are read in: turns around the summit and
 /// stretched distance out from it.
 struct PolarPoint {
     double around = 0.0;
     double outward = 0.0;
+    /// The radius of the disc the crest maps to, scaled back to the ground.
+    double radiusMeters = 0.0;
+    /// Ground distance from the crest.
+    double fromCrestMeters = 0.0;
 };
 
-PolarPoint polarAbout(const GroundPoint& centre, const GroundPoint& ground, double innerMeters) {
-    const double east = ground.eastingMeters - centre.eastingMeters;
-    const double north = ground.northingMeters - centre.northingMeters;
-    const double turns = std::atan2(north, east) / (2.0 * std::numbers::pi) + 0.5;
-    return PolarPoint{turns, std::log(std::hypot(east, north) / innerMeters + 1.0)};
+/**
+ * The frame about the summit crest rather than about a point. The crest is a
+ * slit in the plane, and the Joukowski map takes the outside of a slit to the
+ * outside of a disc without bending angles, so streaks drawn in log-polar
+ * coordinates about that disc leave the crest at right angles all along it
+ * and turn radial further out.
+ */
+PolarPoint polarAboutCrest(const RidgeSegment& crest, const GroundPoint& ground) {
+    const GroundPoint middle{(crest.first.eastingMeters + crest.second.eastingMeters) * 0.5,
+                             (crest.first.northingMeters + crest.second.northingMeters) * 0.5};
+    const Heading along = headingFrom(crest.first, crest.second);
+    const double halfLengthMeters =
+        std::hypot(crest.second.eastingMeters - crest.first.eastingMeters,
+                   crest.second.northingMeters - crest.first.northingMeters)
+        * 0.5;
+    const double east = ground.eastingMeters - middle.eastingMeters;
+    const double north = ground.northingMeters - middle.northingMeters;
+    const std::complex<double> slitPoint{(east * along.east + north * along.north) / halfLengthMeters,
+                                         (north * along.east - east * along.north) / halfLengthMeters};
+    const std::complex<double> unit =
+        slitPoint + std::sqrt(slitPoint - 1.0) * std::sqrt(slitPoint + 1.0);
+    const double turns = std::arg(unit) / (2.0 * std::numbers::pi) + 0.5;
+    const double radiusMeters = std::abs(unit) * halfLengthMeters;
+    const double fromCrestMeters = segmentDistance(
+        ground.eastingMeters, ground.northingMeters, crest.first.eastingMeters,
+        crest.first.northingMeters, crest.second.eastingMeters, crest.second.northingMeters);
+    return PolarPoint{turns, std::log(std::max(std::abs(unit), 1.0)), radiusMeters,
+                      fromCrestMeters};
 }
 
 /// How much of an octave survives when the finest detail is held back.
-/// Retention counts octaves, so holding detail back drops the smallest cells
-/// outright and leaves the larger ones at full depth.
-float cellOctaveWeight(float detailRetention, int octave, int octaveCount) {
+/// Retention counts octaves, so holding detail back drops the smallest
+/// gullies outright and leaves the larger ones at full depth.
+float gullyOctaveWeight(float detailRetention, int octave, int octaveCount) {
     const float keptOctaves = std::max(detailRetention * static_cast<float>(octaveCount), 1.0f);
     return std::clamp(keptOctaves - static_cast<float>(octave), 0.0f, 1.0f);
 }
 
-/// The wander laid over the cells is read on the ground rather than in the
+/// The wander laid over the streaks is read on the ground rather than in the
 /// polar frame, because a field read in the frame would not close around the
 /// loop and would seam the mountain along one ray.
-struct CellWander {
-    float edgeEast = 0.0f;
-    float edgeNorth = 0.0f;
-    float depth = 0.0f;
+struct StreakWander {
+    float around = 0.0f;
+    float outward = 0.0f;
 };
 
-CellWander cellWanderAt(const GroundPoint& ground, double featureMeters, const SpurCells& cells,
-                        std::uint64_t seed) {
+StreakWander streakWanderAt(const GroundPoint& ground, double featureMeters,
+                            float wanderStreaks, std::uint64_t seed) {
     const float x = static_cast<float>(ground.eastingMeters / featureMeters);
     const float y = static_cast<float>(ground.northingMeters / featureMeters);
-    CellWander wander;
-    wander.edgeEast = noise::perlin(x, y, terrainSeedForLane(seed, 101)) * cells.edgeWanderCells;
-    wander.edgeNorth = noise::perlin(x, y, terrainSeedForLane(seed, 102)) * cells.edgeWanderCells;
-    wander.depth = noise::perlin(x / cells.depthWanderFeatureCells, y / cells.depthWanderFeatureCells,
-                                 terrainSeedForLane(seed, 103));
-    return wander;
+    constexpr noise::FractalOptions wanderOptions{3, 0.5f, 2.0f};
+    return StreakWander{
+        noise::fractalPerlin(x, y, terrainSeedForLane(seed, 101), wanderOptions) * wanderStreaks,
+        noise::fractalPerlin(x, y, terrainSeedForLane(seed, 102), wanderOptions) * wanderStreaks};
 }
 
-/// One octave of cells: 0 on a cell edge, rising toward the cell's own point.
-float spurCellOctave(const PolarPoint& polar, const CellWander& wander, int countAround,
-                     const SpurCells& cells, std::uint64_t seed) {
-    // One turn around is `countAround` cells; the outward axis is scaled so a
-    // cell is `stretch` times as long as it is wide.
-    const double cellsPerTurn = static_cast<double>(countAround);
-    const float x = static_cast<float>(polar.around * cellsPerTurn);
-    const float y =
-        static_cast<float>(polar.outward * cellsPerTurn / (2.0 * std::numbers::pi * cells.stretch));
-    const noise::VoronoiSample sample = noise::voronoiPeriodic(
-        x + wander.edgeEast, y + wander.edgeNorth, seed, 1.0f, countAround);
-    // Ridges run along the cell edges, where the two nearest points are
-    // equally far, and the ground falls away from them into the cell: a
-    // network of arêtes meeting at every junction, with a valley down every
-    // cell between them. The summit itself is held clear, so it is where the
-    // ridges meet rather than the floor of whichever cell it fell in.
-    const float intoCell = std::min(sample.secondDistance - sample.nearestDistance, 1.0f);
-    const float toSummit = static_cast<float>(polar.outward * cellsPerTurn
-                                              / (2.0 * std::numbers::pi * cells.stretch))
-                           * cells.summitHoldSharpness;
-    const float valley =
-        std::pow(intoCell, cells.ridgeSharpness) * smoothStep(std::min(toSummit, 1.0f));
-    return valley * (1.0f + wander.depth * cells.depthWanderShare);
+/// Gradient noise is exactly zero on every lattice corner, so folding one
+/// octave alone would run a gully through every corner in a regular grid. A
+/// second octave at twice the frequency moves the zero set off the corners.
+float streakNoise(float x, float y, int countAround, std::uint64_t seed) {
+    return noise::perlinPeriodic(x, y, seed, countAround) * 0.65f
+           + noise::perlinPeriodic(x * 2.0f, y * 2.0f, terrainSeedForLane(seed, 7),
+                                   countAround * 2) * 0.35f;
 }
 
-float spurCells(const PolarPoint& polar, const GroundPoint& ground, double radiusMeters,
-                const SpurCells& cells) {
+/// One octave of gullies: 1 on a gully floor, falling to 0 on the back of the
+/// spur beside it.
+float gullyOctave(const PolarPoint& polar, const StreakWander& wander, int countAround,
+                  const GullyField& gullies, std::uint64_t seed) {
+    const double streaksPerTurn = static_cast<double>(countAround);
+    const float x = static_cast<float>(polar.around * streaksPerTurn) + wander.around;
+    const float y = static_cast<float>(polar.outward * streaksPerTurn
+                                       / (2.0 * std::numbers::pi * gullies.stretch))
+                    + wander.outward;
+    const float signal = streakNoise(x, y, countAround, seed);
+    return std::max(1.0f - std::abs(signal) * gullies.gullySharpness, 0.0f);
+}
+
+float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double radiusMeters,
+                   const GullyField& gullies) {
     float total = 0.0f;
     float weightSum = 0.0f;
     float amplitude = 1.0f;
-    int countAround = cells.countAround;
-    // A cell of the coarsest octave is about this wide at the foot; the
-    // wander of each octave is read at its own cell size.
+    // A finer gully is a tributary: it cuts the back of the spur above it and
+    // ends where it meets the floor of the coarser gully, so each octave is
+    // weighted by how far the one before it left the ground standing.
+    float standing = 1.0f;
+    int countAround = gullies.countAround;
+    double holdMeters = gullies.holdMeters;
     double featureMeters = 2.0 * std::numbers::pi * radiusMeters / countAround
-                           * cells.edgeWanderFeatureCells;
-    for (int octave = 0; octave < cells.octaveCount; ++octave) {
-        const float weight =
-            amplitude * cellOctaveWeight(cells.detailRetention, octave, cells.octaveCount);
+                           * gullies.wanderFeatureStreaks;
+    for (int octave = 0; octave < gullies.octaveCount; ++octave) {
+        const float hold = smoothStep(
+            static_cast<float>(std::clamp(polar.fromCrestMeters / holdMeters, 0.0, 1.0)));
+        const float weight = amplitude * hold
+                             * gullyOctaveWeight(gullies.detailRetention, octave,
+                                                 gullies.octaveCount);
         const std::uint64_t octaveSeed =
-            terrainSeedForLane(cells.seed, static_cast<std::uint64_t>(octave));
-        const CellWander wander = cellWanderAt(ground, featureMeters, cells, octaveSeed);
-        total += spurCellOctave(polar, wander, countAround, cells, octaveSeed) * weight;
+            terrainSeedForLane(gullies.seed, static_cast<std::uint64_t>(octave));
+        const StreakWander wander =
+            streakWanderAt(ground, featureMeters, gullies.wanderStreaks, octaveSeed);
+        const float gully = gullyOctave(polar, wander, countAround, gullies, octaveSeed);
+        total += gully * standing * weight;
+        standing = 1.0f - gully;
+        holdMeters *= 0.5;
         featureMeters *= 0.5;
         weightSum += amplitude;
-        amplitude *= cells.gain;
+        amplitude *= gullies.gain;
         countAround *= 2;
     }
     return total / weightSum;
@@ -407,30 +442,35 @@ float spurCells(const PolarPoint& polar, const GroundPoint& ground, double radiu
 
 /* ----------------------------------------------------------- the massif -- */
 
-/// How much of the mass the floor of a valley between two spurs may lose at
-/// full detail. The cut is a share of the mass standing there, so the valleys
-/// of a tall mountain are as deep as the mountain is tall, and the relief
-/// dies away with the mass into the apron at the foot.
-constexpr float valleyDepthLimit = 0.8f;
 
-/// How many cells the coarsest octave carries around the summit per unit of
-/// foot perimeter over spur spacing.
-constexpr int leastCellsAround = 4;
+/// How much of the mass the floor of a gully may lose at full detail. The cut
+/// is a share of the mass standing there, so the gullies of a tall mountain
+/// are as deep as the mountain is tall, and the relief dies away with the
+/// mass into the apron at the foot.
+constexpr float gullyDepthLimit = 0.8f;
 
-/// Everything about a mountain that is fixed before the first cell is read.
+/// How many streaks the coarsest octave carries around the summit at least.
+constexpr int leastStreaksAround = 4;
+
+/// How far below the crest, as a share of the reach, the main valleys come to
+/// their full depth.
+constexpr double summitHoldShare = 0.3;
+
+/// Everything about a mountain that is fixed before the first gully is read.
 struct MountainLayout {
     ShapePlacement placement;
     DomainWarp warp;
     RidgeSegment summitCrest;
-    SpurCells cells;
+    GullyField gullies;
     double radiusMeters = 3000.0;
     double outlineFeatureSizeMeters = 3000.0;
     float outlineWanderShare = 0.0f;
     float profileExponent = 1.6f;
-    float valleyDepth = 0.0f;
+    float gullyDepth = 0.0f;
     float heightMeters = 1200.0f;
     float baseAltitudeMeters = 0.0f;
     std::uint64_t outlineSeed = 0;
+    std::uint64_t crestSeed = 0;
 };
 
 /**
@@ -454,14 +494,55 @@ double reachAt(const MountainLayout& layout, const GroundPoint& ground) {
     return layout.radiusMeters * (1.0 + layout.outlineWanderShare * wander);
 }
 
-/**
- * The mass, 1 on the summit crest and 0 at the foot: steep where it leaves
- * the crest and tangent to the plane at the foot, so the flank meets the
- * ground through a footslope rather than at an angle.
- */
-float massAt(const MountainLayout& layout, const GroundPoint& ground, double fromCrestMeters) {
-    const double unit = std::clamp(fromCrestMeters / reachAt(layout, ground), 0.0, 1.0);
-    return static_cast<float>(std::pow(1.0 - unit, layout.profileExponent));
+/// A cone's profile: 1 at its crest and 0 at its foot, steep where it leaves
+/// the crest and tangent to the plane at the foot.
+float coneMass(double fromCrestMeters, double reachMeters, float exponent) {
+    const double unit = std::clamp(fromCrestMeters / reachMeters, 0.0, 1.0);
+    return static_cast<float>(std::pow(1.0 - unit, exponent));
+}
+
+/// How far the ends of the summit arête stand below the summit, as a share of
+/// the height, so the crest is a line with one high point rather than a
+/// level wall.
+constexpr float crestFallShare = 0.12f;
+
+/// How far the crest rises and falls along its length between the summit and
+/// its ends, and how many such swells it carries.
+constexpr float crestSwellShare = 0.05f;
+constexpr float crestSwellsPerLength = 1.5f;
+
+/// 1 at the summit in the middle of the crest, falling to `1 - crestFallShare`
+/// at either end and beyond it, so the mass is highest at one point and the
+/// massif runs longer along the crest than across it.
+float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, std::uint64_t seed) {
+    const Heading along = headingFrom(crest.first, crest.second);
+    const double halfLengthMeters =
+        std::hypot(crest.second.eastingMeters - crest.first.eastingMeters,
+                   crest.second.northingMeters - crest.first.northingMeters)
+        * 0.5;
+    const double middleEast = (crest.first.eastingMeters + crest.second.eastingMeters) * 0.5;
+    const double middleNorth = (crest.first.northingMeters + crest.second.northingMeters) * 0.5;
+    const double alongShare = ((ground.eastingMeters - middleEast) * along.east
+                               + (ground.northingMeters - middleNorth) * along.north)
+                              / halfLengthMeters;
+    const float clamped = static_cast<float>(std::clamp(alongShare, -1.0, 1.0));
+    const float squared = clamped * clamped;
+    // The fall levels off at the ends of the crest, since a fall still going
+    // where the profile stops changing would fold a crease across the whole
+    // mass on a line through each end.
+    const float fall = 1.0f - (1.0f - squared) * (1.0f - squared);
+    // The swell is zero at the summit so the summit keeps its height, and
+    // fades out at the ends so it never lifts an end above the fall.
+    const float swell = noise::perlin(clamped * crestSwellsPerLength + 0.5f, 0.5f, seed)
+                        * squared * (1.0f - squared);
+    return 1.0f - crestFallShare * fall + crestSwellShare * swell * 4.0f;
+}
+
+/// The mass, 1 on the summit crest and 0 at the foot.
+float massAt(const MountainLayout& layout, const GroundPoint& ground, double fromCrestMeters,
+             double reachMeters) {
+    return coneMass(fromCrestMeters, reachMeters, layout.profileExponent)
+           * crestProfile(layout.summitCrest, ground, layout.crestSeed);
 }
 
 float mountainHeightAt(const MountainLayout& layout, double eastingMeters, double northingMeters) {
@@ -470,12 +551,11 @@ float mountainHeightAt(const MountainLayout& layout, double eastingMeters, doubl
         ground.eastingMeters, ground.northingMeters, layout.summitCrest.first.eastingMeters,
         layout.summitCrest.first.northingMeters, layout.summitCrest.second.eastingMeters,
         layout.summitCrest.second.northingMeters);
-    const float mass = massAt(layout, ground, fromCrestMeters);
-    const GroundPoint centre{layout.placement.centreEastingMeters,
-                             layout.placement.centreNorthingMeters};
-    const float valleys = spurCells(polarAbout(centre, ground, layout.cells.innerMeters), ground,
-                                    layout.radiusMeters, layout.cells);
-    return mass * (1.0f - layout.valleyDepth * valleys) * layout.heightMeters
+    const double reachMeters = reachAt(layout, ground);
+    const float mass = massAt(layout, ground, fromCrestMeters, reachMeters);
+    const PolarPoint polar = polarAboutCrest(layout.summitCrest, ground);
+    const float gullies = gullyDepthAt(polar, ground, layout.radiusMeters, layout.gullies);
+    return mass * (1.0f - layout.gullyDepth * gullies) * layout.heightMeters
            + layout.baseAltitudeMeters;
 }
 
@@ -502,6 +582,14 @@ RidgeSegment summitCrestFor(const ShapePlacement& placement, double radiusMeters
                         stepFrom(centre, alongCrest, halfLengthMeters)};
 }
 
+/// How long a coarsest streak is against its width, so that at full
+/// elongation one spur runs the whole flank from summit to foot and at none
+/// a streak is as long as it is wide.
+double streakStretchFor(const GullyField& gullies, double elongation) {
+    const double streakWidth = 2.0 * std::numbers::pi / gullies.countAround;
+    return std::max(elongation * gullies.outwardSpan / streakWidth, 1.0);
+}
+
 MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
                                   const WorldFrame& frame) {
     const double scale = api->parameterNumber(context, 0);
@@ -519,20 +607,23 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
     layout.profileExponent =
         static_cast<float>(api->parameterNumber(context, 10)) * bulkExponentScale(bulk);
     const double spacingMeters = api->parameterNumber(context, 13) * scale;
-    layout.cells.countAround = std::max(
+    layout.gullies.countAround = std::max(
         static_cast<int>(std::round(2.0 * std::numbers::pi * layout.radiusMeters / spacingMeters)),
-        leastCellsAround);
-    layout.cells.stretch = 1.0 / (1.0 - api->parameterNumber(context, 14));
-    layout.cells.innerMeters = spacingMeters * 0.1;
-    layout.cells.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
-    layout.cells.seed = terrainSeedForLane(seed, 3);
+        leastStreaksAround);
+    layout.gullies.outwardSpan =
+        std::log(2.0 * layout.radiusMeters / (layout.radiusMeters * summitCrestShare));
+    layout.gullies.stretch = streakStretchFor(layout.gullies, api->parameterNumber(context, 14));
+    layout.gullies.holdMeters = layout.radiusMeters * summitHoldShare;
+    layout.gullies.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
+    layout.gullies.seed = terrainSeedForLane(seed, 3);
     layout.outlineFeatureSizeMeters = layout.radiusMeters * std::numbers::pi / outlineLobeCount;
     layout.outlineWanderShare = irregularity * outlineWanderLimit;
     layout.heightMeters = static_cast<float>(api->parameterNumber(context, 1));
     layout.baseAltitudeMeters = static_cast<float>(api->parameterNumber(context, 9));
-    layout.valleyDepth = static_cast<float>(api->parameterNumber(context, 12)) * valleyDepthLimit;
+    layout.gullyDepth = static_cast<float>(api->parameterNumber(context, 12)) * gullyDepthLimit;
     layout.warp = mountainWarpFor(layout.radiusMeters, irregularity, seed);
     layout.outlineSeed = terrainSeedForLane(seed, 4);
+    layout.crestSeed = terrainSeedForLane(seed, 7);
     return layout;
 }
 
@@ -552,7 +643,7 @@ void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* co
 const TerrainNodeDescriptor mountainDescriptor = {
     "Mountain",
     "Terrain",
-    "A single mountain: a summit with spurs and valleys radiating to the foot",
+    "A single mountain: a summit with spurs and gullies radiating to the foot",
     1,
     nullptr,
     0,

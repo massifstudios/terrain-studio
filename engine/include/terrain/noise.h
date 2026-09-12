@@ -17,6 +17,10 @@ namespace terrain::noise {
 /// Classic gradient noise, in [-1, 1] and exactly 0 at every lattice corner.
 float perlin(float x, float y, std::uint64_t seed);
 
+/// The same, repeating every `periodX` lattice cells along x, so a field read
+/// around a loop closes on itself without a seam.
+float perlinPeriodic(float x, float y, std::uint64_t seed, int periodX);
+
 struct FractalOptions {
     int octaves = 5;
     /// How much each octave shrinks in amplitude. 0.5 is the usual choice.

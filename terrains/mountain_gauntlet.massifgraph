@@ -27,13 +27,13 @@
 			"x": 0,
 			"y": 0,
 			"parameters": {
-				"radius": 7600,
-				"height": 2200,
-				"peakSharpness": 2.0,
+				"radius": 6500,
+				"height": 3200,
+				"peakSharpness": 1.5,
 				"irregularity": 0.5,
 				"reduceDetails": 0.25,
-				"detailStrength": 0.35,
-				"featureSize": 900,
+				"detailStrength": 0.7,
+				"featureSize": 2400,
 				"spurElongation": 0.65
 			}
 		},

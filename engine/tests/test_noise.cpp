@@ -26,6 +26,25 @@ TEST_CASE("gradient noise is exactly zero on the lattice", "[noise]") {
     }
 }
 
+TEST_CASE("periodic gradient noise closes on itself along x", "[noise]") {
+    // A field read around a loop must meet itself where the loop closes, so
+    // the value one period along x is the same value, with the same slope.
+    constexpr int period = 7;
+    for (int step = 0; step < 200; ++step) {
+        const float x = static_cast<float>(step) * 0.037f;
+        const float y = static_cast<float>(step) * 0.113f - 3.0f;
+        const float here = terrain::noise::perlinPeriodic(x, y, seed, period);
+        const float aPeriodOn =
+            terrain::noise::perlinPeriodic(x + static_cast<float>(period), y, seed, period);
+        REQUIRE(here == Approx(aPeriodOn).margin(1.0e-5));
+    }
+    // Inside one period it is ordinary gradient noise, so the lattice stays
+    // zero and the field is not constant.
+    REQUIRE(terrain::noise::perlinPeriodic(3.0f, 2.0f, seed, period) == Approx(0.0).margin(1.0e-6));
+    REQUIRE(terrain::noise::perlinPeriodic(0.4f, 0.6f, seed, period)
+            != terrain::noise::perlinPeriodic(1.4f, 0.6f, seed, period));
+}
+
 TEST_CASE("gradient noise stays inside its nominal range", "[noise]") {
     float strongest = 0.0f;
     for (int step = 0; step < 4000; ++step) {
