@@ -1,0 +1,104 @@
+{
+	"version": 1,
+	"settings": {
+		"resolution": 512,
+		"world_size_meters": 6000,
+		"seed": 11,
+		"georeference": {
+			"coordinate_system": "",
+			"easting_min_meters": 0,
+			"northing_max_meters": 0
+		}
+	},
+	"preview_node_id": "materials",
+	"nodes": [
+		{
+			"id": "mountain",
+			"type": "Mountain",
+			"x": 0,
+			"y": 0,
+			"parameters": {
+				"base_altitude": 400,
+				"height": 2600,
+				"radius": 2600
+			}
+		},
+		{
+			"id": "eroded",
+			"type": "HydraulicErosion",
+			"x": 240,
+			"y": 0,
+			"parameters": {}
+		},
+		{
+			"id": "snow",
+			"type": "Snow",
+			"x": 480,
+			"y": 0,
+			"parameters": {
+				"direction": 180,
+				"intensity": 4,
+				"melt": 0.25,
+				"melt_type": 1,
+				"snow_line": 1800,
+				"snow_line_falloff": 300
+			}
+		},
+		{
+			"id": "meadow",
+			"type": "HeightMask",
+			"x": 720,
+			"y": 160,
+			"parameters": {
+				"minimum_altitude": -12000,
+				"maximum_altitude": 1600,
+				"falloff": 400
+			}
+		},
+		{
+			"id": "steep",
+			"type": "SlopeMask",
+			"x": 720,
+			"y": 320,
+			"parameters": {
+				"minimum_slope": 28,
+				"maximum_slope": 90,
+				"falloff": 12
+			}
+		},
+		{
+			"id": "materials",
+			"type": "SplatWeights",
+			"x": 960,
+			"y": 120,
+			"parameters": {
+				"base_texture": 3,
+				"layer2_texture": 5,
+				"layer3_texture": 0,
+				"layer4_texture": 4
+			}
+		},
+		{
+			"id": "export_splat",
+			"type": "ExportSplat",
+			"x": 1200,
+			"y": 120,
+			"parameters": {
+				"path": "terrains/textured_peak_splat.png"
+			}
+		}
+	],
+	"edges": [
+		{ "from_node_id": "mountain", "from_port": 0, "to_node_id": "eroded", "to_port": 0 },
+		{ "from_node_id": "eroded", "from_port": 0, "to_node_id": "snow", "to_port": 0 },
+		{ "from_node_id": "snow", "from_port": 0, "to_node_id": "meadow", "to_port": 0 },
+		{ "from_node_id": "snow", "from_port": 0, "to_node_id": "steep", "to_port": 0 },
+		{ "from_node_id": "meadow", "from_port": 0, "to_node_id": "materials", "to_port": 1 },
+		{ "from_node_id": "steep", "from_port": 0, "to_node_id": "materials", "to_port": 2 },
+		{ "from_node_id": "snow", "from_port": 1, "to_node_id": "materials", "to_port": 3 },
+		{ "from_node_id": "materials", "from_port": 0, "to_node_id": "export_splat", "to_port": 0 },
+		{ "from_node_id": "materials", "from_port": 1, "to_node_id": "export_splat", "to_port": 1 },
+		{ "from_node_id": "materials", "from_port": 2, "to_node_id": "export_splat", "to_port": 2 },
+		{ "from_node_id": "materials", "from_port": 3, "to_node_id": "export_splat", "to_port": 3 }
+	]
+}
