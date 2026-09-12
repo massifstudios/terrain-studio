@@ -52,6 +52,10 @@ add_executable(terrain_engine_tests
     test_fluvial.cpp
     test_erosion_gpu.cpp
     test_texturing.cpp
+    test_derive_nodes.cpp
+    test_snow.cpp
+    test_debris.cpp
+    test_sand.cpp
 )
 
 target_link_libraries(terrain_engine_tests PRIVATE

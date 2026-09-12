@@ -19,10 +19,15 @@ void registerAdjustNodes(const TerrainRegistryApi& api, TerrainRegistry* registr
 void registerErosionNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerFluvialNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerMaskNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerDeriveNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerSnowNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerDebrisNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerSandNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerCombineNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerTextureNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerSatMapNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerColorNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
+void registerSurfaceColorNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerVegetationNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 void registerOutputNodes(const TerrainRegistryApi& api, TerrainRegistry* registry);
 

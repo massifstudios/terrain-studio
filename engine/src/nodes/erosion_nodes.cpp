@@ -62,11 +62,6 @@ int stepsToTravel(double distanceMeters, double cellSizeMeters) {
  * square root of the pass count. Halving the cell therefore takes four times
  * the passes to reach the same distance, not two.
  */
-int passesToSpread(double distanceMeters, double cellSizeMeters) {
-    const double cells = distanceMeters / cellSizeMeters;
-    return std::max(1, static_cast<int>(std::lround(cells * cells)));
-}
-
 /* ================================================================ thermal == */
 
 /// The eight neighbours, and the fact that the opposite of direction d is
@@ -892,6 +887,24 @@ const TerrainNodeDescriptor hydraulicDescriptor = {
     &evaluateHydraulicErosion};
 
 }  // namespace
+
+int passesToSpread(double distanceMeters, double cellSizeMeters) {
+    const double cells = distanceMeters / cellSizeMeters;
+    return std::max(1, static_cast<int>(std::lround(cells * cells)));
+}
+
+void slumpLayer(const TerrainContextApi* api, TerrainEvaluationContext* context, float* surface,
+                float* layer, const LayerSlump& slump) {
+    const gpu::FlushDenormalsToZero denormals;
+    const std::size_t count = cellCount(api, context);
+    const int passes = passesToSpread(slump.travelMeters, api->cellSizeMeters(context));
+    const ThermalSettings settings =
+        thermalSettingsFor(api, context, slump.settleAngleDegrees, slump.rate);
+    runThermalSolve(api, context,
+                    thermalJobFor(settings, surface, layer, count, passes,
+                                  slump.releasePerPassMeters),
+                    settings);
+}
 
 void registerErosionNodes(const TerrainRegistryApi& api, TerrainRegistry* registry) {
     api.registerNode(registry, &thermalDescriptor);

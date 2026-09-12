@@ -18,10 +18,15 @@ void registerBuiltinNodes(NodeRegistry& registry) {
     nodes::registerErosionNodes(api, handle);
     nodes::registerFluvialNodes(api, handle);
     nodes::registerMaskNodes(api, handle);
+    nodes::registerDeriveNodes(api, handle);
+    nodes::registerSnowNodes(api, handle);
+    nodes::registerDebrisNodes(api, handle);
+    nodes::registerSandNodes(api, handle);
     nodes::registerCombineNodes(api, handle);
     nodes::registerTextureNodes(api, handle);
     nodes::registerSatMapNodes(api, handle);
     nodes::registerColorNodes(api, handle);
+    nodes::registerSurfaceColorNodes(api, handle);
     nodes::registerVegetationNodes(api, handle);
     nodes::registerOutputNodes(api, handle);
 }

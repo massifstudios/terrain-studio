@@ -5,7 +5,40 @@
 #include <cstdint>
 #include <vector>
 
+#include "terrain_node_sdk.h"
+
 namespace terrain::nodes {
+
+/* ---------------------------------------------------------- layer slump -- */
+
+/// How many passes of neighbour-to-neighbour transport it takes for material
+/// to spread a distance: passes grow with the square of the cell count, as
+/// diffusion does, so a spread in meters means the same at any resolution.
+int passesToSpread(double distanceMeters, double cellSizeMeters);
+
+struct LayerSlump {
+    /// The steepest slope the loose material holds on.
+    double settleAngleDegrees = 30.0;
+    /// How far the material spreads before it comes to rest.
+    double travelMeters = 100.0;
+    /// The share of the unstable excess that moves in each pass.
+    float rate = 0.5f;
+    /// Depth added evenly over the whole grid before each pass, so a layer can
+    /// be released gradually rather than dropped at once. Zero releases nothing.
+    float releasePerPassMeters = 0.0f;
+};
+
+/**
+ * Lets a loose layer slide over the ground it lies on until nothing is
+ * steeper than the settle angle. `surface` is rock plus layer and is what the
+ * slopes are read from; `layer` is the loose depth and is all that moves, so
+ * material slides off the rock without taking the rock with it. Both are
+ * updated in place. A null `layer` slumps the surface itself, as thermal
+ * erosion does. Runs on the GPU where one is vouched for, with the same bits
+ * either way.
+ */
+void slumpLayer(const TerrainContextApi* api, TerrainEvaluationContext* context, float* surface,
+                float* layer, const LayerSlump& slump);
 
 /**
  * A grid of accumulated height changes, in fixed point.

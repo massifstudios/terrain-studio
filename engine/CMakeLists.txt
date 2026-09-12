@@ -73,7 +73,12 @@ add_library(terrain_engine STATIC
     src/nodes/filter_nodes.cpp
     src/nodes/transform_nodes.cpp
     src/nodes/adjust_nodes.cpp
+    src/nodes/flow_support.cpp
     src/nodes/mask_nodes.cpp
+    src/nodes/derive_nodes.cpp
+    src/nodes/snow_nodes.cpp
+    src/nodes/debris_nodes.cpp
+    src/nodes/sand_nodes.cpp
     src/nodes/erosion_support.cpp
     src/nodes/erosion_nodes.cpp
     src/nodes/fluvial_nodes.cpp
@@ -83,6 +88,7 @@ add_library(terrain_engine STATIC
     src/nodes/texture_nodes.cpp
     src/nodes/satmap_nodes.cpp
     src/nodes/color_nodes.cpp
+    src/nodes/surface_color_nodes.cpp
     src/nodes/vegetation_nodes.cpp
     src/nodes/output_nodes.cpp
 )
