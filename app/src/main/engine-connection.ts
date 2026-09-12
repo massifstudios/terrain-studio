@@ -43,15 +43,19 @@ function resolvePluginPath(): string {
 	return [userDirectory, join(app.getAppPath(), '..', 'plugins')].join(delimiter);
 }
 
-/// Asset directories the same way: the user's own strips first, then the
-/// ones shipped with the app. In development the engine's source tree holds
-/// the shipped set.
-function resolveAssetPath(): string {
+/// Asset directories the same way: the user's own first, then the ones shipped
+/// with the app. In development the engine's source tree holds the shipped
+/// set. The engine reads satmaps from these; the renderer reads textures.
+export function assetDirectories(): string[] {
 	const userDirectory = join(app.getPath('userData'), 'assets');
 	if (app.isPackaged) {
-		return [userDirectory, join(process.resourcesPath, 'assets')].join(delimiter);
+		return [userDirectory, join(process.resourcesPath, 'assets')];
 	}
-	return [userDirectory, join(app.getAppPath(), '..', 'engine', 'assets')].join(delimiter);
+	return [userDirectory, join(app.getAppPath(), '..', 'engine', 'assets')];
+}
+
+function resolveAssetPath(): string {
+	return assetDirectories().join(delimiter);
 }
 
 function setStatus(status: EngineStatus): void {

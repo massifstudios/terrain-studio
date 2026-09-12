@@ -68,6 +68,32 @@ vec3 surfaceColor(vec3 rampColor, sampler2D painted, vec2 gridUv, float strength
 }
 `;
 
+/**
+ * Tiled textures blended by weight. The weights are the engine's splat
+ * layers packed one per channel; they add to one, so the blend is a plain
+ * weighted sum. Sampler arrays may only be indexed by constants, hence the
+ * spelled-out four.
+ */
+const materialGlsl = /* glsl */ `
+uniform sampler2D materialWeights;
+uniform float materialStrength;
+uniform sampler2D materialTiles[4];
+uniform float materialRepeat;
+
+vec3 drapeMaterials(vec3 colour, vec2 gridUv) {
+	if (materialStrength <= 0.0) {
+		return colour;
+	}
+	vec4 weights = texture2D(materialWeights, gridUv);
+	vec2 tileUv = gridUv * materialRepeat;
+	vec3 blended = weights.r * texture2D(materialTiles[0], tileUv).rgb
+		+ weights.g * texture2D(materialTiles[1], tileUv).rgb
+		+ weights.b * texture2D(materialTiles[2], tileUv).rgb
+		+ weights.a * texture2D(materialTiles[3], tileUv).rgb;
+	return mix(colour, blended, materialStrength);
+}
+`;
+
 export const surfaceVertexShader = /* glsl */ `
 varying vec3 worldNormal;
 varying float altitudeMeters;
@@ -97,11 +123,12 @@ varying vec2 gridUv;
 
 ${altitudeRampGlsl}
 ${maskStepsGlsl}
+${materialGlsl}
 
 void main() {
 	float shade = clamp(dot(normalize(worldNormal), sunDirection), 0.0, 1.0);
 	vec3 ramp = altitudeRamp(reliefBand(altitudeMeters, lowestAltitude, highestAltitude));
-	vec3 colour = surfaceColor(ramp, painted, gridUv, paintedStrength);
+	vec3 colour = drapeMaterials(surfaceColor(ramp, painted, gridUv, paintedStrength), gridUv);
 	vec3 shaded = colour * (ambient + (1.0 - ambient) * shade);
 	gl_FragColor = vec4(drapeMask(shaded, overlay, gridUv, overlayStrength), 1.0);
 }
@@ -139,6 +166,7 @@ varying vec2 gridUv;
 
 ${altitudeRampGlsl}
 ${maskStepsGlsl}
+${materialGlsl}
 
 float altitudeAt(vec2 uv) {
 	return texture2D(heights, clamp(uv, vec2(0.0), vec2(1.0))).r;
@@ -157,7 +185,7 @@ void main() {
 	float shade = clamp(lit / normalLength, 0.0, 1.0);
 
 	vec3 ramp = altitudeRamp(reliefBand(here, lowestAltitude, highestAltitude));
-	vec3 colour = surfaceColor(ramp, painted, gridUv, paintedStrength);
+	vec3 colour = drapeMaterials(surfaceColor(ramp, painted, gridUv, paintedStrength), gridUv);
 	vec3 shaded = colour * (ambient + (1.0 - ambient) * shade);
 	gl_FragColor = vec4(drapeMask(shaded, overlay, gridUv, overlayStrength), 1.0);
 }

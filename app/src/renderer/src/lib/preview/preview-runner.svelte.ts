@@ -1,10 +1,12 @@
-import type { EvaluateResult } from '$shared/engine-protocol';
+import type { EvaluateResult, FieldResult } from '$shared/engine-protocol';
 import type { GraphDocument } from '$shared/graph-document';
 import { engineClient } from '$lib/engine-client.svelte';
 import { graphStore } from '$lib/graph/graph-store.svelte';
 import { nodeStatusStore } from '$lib/graph/node-status.svelte';
+import { findNode } from '$shared/graph-operations';
+import { materialLayers, type MaterialLayer } from '$shared/material-preview';
 import { findNodeSchema } from '$shared/registry-schema';
-import { previewState } from './preview-state.svelte';
+import { previewState, type MaterialPreview } from './preview-state.svelte';
 
 const debounceMilliseconds = 150;
 const thumbnailResolution = 64;
@@ -98,6 +100,7 @@ class PreviewRunner {
 			previewState.overlay = null;
 			previewState.painted = null;
 			previewState.points = null;
+			previewState.materials = null;
 			return;
 		}
 
@@ -135,6 +138,7 @@ class PreviewRunner {
 		previewState.overlay = null;
 		previewState.painted = null;
 		previewState.points = null;
+		previewState.materials = null;
 
 		const isSurface = outcome.field !== null && outcome.field.semantics !== 'mask';
 		if (isSurface) {
@@ -144,9 +148,16 @@ class PreviewRunner {
 
 		// A mask, a colour map and a point set all need ground under them, so
 		// each is shown over the nearest surface upstream rather than on its own.
-		previewState.overlay = outcome.field;
 		previewState.painted = outcome.color;
 		previewState.points = outcome.points;
+		const materials = await this.#materialsFor(graph, nodeId, outcome);
+		if (generation !== this.#generation) {
+			return;
+		}
+		previewState.materials = materials;
+		if (materials === null) {
+			previewState.overlay = outcome.field;
+		}
 
 		const surfaceNodeId = this.#nearestSurfaceNodeId(nodeId);
 		if (surfaceNodeId === null) {
@@ -158,6 +169,59 @@ class PreviewRunner {
 			return;
 		}
 		previewState.field = surface.field;
+	}
+
+	/// A node with texture parameters shows as textures tiled over all of its
+	/// mask outputs rather than as the first mask alone. The extra ports cost
+	/// little: the engine has the node cached from the first evaluation.
+	async #materialsFor(
+		graph: GraphDocument,
+		nodeId: string,
+		outcome: EvaluateResult
+	): Promise<MaterialPreview | null> {
+		const node = findNode(graph.nodes, nodeId);
+		if (!node) {
+			return null;
+		}
+		const schema = findNodeSchema(engineClient.registry, node.typeName);
+		if (!schema) {
+			return null;
+		}
+		const layers = materialLayers(schema, node.parameters);
+		if (layers.length === 0) {
+			return null;
+		}
+		const weights: FieldResult[] = [];
+		for (const layer of layers) {
+			const field = await this.#layerField(graph, nodeId, layer, outcome);
+			if (field === null) {
+				return null;
+			}
+			weights.push(field);
+		}
+		return { weights, textureNames: layers.map((layer) => layer.textureName) };
+	}
+
+	async #layerField(
+		graph: GraphDocument,
+		nodeId: string,
+		layer: MaterialLayer,
+		outcome: EvaluateResult
+	): Promise<FieldResult | null> {
+		if (layer.outputPort === 0) {
+			return outcome.field;
+		}
+		try {
+			const result = await engineClient.evaluate({
+				graph,
+				nodeId,
+				outputPort: layer.outputPort,
+				thumbnailResolution
+			});
+			return result.field;
+		} catch {
+			return null;
+		}
 	}
 }
 

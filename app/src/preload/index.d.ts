@@ -13,6 +13,9 @@ declare global {
 			readText(path: string): Promise<string>;
 			writeText(path: string, text: string): Promise<void>;
 		};
+		assetBridge: {
+			readTexture(name: string): Promise<Uint8Array | null>;
+		};
 		projectBridge: {
 			watch(path: string | null): void;
 			onChanged(handler: (path: string, text: string) => void): void;

@@ -32,6 +32,14 @@ const fileBridge = {
 	}
 };
 
+const assetBridge = {
+	/// The bytes of a shipped or user-installed texture, by file name alone.
+	/// Null when no asset directory has it.
+	readTexture(name: string): Promise<Uint8Array | null> {
+		return ipcRenderer.invoke('asset:read-texture', name);
+	}
+};
+
 const projectBridge = {
 	/// Null stops watching, which is what an unsaved project wants.
 	watch(path: string | null): void {
@@ -55,10 +63,12 @@ const sessionBridge = {
 
 export type EngineBridge = typeof engineBridge;
 export type FileBridge = typeof fileBridge;
+export type AssetBridge = typeof assetBridge;
 export type ProjectBridge = typeof projectBridge;
 export type SessionBridge = typeof sessionBridge;
 
 contextBridge.exposeInMainWorld('engineBridge', engineBridge);
 contextBridge.exposeInMainWorld('fileBridge', fileBridge);
+contextBridge.exposeInMainWorld('assetBridge', assetBridge);
 contextBridge.exposeInMainWorld('projectBridge', projectBridge);
 contextBridge.exposeInMainWorld('sessionBridge', sessionBridge);

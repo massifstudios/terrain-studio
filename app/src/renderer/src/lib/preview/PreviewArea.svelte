@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Button, Card } from '@neoworks-dev/ui';
 	import Columns from 'phosphor-svelte/lib/Columns';
+	import Stack from 'phosphor-svelte/lib/Stack';
 	import Sun from 'phosphor-svelte/lib/Sun';
 	import ResizeHandle from '$lib/controls/ResizeHandle.svelte';
 	import ValueSlider from '$lib/controls/ValueSlider.svelte';
@@ -12,6 +13,7 @@
 	const smallestPaneFraction = 0.2;
 
 	let showSunControl = $state(false);
+	let showTextureControl = $state(false);
 	let viewportsWidth = $state(0);
 	let perspectiveFraction = $state(0.5);
 
@@ -37,8 +39,15 @@
 		previewState.showTopDownView = !previewState.showTopDownView;
 	}
 
+	/// The two popovers share a corner, so opening one closes the other.
 	function toggleSunControl(): void {
 		showSunControl = !showSunControl;
+		showTextureControl = false;
+	}
+
+	function toggleTextureControl(): void {
+		showTextureControl = !showTextureControl;
+		showSunControl = false;
 	}
 </script>
 
@@ -47,6 +56,9 @@
 		<span class="text-2xs uppercase tracking-caps text-dim">Preview</span>
 		<div class="ml-auto flex items-center gap-2">
 			<Button size="sm" variant="ghost" icon={Sun} onclick={toggleSunControl}>Sun</Button>
+			<Button size="sm" variant="ghost" icon={Stack} onclick={toggleTextureControl}>
+				Textures
+			</Button>
 			<Button size="sm" variant="ghost" icon={Columns} onclick={toggleTopDownView}>
 				2D view
 			</Button>
@@ -75,6 +87,22 @@
 							onChange={(value) => (previewState.sunAltitudeDegrees = value)}
 						/>
 					</div>
+				</Card>
+			</div>
+		{/if}
+
+		{#if showTextureControl}
+			<div class="absolute right-3 top-10 z-raised w-64">
+				<Card surface="elevated" padding="md">
+					<ValueSlider
+						label="Tile size"
+						unit="m"
+						value={previewState.tileSizeMeters}
+						minimum={1}
+						maximum={200}
+						step={1}
+						onChange={(value) => (previewState.tileSizeMeters = value)}
+					/>
 				</Card>
 			</div>
 		{/if}

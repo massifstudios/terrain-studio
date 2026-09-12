@@ -1,7 +1,13 @@
 import { join } from 'node:path';
 import { readFile, writeFile } from 'node:fs/promises';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
-import { connectRenderer, startEngine, stopEngine, trackStatus } from './engine-connection';
+import {
+	assetDirectories,
+	connectRenderer,
+	startEngine,
+	stopEngine,
+	trackStatus
+} from './engine-connection';
 import { watchProject } from './project-watch';
 import { readSession, writeSession } from './session-store';
 
@@ -81,6 +87,24 @@ ipcMain.handle('file:read-text', (_event, path: string) => readFile(path, 'utf8'
 ipcMain.handle('file:write-text', (_event, path: string, text: string) =>
 	writeFile(path, text, 'utf8')
 );
+
+/// A texture is named by file alone and looked up in the asset directories in
+/// order, so the renderer never handles a path and cannot reach outside them.
+async function readTextureAsset(name: string): Promise<Uint8Array | null> {
+	if (name.includes('/') || name.includes('\\') || name.includes('..')) {
+		return null;
+	}
+	for (const directory of assetDirectories()) {
+		try {
+			return await readFile(join(directory, 'textures', name));
+		} catch {
+			continue;
+		}
+	}
+	return null;
+}
+
+ipcMain.handle('asset:read-texture', (_event, name: string) => readTextureAsset(name));
 
 ipcMain.on('project:watch', (event, path: string | null) => watchProject(event.sender, path));
 

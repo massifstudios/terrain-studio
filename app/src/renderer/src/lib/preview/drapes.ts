@@ -3,6 +3,7 @@ import {
 	BufferGeometry,
 	DataTexture,
 	FloatType,
+	LinearFilter,
 	NearestFilter,
 	Points,
 	PointsMaterial,
@@ -13,6 +14,7 @@ import {
 } from 'three';
 import type { ColorResult, FieldResult, PointsResult } from '$shared/engine-protocol';
 import { valuesPerPoint } from '$shared/engine-protocol';
+import { materialLayerLimit } from '$shared/material-preview';
 import { spanMetersOf } from './terrain-mesh';
 
 /**
@@ -88,6 +90,90 @@ function setStrength(
 		return;
 	}
 	uniforms.paintedStrength.value = strength;
+}
+
+/* --------------------------------------------------------------- materials -- */
+
+interface MaterialUniforms {
+	materialWeights: { value: Texture | null };
+	materialStrength: { value: number };
+	materialTiles: { value: Texture[] };
+	materialRepeat: { value: number };
+}
+
+/// Stands in for a tile that has not loaded or does not exist, so every
+/// sampler is always bound to something.
+const blankTile = new DataTexture(new Uint8Array([128, 128, 128, 255]), 1, 1, RGBAFormat);
+blankTile.needsUpdate = true;
+
+export function materialUniforms(): MaterialUniforms {
+	return {
+		materialWeights: { value: null },
+		materialStrength: { value: 0 },
+		materialTiles: { value: Array.from({ length: materialLayerLimit }, () => blankTile) },
+		materialRepeat: { value: 1 }
+	};
+}
+
+/// One layer per channel, so the shader reads every weight in one fetch. A
+/// layer the node did not fill weighs nothing. Filtered smoothly, unlike a
+/// mask drape: a blend boundary should not show the grid.
+export function materialWeightTexture(weights: FieldResult[]): DataTexture {
+	const first = weights[0];
+	const cells = first.width * first.height;
+	const rgba = new Float32Array(cells * 4);
+	const layerCount = Math.min(weights.length, materialLayerLimit);
+	for (let layer = 0; layer < layerCount; layer += 1) {
+		const samples = weights[layer].samples;
+		for (let cell = 0; cell < cells; cell += 1) {
+			rgba[cell * 4 + layer] = samples[cell];
+		}
+	}
+	const texture = new DataTexture(rgba, first.width, first.height, RGBAFormat, FloatType);
+	texture.minFilter = LinearFilter;
+	texture.magFilter = LinearFilter;
+	texture.needsUpdate = true;
+	return texture;
+}
+
+export function applyMaterialWeights(
+	material: ShaderMaterial,
+	previous: DataTexture | null,
+	next: DataTexture | null
+): DataTexture | null {
+	previous?.dispose();
+	const uniforms = material.uniforms as unknown as MaterialUniforms;
+	uniforms.materialWeights.value = next;
+	uniforms.materialStrength.value = 1;
+	if (next === null) {
+		uniforms.materialStrength.value = 0;
+	}
+	return next;
+}
+
+export function applyMaterialTiles(material: ShaderMaterial, tiles: (Texture | null)[]): void {
+	const uniforms = material.uniforms as unknown as MaterialUniforms;
+	const bound: Texture[] = [];
+	for (let layer = 0; layer < materialLayerLimit; layer += 1) {
+		const tile = tiles[layer];
+		if (tile) {
+			bound.push(tile);
+			continue;
+		}
+		bound.push(blankTile);
+	}
+	uniforms.materialTiles.value = bound;
+}
+
+/// How many times a tile repeats across the grid, from the ground the grid
+/// covers and the ground one tile is meant to cover.
+export function applyMaterialRepeat(
+	material: ShaderMaterial,
+	worldSizeMeters: number,
+	tileSizeMeters: number
+): void {
+	const uniforms = material.uniforms as unknown as MaterialUniforms;
+	uniforms.materialRepeat.value = worldSizeMeters / Math.max(tileSizeMeters, 0.01);
 }
 
 /**

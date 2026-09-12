@@ -24,9 +24,20 @@
 		surfaceFragmentShader,
 		surfaceVertexShader
 	} from './hillshade';
-	import { applyDrape, buildPointMarkers, colorTexture, maskTexture } from './drapes';
+	import {
+		applyDrape,
+		applyMaterialRepeat,
+		applyMaterialTiles,
+		applyMaterialWeights,
+		buildPointMarkers,
+		colorTexture,
+		maskTexture,
+		materialUniforms,
+		materialWeightTexture
+	} from './drapes';
 	import { previewState } from './preview-state.svelte';
 	import { pickHeightfieldCell } from './heightfield-pick';
+	import { surfaceTextures } from './surface-textures';
 	import { buildTerrainGeometry, spanMetersOf } from './terrain-mesh';
 
 	let container = $state<HTMLDivElement | null>(null);
@@ -48,12 +59,14 @@
 			overlay: { value: null },
 			overlayStrength: { value: 0 },
 			painted: { value: null },
-			paintedStrength: { value: 0 }
+			paintedStrength: { value: 0 },
+			...materialUniforms()
 		}
 	});
 
 	let overlayTexture: DataTexture | null = null;
 	let paintedTexture: DataTexture | null = null;
+	let weightTexture: DataTexture | null = null;
 	let markers: Points | null = null;
 
 	let renderer: WebGLRenderer | null = null;
@@ -206,6 +219,29 @@
 			next = colorTexture(painted);
 		}
 		paintedTexture = applyDrape(material, paintedTexture, next, 'painted');
+	});
+
+	/// The weights go up at once; the tiles follow as they decode, and only if
+	/// the same preview is still showing by then.
+	$effect(() => {
+		const materials = previewState.materials;
+		let next: DataTexture | null = null;
+		if (materials) {
+			next = materialWeightTexture(materials.weights);
+		}
+		weightTexture = applyMaterialWeights(material, weightTexture, next);
+		if (!materials) {
+			return;
+		}
+		surfaceTextures(materials.textureNames).then((tiles) => {
+			if (previewState.materials === materials) {
+				applyMaterialTiles(material, tiles);
+			}
+		});
+	});
+
+	$effect(() => {
+		applyMaterialRepeat(material, previewState.worldSizeMeters, previewState.tileSizeMeters);
 	});
 
 	/// One marker per scattered instance, standing on the surface below it.

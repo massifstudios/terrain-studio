@@ -10,6 +10,13 @@ export interface CursorCell {
 	altitudeMeters: number;
 }
 
+/// Tiled textures over `field`: one weight mask per layer, and the texture
+/// each layer shows, in the same order.
+export interface MaterialPreview {
+	weights: FieldResult[];
+	textureNames: string[];
+}
+
 /// Shared by the 3D and 2D views: what is being previewed, how it is lit, and
 /// where the pointer is.
 class PreviewState {
@@ -20,6 +27,10 @@ class PreviewState {
 	painted = $state<ColorResult | null>(null);
 	/// Scattered instances standing on `field`, drawn as markers.
 	points = $state<PointsResult | null>(null);
+	materials = $state<MaterialPreview | null>(null);
+	/// Ground distance one texture tile covers. Presentation only: a game tiles
+	/// the same weights at whatever scale its own materials use.
+	tileSizeMeters = $state(20);
 	sunAzimuthDegrees = $state(315);
 	sunAltitudeDegrees = $state(45);
 	showTopDownView = $state(true);
