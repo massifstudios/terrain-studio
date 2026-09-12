@@ -274,6 +274,28 @@ TEST_CASE("snow reports where it lies and how deep it is", "[snow]") {
     REQUIRE(depth->minimum() >= 0.0f);
 }
 
+TEST_CASE("snow cover reads as one wherever a whole winter's fall lies", "[snow]") {
+    // A gentle ramp holds every fall where it lands, so the flat ground with a
+    // cone's drift somewhere else on the tile must still read as covered.
+    Graph graph = coneGround(1500.0, 600.0);
+    terrain::GraphNode& snow = plainSnow(graph, "Snow");
+    snow.parameters["intensity"] = ParameterValue{3.0, ""};
+    snow.parameters["slipOffAngle"] = ParameterValue{30.0, ""};
+    snow.parameters["verticality"] = ParameterValue{1.0, ""};
+
+    const auto ground = evaluateNode(graph, "ground");
+    const auto cover = evaluateOutput(graph, "snow", 1);
+    const auto depth = evaluateOutput(graph, "snow", 2);
+
+    // The slide off the cone piles the foot of it deeper than the winter's fall.
+    REQUIRE(depth->maximum() > 3.0f * 1.5f);
+    REQUIRE(cover->maximum() == Approx(1.0));
+    // The flat corner took its 3 m and kept them: full cover, not a fraction of
+    // the deepest drift.
+    REQUIRE(cover->at(0, 0) == Approx(1.0).margin(1.0e-3));
+    REQUIRE(meanSample(*cover) > 0.5);
+}
+
 TEST_CASE("a mask keeps the snow where it was asked for", "[snow]") {
     Graph graph = coneGround(1500.0, 600.0);
     terrain::GraphNode& nowhere = graph.addNode("nowhere", "Constant");

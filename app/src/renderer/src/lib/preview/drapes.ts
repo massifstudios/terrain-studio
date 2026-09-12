@@ -10,7 +10,8 @@ import {
 	RGBAFormat,
 	RedFormat,
 	type ShaderMaterial,
-	type Texture
+	type Texture,
+	UnsignedByteType
 } from 'three';
 import type { ColorResult, FieldResult, PointsResult } from '$shared/engine-protocol';
 import { valuesPerPoint } from '$shared/engine-protocol';
@@ -117,19 +118,21 @@ export function materialUniforms(): MaterialUniforms {
 
 /// One layer per channel, so the shader reads every weight in one fetch. A
 /// layer the node did not fill weighs nothing. Filtered smoothly, unlike a
-/// mask drape: a blend boundary should not show the grid.
+/// mask drape: a blend boundary should not show the grid. Eight bits per
+/// weight, because a float texture only filters where the GPU offers the
+/// extension for it and silently snaps to the nearest cell elsewhere.
 export function materialWeightTexture(weights: FieldResult[]): DataTexture {
 	const first = weights[0];
 	const cells = first.width * first.height;
-	const rgba = new Float32Array(cells * 4);
+	const rgba = new Uint8Array(cells * 4);
 	const layerCount = Math.min(weights.length, materialLayerLimit);
 	for (let layer = 0; layer < layerCount; layer += 1) {
 		const samples = weights[layer].samples;
 		for (let cell = 0; cell < cells; cell += 1) {
-			rgba[cell * 4 + layer] = samples[cell];
+			rgba[cell * 4 + layer] = Math.round(Math.min(Math.max(samples[cell], 0), 1) * 255);
 		}
 	}
-	const texture = new DataTexture(rgba, first.width, first.height, RGBAFormat, FloatType);
+	const texture = new DataTexture(rgba, first.width, first.height, RGBAFormat, UnsignedByteType);
 	texture.minFilter = LinearFilter;
 	texture.magFilter = LinearFilter;
 	texture.needsUpdate = true;

@@ -135,9 +135,10 @@ shape as well.
 
 - `ColorRamp` turns any field into a colour map through a gradient you edit in
   the property panel, and `MixColor` blends two of them through a mask.
-- `SplatWeights` shares each cell out between up to four ground layers so they
-  add to exactly one — rock, scree, soil, snow — with anything unclaimed
-  falling to the base layer rather than leaving a hole.
+- `SplatWeights` stacks up to three ground layers over a base like paint —
+  scree over soil, rock over scree, snow over everything — so each cell's four
+  shares add to exactly one, with anything uncovered falling to the base layer
+  rather than leaving a hole.
 - `GrowthMask` answers "where would this grow?" in one node instead of five:
   an altitude band, a slope limit and moisture, together.
 - `Scatter` places instances over the ground with a real minimum spacing in

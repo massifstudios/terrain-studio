@@ -60,11 +60,11 @@ std::size_t cellIndex(int size, int row, int column) {
     return static_cast<std::size_t>(row) * size + column;
 }
 
-/// A depth in meters as a mask, scaled against its own deepest cell: a mask is
-/// a weight, and the meters are already in the surface output.
-void writeNormalisedDepth(const std::vector<float>& depth, float* destination) {
-    const float deepest = *std::max_element(depth.begin(), depth.end());
-    const float scale = 1.0f / std::max(deepest, 1.0e-6f);
+/// Snow depth as cover: a cell holding a whole winter's fall reads as one, a
+/// deeper drift no more than that. Scaling against the deepest drift instead
+/// would leave everything but a few hollows near zero.
+void writeSnowCover(const std::vector<float>& depth, float fullDepthMeters, float* destination) {
+    const float scale = 1.0f / std::max(fullDepthMeters, 1.0e-6f);
     for (std::size_t index = 0; index < depth.size(); ++index) {
         destination[index] = std::clamp(depth[index] * scale, 0.0f, 1.0f);
     }
@@ -277,8 +277,8 @@ const TerrainPortDescriptor snowInputs[] = {
 const TerrainPortDescriptor snowOutputs[] = {
     {"Out", "The ground with the settled snow on it", TerrainPortType_Field,
      TerrainFieldSemantics_Heightfield, 0},
-    {"Snow", "Where the snow lies, against its own deepest drift", TerrainPortType_Field,
-     TerrainFieldSemantics_Mask, 0},
+    {"Snow", "Snow cover: one where a whole winter's fall lies, less where it slid or thawed",
+     TerrainPortType_Field, TerrainFieldSemantics_Mask, 0},
     {"Depth", "How deep the snow ended up, in meters", TerrainPortType_Field,
      TerrainFieldSemantics_Mask, 0}};
 
@@ -380,7 +380,7 @@ void evaluateSnow(const TerrainContextApi* api, TerrainEvaluationContext* contex
     meltSnow(api, context, ground, run.melt, depth);
 
     writeSnowSurface(ground, depth, api->outputField(context, 0));
-    writeNormalisedDepth(depth, api->outputField(context, 1));
+    writeSnowCover(depth, run.intensityMeters, api->outputField(context, 1));
     std::copy(depth.begin(), depth.end(), api->outputField(context, 2));
 }
 
@@ -388,7 +388,7 @@ const TerrainNodeDescriptor snowDescriptor = {
     "Snow",
     "Simulate",
     "Drops a winter of snow, lets it slide off the steep ground and thaws what the sun reaches",
-    1,
+    2,
     snowInputs,
     2,
     snowOutputs,
@@ -402,8 +402,8 @@ const TerrainNodeDescriptor snowDescriptor = {
 const TerrainPortDescriptor snowfieldOutputs[] = {
     {"Out", "The ground with the settled snow on it", TerrainPortType_Field,
      TerrainFieldSemantics_Heightfield, 0},
-    {"Snow", "Where the snow lies, against its own deepest drift", TerrainPortType_Field,
-     TerrainFieldSemantics_Mask, 0}};
+    {"Snow", "Snow cover: one where every spell's fall lies, less where it slid or thawed",
+     TerrainPortType_Field, TerrainFieldSemantics_Mask, 0}};
 
 const TerrainEnumOption driftDirections[] = {{"none", "None", 0},
                                              {"north", "North", 1},
@@ -509,6 +509,15 @@ float cascadeIntensity(const SnowfieldRun& run, int cascade) {
         return run.intensityMeters;
     }
     return run.intensityMeters * std::pow(1.0f - run.taperAmount, static_cast<float>(cascade));
+}
+
+/// Everything the season drops on a cell that takes every fall in full.
+float seasonDepthMeters(const SnowfieldRun& run) {
+    float total = 0.0f;
+    for (int cascade = 0; cascade < run.cascades; ++cascade) {
+        total += cascadeIntensity(run, cascade);
+    }
+    return total;
 }
 
 bool isLastFall(const SnowfieldRun& run, int cascade, int pass) {
@@ -619,14 +628,14 @@ void evaluateSnowfield(const TerrainContextApi* api, TerrainEvaluationContext* c
     finishSnowfield(api, context, ground, run, depth);
 
     writeSnowSurface(ground, depth, api->outputField(context, 0));
-    writeNormalisedDepth(depth, api->outputField(context, 1));
+    writeSnowCover(depth, seasonDepthMeters(run), api->outputField(context, 1));
 }
 
 const TerrainNodeDescriptor snowfieldDescriptor = {
     "Snowfield",
     "Simulate",
     "Builds broad settled snow cover out of several spells of snowfall",
-    1,
+    2,
     snowInputs,
     2,
     snowfieldOutputs,

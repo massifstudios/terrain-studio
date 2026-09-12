@@ -360,9 +360,13 @@ TEST_CASE("a ramp's hue turn goes round the wheel", "[texture][ramp]") {
 
 /* --------------------------------------------------------- SplatWeights -- */
 
-TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
+/// A ramp running row by row from 0 m to 1000 m, with a lower band on splat
+/// input 0 (layer 2) and a higher band on input 1 (layer 3), overlapping
+/// between 300 m and 400 m.
+Graph splatOverRamp() {
     Graph graph = squareGraph(resolution, worldSize);
     terrain::GraphNode& ground = graph.addNode("ground", "Gradient");
+    ground.parameters["direction"] = ParameterValue{0.0, ""};
     ground.parameters["startValue"] = ParameterValue{0.0, ""};
     ground.parameters["endValue"] = ParameterValue{1000.0, ""};
 
@@ -374,6 +378,11 @@ TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
     graph.addNode("splat", "SplatWeights");
     graph.connect("low", 0, "splat", 0);
     graph.connect("high", 0, "splat", 1);
+    return graph;
+}
+
+TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
+    Graph graph = splatOverRamp();
 
     const auto base = evaluateOutput(graph, "splat", 0);
     const auto second = evaluateOutput(graph, "splat", 1);
@@ -385,9 +394,48 @@ TEST_CASE("splat weights add to one in every cell", "[texture][nodes]") {
                             + fourth->data()[index];
         REQUIRE(total == Approx(1.0));
     }
-    // In the overlap both layers claim a share; outside it one takes all.
-    REQUIRE(second->at(0, 0) == Approx(1.0));
-    REQUIRE(base->at(resolution - 1, 0) == Approx(1.0));
+    REQUIRE(fourth->maximum() == Approx(0.0));
+}
+
+TEST_CASE("a higher layer covers a lower one where both claim the ground", "[texture][nodes]") {
+    Graph graph = splatOverRamp();
+
+    const auto ground = evaluateNode(graph, "ground");
+    const auto base = evaluateOutput(graph, "splat", 0);
+    const auto second = evaluateOutput(graph, "splat", 1);
+    const auto third = evaluateOutput(graph, "splat", 2);
+
+    for (int row = 0; row < resolution; ++row) {
+        const float altitude = ground->at(row, 0);
+        if (altitude < 300.0f) {
+            REQUIRE(second->at(row, 0) == Approx(1.0));
+            continue;
+        }
+        if (altitude <= 400.0f) {
+            // The overlap goes wholly to layer 3, not half to each.
+            REQUIRE(third->at(row, 0) == Approx(1.0));
+            REQUIRE(second->at(row, 0) == Approx(0.0));
+            continue;
+        }
+        REQUIRE(third->at(row, 0) == Approx(1.0));
+    }
+    REQUIRE(base->maximum() == Approx(0.0));
+}
+
+TEST_CASE("a partial cover leaves the rest to the layers below", "[texture][nodes]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    terrain::GraphNode& half = graph.addNode("half", "Constant");
+    half.parameters["value"] = ParameterValue{0.5, ""};
+    terrain::GraphNode& full = graph.addNode("full", "Constant");
+    full.parameters["value"] = ParameterValue{1.0, ""};
+
+    graph.addNode("splat", "SplatWeights");
+    graph.connect("full", 0, "splat", 0);
+    graph.connect("half", 0, "splat", 2);
+
+    REQUIRE(evaluateOutput(graph, "splat", 3)->minimum() == Approx(0.5));
+    REQUIRE(evaluateOutput(graph, "splat", 1)->minimum() == Approx(0.5));
+    REQUIRE(evaluateOutput(graph, "splat", 0)->maximum() == Approx(0.0));
 }
 
 TEST_CASE("ground nothing claims falls to the base layer", "[texture][nodes]") {

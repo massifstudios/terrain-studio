@@ -143,61 +143,58 @@ const TerrainNodeDescriptor mixColorDescriptor = {
 /* --------------------------------------------------------- SplatWeights -- */
 
 constexpr int splatLayerCount = 4;
+constexpr int splatStackedLayerCount = splatLayerCount - 1;
 
 const TerrainPortDescriptor splatInputs[] = {
-    {"Base", "The layer that shows wherever nothing else claims the ground",
-     TerrainPortType_Field, TerrainFieldSemantics_Mask, 1},
-    {"Layer 2", "Claims ground in proportion to its weight", TerrainPortType_Field,
+    {"Layer 2", "Covers the base wherever its weight says so", TerrainPortType_Field,
      TerrainFieldSemantics_Mask, 1},
-    {"Layer 3", "Claims ground in proportion to its weight", TerrainPortType_Field,
-     TerrainFieldSemantics_Mask, 1},
-    {"Layer 4", "Claims ground in proportion to its weight", TerrainPortType_Field,
+    {"Layer 3", "Covers the base and layer 2", TerrainPortType_Field, TerrainFieldSemantics_Mask,
+     1},
+    {"Layer 4", "The topmost layer, covering everything under it", TerrainPortType_Field,
      TerrainFieldSemantics_Mask, 1}};
 
 const TerrainPortDescriptor splatOutputs[] = {
-    {"Base", "The base layer's share", TerrainPortType_Field, TerrainFieldSemantics_Mask, 0},
+    {"Base", "The base layer's share: whatever no layer above it covers", TerrainPortType_Field,
+     TerrainFieldSemantics_Mask, 0},
     {"Layer 2", "The second layer's share", TerrainPortType_Field, TerrainFieldSemantics_Mask, 0},
     {"Layer 3", "The third layer's share", TerrainPortType_Field, TerrainFieldSemantics_Mask, 0},
     {"Layer 4", "The fourth layer's share", TerrainPortType_Field, TerrainFieldSemantics_Mask,
      0}};
 
-float weightAt(const float* layer, std::size_t index) {
+float coverAt(const float* layer, std::size_t index) {
     if (layer == nullptr) {
         return 0.0f;
     }
-    return std::max(layer[index], 0.0f);
+    return std::clamp(layer[index], 0.0f, 1.0f);
 }
 
 /**
- * Shares out each cell between up to four layers so the four add to exactly
- * one. Where nothing claims a cell it falls to the base layer, because a splat
- * map with a hole in it renders as whatever the consumer happens to have in
- * memory rather than as ground.
+ * Stacks the layers like paint: the topmost layer takes what its mask says,
+ * each layer under it takes its share of whatever is still showing, and the
+ * base takes the rest. The four add to exactly one, so a splat map never has
+ * a hole for a consumer to fill with whatever it has in memory. Stacking
+ * rather than sharing in proportion keeps a boundary crisp: a cell that snow
+ * covers fully is snow, not a blend of snow and the rock its mask also named.
  */
 void evaluateSplatWeights(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const std::size_t count = cellCount(api, context);
-    const float* inputs[splatLayerCount];
+    const float* inputs[splatStackedLayerCount];
     float* outputs[splatLayerCount];
-    for (int layer = 0; layer < splatLayerCount; ++layer) {
+    for (int layer = 0; layer < splatStackedLayerCount; ++layer) {
         inputs[layer] = api->inputField(context, layer);
+    }
+    for (int layer = 0; layer < splatLayerCount; ++layer) {
         outputs[layer] = api->outputField(context, layer);
     }
 
     for (std::size_t index = 0; index < count; ++index) {
-        float total = 0.0f;
-        for (int layer = 0; layer < splatLayerCount; ++layer) {
-            total += weightAt(inputs[layer], index);
+        float showing = 1.0f;
+        for (int layer = splatStackedLayerCount - 1; layer >= 0; --layer) {
+            const float share = coverAt(inputs[layer], index) * showing;
+            outputs[layer + 1][index] = share;
+            showing -= share;
         }
-        if (total <= 0.0f) {
-            outputs[0][index] = 1.0f;
-            for (int layer = 1; layer < splatLayerCount; ++layer) {
-                outputs[layer][index] = 0.0f;
-            }
-            continue;
-        }
-        for (int layer = 0; layer < splatLayerCount; ++layer) {
-            outputs[layer][index] = weightAt(inputs[layer], index) / total;
-        }
+        outputs[0][index] = showing;
     }
 }
 
@@ -268,10 +265,10 @@ SplatWeightsRegistration& splatWeightsRegistration() {
         built.descriptor = TerrainNodeDescriptor{
             "SplatWeights",
             "Texture",
-            "Shares each cell out between up to four layers so they add to one",
-            2,
+            "Stacks up to three layers over a base so every cell's four shares add to one",
+            3,
             splatInputs,
-            splatLayerCount,
+            splatStackedLayerCount,
             splatOutputs,
             splatLayerCount,
             built.parameters.data(),
