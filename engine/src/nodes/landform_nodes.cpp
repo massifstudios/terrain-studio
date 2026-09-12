@@ -313,6 +313,11 @@ struct GullyField {
     /// of that wander in streak widths.
     float wanderStreaks = 0.5f;
     float wanderFeatureStreaks = 1.5f;
+    /// How much the depth of the coarsest gullies varies slowly around the
+    /// mountain, so a few valleys come to dominate and the rest sit between
+    /// them, and the size of that variation in streak widths.
+    float depthWanderShare = 0.6f;
+    float depthWanderFeatureStreaks = 2.5f;
     std::uint64_t seed = 0;
 };
 
@@ -371,16 +376,24 @@ float gullyOctaveWeight(float detailRetention, int octave, int octaveCount) {
 struct StreakWander {
     float around = 0.0f;
     float outward = 0.0f;
+    float depth = 1.0f;
 };
 
 StreakWander streakWanderAt(const GroundPoint& ground, double featureMeters,
-                            float wanderStreaks, std::uint64_t seed) {
+                            const GullyField& gullies, std::uint64_t seed) {
     const float x = static_cast<float>(ground.eastingMeters / featureMeters);
     const float y = static_cast<float>(ground.northingMeters / featureMeters);
     constexpr noise::FractalOptions wanderOptions{3, 0.5f, 2.0f};
-    return StreakWander{
-        noise::fractalPerlin(x, y, terrainSeedForLane(seed, 101), wanderOptions) * wanderStreaks,
-        noise::fractalPerlin(x, y, terrainSeedForLane(seed, 102), wanderOptions) * wanderStreaks};
+    const float depthScale = gullies.wanderFeatureStreaks / gullies.depthWanderFeatureStreaks;
+    StreakWander wander;
+    wander.around = noise::fractalPerlin(x, y, terrainSeedForLane(seed, 101), wanderOptions)
+                    * gullies.wanderStreaks;
+    wander.outward = noise::fractalPerlin(x, y, terrainSeedForLane(seed, 102), wanderOptions)
+                     * gullies.wanderStreaks;
+    wander.depth = 1.0f
+                   + noise::perlin(x * depthScale, y * depthScale, terrainSeedForLane(seed, 103))
+                         * gullies.depthWanderShare;
+    return wander;
 }
 
 /// Gradient noise is exactly zero on every lattice corner, so folding one
@@ -426,9 +439,9 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double ra
                                                  gullies.octaveCount);
         const std::uint64_t octaveSeed =
             terrainSeedForLane(gullies.seed, static_cast<std::uint64_t>(octave));
-        const StreakWander wander =
-            streakWanderAt(ground, featureMeters, gullies.wanderStreaks, octaveSeed);
-        const float gully = gullyOctave(polar, wander, countAround, gullies, octaveSeed);
+        const StreakWander wander = streakWanderAt(ground, featureMeters, gullies, octaveSeed);
+        const float gully =
+            gullyOctave(polar, wander, countAround, gullies, octaveSeed) * wander.depth;
         total += gully * standing * weight;
         standing = 1.0f - gully;
         holdMeters *= 0.5;
