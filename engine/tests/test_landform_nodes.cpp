@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
+#include <limits>
+#include <memory>
 #include <vector>
 
 #include "node_test_support.h"
@@ -63,68 +66,153 @@ terrain::GraphNode& addPlainRange(Graph& graph, const std::string& id) {
     return range;
 }
 
+
+/// Node ids seed the node, so two mountains meant to differ in one parameter
+/// alone have to be built in separate graphs under the same id. Two nodes in
+/// one graph are two different mountains, however their parameters are set.
+std::shared_ptr<const terrain::Heightfield> mountainField(
+    int gridResolution, const std::function<void(terrain::GraphNode&)>& adjust) {
+    Graph graph = squareGraph(gridResolution, worldSize);
+    terrain::GraphNode& mountain = graph.addNode("peak", "Mountain");
+    adjust(mountain);
+    return evaluateNode(graph, "peak");
+}
+
+/// The same, with the stochastic dials at zero so the skeleton stands alone.
+std::shared_ptr<const terrain::Heightfield> plainMountainField(
+    int gridResolution, const std::function<void(terrain::GraphNode&)>& adjust) {
+    Graph graph = squareGraph(gridResolution, worldSize);
+    terrain::GraphNode& mountain = addPlainMountain(graph, "peak");
+    adjust(mountain);
+    return evaluateNode(graph, "peak");
+}
+
+void leaveAsItIs(terrain::GraphNode&) {}
+
+struct Cell {
+    int column = 0;
+    int row = 0;
+};
+
+Cell highestCell(const terrain::Heightfield& field, int size) {
+    Cell highest;
+    for (int row = 0; row < size; ++row) {
+        for (int column = 0; column < size; ++column) {
+            if (field.at(column, row) >= field.at(highest.column, highest.row)) {
+                highest = Cell{column, row};
+            }
+        }
+    }
+    return highest;
+}
+
+/// The mean height on a ring about a cell, in metres.
+float meanHeightOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                       double lowRadiusCells, double highRadiusCells) {
+    double total = 0.0;
+    int counted = 0;
+    for (int row = 0; row < size; ++row) {
+        for (int column = 0; column < size; ++column) {
+            const double distance = std::hypot(column - centre.column, row - centre.row);
+            if (distance < lowRadiusCells || distance > highRadiusCells) {
+                continue;
+            }
+            total += field.at(column, row);
+            ++counted;
+        }
+    }
+    return static_cast<float>(total / std::max(counted, 1));
+}
+
+/// The spread of heights around a ring about a cell, in metres.
+float heightSpreadOnRing(const terrain::Heightfield& field, int size, const Cell& centre,
+                         double lowRadiusCells, double highRadiusCells) {
+    float lowest = std::numeric_limits<float>::max();
+    float highest = std::numeric_limits<float>::lowest();
+    for (int row = 0; row < size; ++row) {
+        for (int column = 0; column < size; ++column) {
+            const double distance = std::hypot(column - centre.column, row - centre.row);
+            if (distance < lowRadiusCells || distance > highRadiusCells) {
+                continue;
+            }
+            lowest = std::min(lowest, field.at(column, row));
+            highest = std::max(highest, field.at(column, row));
+        }
+    }
+    return highest - lowest;
+}
+
 }  // namespace
 
 /* ------------------------------------------------------------- Mountain -- */
 
-TEST_CASE("a mountain summits at its centre and reaches the ground at its radius",
+TEST_CASE("a mountain summits on its crest and reaches the ground at its radius",
           "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    addPlainMountain(graph, "peak");
-
-    const auto field = evaluateNode(graph, "peak");
+    // The summit stands on a crest through the middle of the massif rather than
+    // on the centre cell, so it is the distance from the centre that is
+    // checked, not the height of one particular cell.
+    const auto field = plainMountainField(resolution, leaveAsItIs);
     REQUIRE(field != nullptr);
-    REQUIRE(field->at(middle, middle) > 990.0f);
+    const Cell summit = highestCell(*field, resolution);
+    const double fromCentre = std::hypot(summit.column - middle, summit.row - middle)
+                              * worldSize / resolution;
+    REQUIRE(fromCentre < 4000.0 * 0.4);
+    REQUIRE(field->maximum() > 950.0f);
     REQUIRE(field->at(0, 0) == Approx(0.0));
     REQUIRE(allSamplesWithin(*field, 0.0f, 1000.0f));
 }
 
 TEST_CASE("a mountain sits on the altitude it is given", "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    terrain::GraphNode& mountain = addPlainMountain(graph, "peak");
-    mountain.parameters["baseAltitude"] = ParameterValue{250.0, ""};
-
-    const auto field = evaluateNode(graph, "peak");
+    const auto field = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["baseAltitude"] = ParameterValue{250.0, ""};
+    });
     REQUIRE(field->minimum() == Approx(250.0));
-    REQUIRE(field->maximum() == Approx(1250.0).margin(10.0));
+    // The summit is a point on a ridge line, so the grid reaches it only as
+    // closely as a cell allows; nothing may stand above it.
+    REQUIRE(field->maximum() <= 1250.0f);
+    REQUIRE(field->maximum() > 1200.0f);
 }
 
 TEST_CASE("a sharper peak carries less mass on its flanks", "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    addPlainMountain(graph, "blunt");
-    terrain::GraphNode& sharp = addPlainMountain(graph, "sharp");
-    sharp.parameters["peakSharpness"] = ParameterValue{3.0, ""};
+    const auto bluntField = plainMountainField(resolution, leaveAsItIs);
+    const auto sharpField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["peakSharpness"] = ParameterValue{3.0, ""};
+    });
 
-    const auto bluntField = evaluateNode(graph, "blunt");
-    const auto sharpField = evaluateNode(graph, "sharp");
-    REQUIRE(sharpField->at(middle, middle + 12) < bluntField->at(middle, middle + 12));
-    REQUIRE(sharpField->at(middle, middle) == Approx(bluntField->at(middle, middle)).margin(15.0));
+    const Cell summit = highestCell(*bluntField, resolution);
+    const double mid = 4000.0 * 0.5 / (worldSize / resolution);
+    REQUIRE(meanHeightOnRing(*sharpField, resolution, summit, mid - 1.0, mid + 1.0)
+            < meanHeightOnRing(*bluntField, resolution, summit, mid - 1.0, mid + 1.0));
+    REQUIRE(sharpField->maximum() == Approx(bluntField->maximum()).margin(15.0));
 }
 
 TEST_CASE("detail roughens the slopes without lifting the summit",
           "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    terrain::GraphNode& rough = addPlainMountain(graph, "rough");
-    rough.parameters["detailStrength"] = ParameterValue{1.0, ""};
-
-    const auto field = evaluateNode(graph, "rough");
+    const auto field = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    });
     REQUIRE(field->maximum() <= 1000.0f);
     REQUIRE_FALSE(isConstant(*field));
 }
 
 TEST_CASE("detail leaves the summit alone and bites hardest on the flanks",
           "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    addPlainMountain(graph, "plain");
-    terrain::GraphNode& rough = addPlainMountain(graph, "rough");
-    rough.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    const auto plainField = plainMountainField(resolution, leaveAsItIs);
+    const auto roughField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    });
 
-    const auto plainField = evaluateNode(graph, "plain");
-    const auto roughField = evaluateNode(graph, "rough");
-    const float atSummit = plainField->at(middle, middle) - roughField->at(middle, middle);
-    const float onFlank = plainField->at(middle, middle + 10) - roughField->at(middle, middle + 10);
-    REQUIRE(atSummit < 20.0f);
-    REQUIRE(onFlank > atSummit);
+    const Cell summit = highestCell(*plainField, resolution);
+    const float atSummit =
+        plainField->at(summit.column, summit.row) - roughField->at(summit.column, summit.row);
+    const double mid = 4000.0 * 0.5 / (worldSize / resolution);
+    const float onFlank = meanHeightOnRing(*plainField, resolution, summit, mid - 1.0, mid + 1.0)
+                          - meanHeightOnRing(*roughField, resolution, summit, mid - 1.0, mid + 1.0);
+    // The grid meets the crest within a cell rather than on it, so a little of
+    // the carve reaches the summit cell; what matters is that the flanks lose
+    // several times as much.
+    REQUIRE(atSummit < 80.0f);
+    REQUIRE(onFlank > atSummit * 3.0f);
 }
 
 TEST_CASE("detail carves no deeper than the spacing between its ridges allows",
@@ -139,17 +227,17 @@ TEST_CASE("detail carves no deeper than the spacing between its ridges allows",
     constexpr double deepestAllowed = detailSizeMeters * 0.5;
 
     for (const double height : {1000.0, 8000.0}) {
-        Graph graph = squareGraph(fineResolution, worldSize);
-        terrain::GraphNode& plain = addPlainMountain(graph, "plain");
-        plain.parameters["height"] = ParameterValue{height, ""};
-        plain.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
-        terrain::GraphNode& rough = addPlainMountain(graph, "rough");
-        rough.parameters["height"] = ParameterValue{height, ""};
-        rough.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
-        rough.parameters["detailStrength"] = ParameterValue{1.0, ""};
-
-        const auto plainField = evaluateNode(graph, "plain");
-        const auto roughField = evaluateNode(graph, "rough");
+        const auto plainField =
+            plainMountainField(fineResolution, [height](terrain::GraphNode& mountain) {
+                mountain.parameters["height"] = ParameterValue{height, ""};
+                mountain.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
+            });
+        const auto roughField =
+            plainMountainField(fineResolution, [height](terrain::GraphNode& mountain) {
+                mountain.parameters["height"] = ParameterValue{height, ""};
+                mountain.parameters["featureSize"] = ParameterValue{detailSizeMeters, ""};
+                mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+            });
 
         float deepestCut = 0.0f;
         for (int row = 0; row < fineResolution; ++row) {
@@ -164,16 +252,40 @@ TEST_CASE("detail carves no deeper than the spacing between its ridges allows",
 }
 
 TEST_CASE("drawing the detail out into spurs changes the slopes", "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    terrain::GraphNode& round = addPlainMountain(graph, "round");
-    round.parameters["detailStrength"] = ParameterValue{1.0, ""};
-    round.parameters["spurElongation"] = ParameterValue{0.0, ""};
-    terrain::GraphNode& spurred = addPlainMountain(graph, "spurred");
-    spurred.parameters["detailStrength"] = ParameterValue{1.0, ""};
-    spurred.parameters["spurElongation"] = ParameterValue{0.9, ""};
+    const auto roundField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+        mountain.parameters["spurElongation"] = ParameterValue{0.0, ""};
+    });
+    const auto spurredField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+        mountain.parameters["spurElongation"] = ParameterValue{0.9, ""};
+    });
+    REQUIRE(hashField(*roundField) != hashField(*spurredField));
+}
 
-    REQUIRE(hashField(*evaluateNode(graph, "round"))
-            != hashField(*evaluateNode(graph, "spurred")));
+TEST_CASE("a mountain falls away from its summit at once", "[nodes][mountain]") {
+    // A mass drawn as a falloff from a point has no gradient at that point, so
+    // it stands under a dome however much detail is laid over it. Hung off a
+    // crest instead, the ground gives way as soon as it leaves the ridge.
+    constexpr int fineResolution = 256;
+    const auto field = mountainField(fineResolution, leaveAsItIs);
+    const Cell summit = highestCell(*field, fineResolution);
+    const double ring = 250.0 / (worldSize / fineResolution);
+    const float fall = field->at(summit.column, summit.row)
+                       - meanHeightOnRing(*field, fineResolution, summit, ring - 1.0, ring + 1.0);
+    REQUIRE(fall > 1200.0f * 0.07f);
+}
+
+TEST_CASE("the flanks carry ridges and the valleys between them", "[nodes][mountain]") {
+    // With the detail and the bend both at zero the skeleton is all there is,
+    // so a ring around the massif crosses ridge and valley only if the mass is
+    // hung off ridge lines rather than off the centre.
+    constexpr int fineResolution = 256;
+    const auto field = plainMountainField(fineResolution, leaveAsItIs);
+    const Cell centre{fineResolution / 2, fineResolution / 2};
+    const double ring = 2000.0 / (worldSize / fineResolution);
+    REQUIRE(heightSpreadOnRing(*field, fineResolution, centre, ring - 1.0, ring + 1.0)
+            > 1000.0f * 0.15f);
 }
 
 TEST_CASE("a mountain draws the same shape at any thread count",
@@ -205,13 +317,11 @@ TEST_CASE("the relief a mountain draws follows the height it is given",
 }
 
 TEST_CASE("scaling a mountain widens its footprint", "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    addPlainMountain(graph, "small");
-    terrain::GraphNode& large = addPlainMountain(graph, "large");
-    large.parameters["scale"] = ParameterValue{1.6, ""};
+    const auto smallField = plainMountainField(resolution, leaveAsItIs);
+    const auto largeField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["scale"] = ParameterValue{1.6, ""};
+    });
 
-    const auto smallField = evaluateNode(graph, "small");
-    const auto largeField = evaluateNode(graph, "large");
     // Eight cells past the small mountain's radius of 4000 m there is nothing
     // left of it, while the scaled one still stands.
     const int beyondFoot = middle + 4000 / static_cast<int>(worldSize / resolution) + 8;
@@ -221,30 +331,30 @@ TEST_CASE("scaling a mountain widens its footprint", "[nodes][mountain]") {
 
 TEST_CASE("a bulkier mountain stands further out from its summit",
           "[nodes][mountain]") {
-    Graph graph = squareGraph(resolution, worldSize);
-    terrain::GraphNode& slender = addPlainMountain(graph, "slender");
-    slender.parameters["bulk"] = ParameterValue{0.0, ""};
-    terrain::GraphNode& broad = addPlainMountain(graph, "broad");
-    broad.parameters["bulk"] = ParameterValue{2.0, ""};
+    const auto slenderField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["bulk"] = ParameterValue{0.0, ""};
+    });
+    const auto broadField = plainMountainField(resolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["bulk"] = ParameterValue{2.0, ""};
+    });
 
-    const auto slenderField = evaluateNode(graph, "slender");
-    const auto broadField = evaluateNode(graph, "broad");
-    REQUIRE(broadField->at(middle, middle + 10) > slenderField->at(middle, middle + 10));
+    const Cell summit = highestCell(*broadField, resolution);
+    const double mid = 4000.0 * 0.5 / (worldSize / resolution);
+    REQUIRE(meanHeightOnRing(*broadField, resolution, summit, mid - 1.0, mid + 1.0)
+            > meanHeightOnRing(*slenderField, resolution, summit, mid - 1.0, mid + 1.0));
     REQUIRE(broadField->maximum() == Approx(slenderField->maximum()).margin(15.0));
 }
 
 TEST_CASE("reducing detail drops the finest ridges and keeps the mass",
           "[nodes][mountain]") {
     constexpr int fineResolution = 256;
-    Graph graph = squareGraph(fineResolution, worldSize);
-    terrain::GraphNode& detailed = graph.addNode("detailed", "Mountain");
-    detailed.parameters["detailStrength"] = ParameterValue{1.0, ""};
-    terrain::GraphNode& reduced = graph.addNode("reduced", "Mountain");
-    reduced.parameters["detailStrength"] = ParameterValue{1.0, ""};
-    reduced.parameters["reduceDetails"] = ParameterValue{1.0, ""};
-
-    const auto detailedField = evaluateNode(graph, "detailed");
-    const auto reducedField = evaluateNode(graph, "reduced");
+    const auto detailedField = mountainField(fineResolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+    });
+    const auto reducedField = mountainField(fineResolution, [](terrain::GraphNode& mountain) {
+        mountain.parameters["detailStrength"] = ParameterValue{1.0, ""};
+        mountain.parameters["reduceDetails"] = ParameterValue{1.0, ""};
+    });
     REQUIRE(meanNeighbourStep(*reducedField, fineResolution)
             < meanNeighbourStep(*detailedField, fineResolution) * 0.8f);
     REQUIRE(reducedField->maximum() == Approx(detailedField->maximum()).margin(30.0));
