@@ -73,6 +73,7 @@ add_library(terrain_engine STATIC
     src/nodes/mask_nodes.cpp
     src/nodes/erosion_support.cpp
     src/nodes/erosion_nodes.cpp
+    src/nodes/fluvial_nodes.cpp
     src/gpu/erosion_backend.cpp
     src/gpu/denormal_mode.cpp
     src/nodes/combine_nodes.cpp

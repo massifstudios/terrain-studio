@@ -16,6 +16,7 @@ void registerBuiltinNodes(NodeRegistry& registry) {
     nodes::registerTransformNodes(api, handle);
     nodes::registerAdjustNodes(api, handle);
     nodes::registerErosionNodes(api, handle);
+    nodes::registerFluvialNodes(api, handle);
     nodes::registerMaskNodes(api, handle);
     nodes::registerCombineNodes(api, handle);
     nodes::registerTextureNodes(api, handle);

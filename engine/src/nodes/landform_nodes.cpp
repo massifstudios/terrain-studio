@@ -501,7 +501,7 @@ constexpr float transverseShare = 0.7f;
 constexpr float deepestValleyShare = 0.85f;
 
 /// How far the ground may be bent per unit of irregularity, as a share of the
-/// width the bend is drawn at. Past about a quarter the displacement's own
+/// distance the bend is drawn over. Past about a quarter the displacement's own
 /// gradient exceeds one and the field folds over itself, which stretches one
 /// side of every fold into a smear and stacks the other into a cliff.
 constexpr double rangeWarpShare = 0.2;
@@ -596,12 +596,14 @@ void evaluateMountainRange(const TerrainContextApi* api, TerrainEvaluationContex
     layout.saddleHeight = static_cast<float>(api->parameterNumber(context, 8));
     layout.peakSharpness = static_cast<float>(api->parameterNumber(context, 9));
 
+    // The bend is drawn at the summit spacing rather than the width, so a
+    // long range meanders between its summits instead of swaying as one.
     DomainWarp warp;
     warp.eastingSeed = terrainSeedForLane(seed, 1);
     warp.northingSeed = terrainSeedForLane(seed, 2);
-    warp.featureSizeMeters = static_cast<float>(widthMeters);
-    warp.amountMeters =
-        static_cast<float>(api->parameterNumber(context, 11) * widthMeters * rangeWarpShare);
+    warp.featureSizeMeters = static_cast<float>(layout.summitSpacingMeters);
+    warp.amountMeters = static_cast<float>(api->parameterNumber(context, 11)
+                                           * layout.summitSpacingMeters * rangeWarpShare);
     const std::uint64_t detailSeed = terrainSeedForLane(seed, 3);
     float* output = api->outputField(context, 0);
 

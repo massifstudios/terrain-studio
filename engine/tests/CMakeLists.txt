@@ -49,6 +49,7 @@ add_executable(terrain_engine_tests
     test_color_nodes.cpp
     test_landform_nodes.cpp
     test_erosion.cpp
+    test_fluvial.cpp
     test_erosion_gpu.cpp
     test_texturing.cpp
 )
