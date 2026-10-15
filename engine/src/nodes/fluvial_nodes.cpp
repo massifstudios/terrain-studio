@@ -20,6 +20,14 @@ namespace {
  * range actually has and which no amount of rain sprinkled over a smooth
  * slope will find on its own.
  *
+ * Given an uplift mask, the ground under it rises a little before every pass,
+ * and the streams cut against that rise. Cutting alone only ever lowers a
+ * surface, so it can carve a mountain but never make one; rising against the
+ * cutting, the ground settles toward the balance where every stream cuts down
+ * exactly as fast as the rock comes up, and that balance is a mountain range:
+ * branching ridges, valleys widening downstream, and peaks standing where the
+ * uplift is strongest and the drainage weakest. After Cordonnier et al. 2016.
+ *
  * Everything is in metres and the pass count is fixed, so the same settings
  * give the same landscape at any resolution as closely as the grid allows.
  */
@@ -42,6 +50,8 @@ struct FluvialSettings {
     double concavity = 0.5;
     /// Hillslope diffusivity per pass, in square metres.
     double creepSquareMeters = 0.0;
+    /// How far the ground under a full uplift mask rises per pass, in metres.
+    double upliftMeters = 0.0;
 };
 
 /// Where each cell's water goes and in what shares, and an order that visits
@@ -255,6 +265,25 @@ void creep(const TerrainContextApi* api, TerrainEvaluationContext* context,
     }
 }
 
+/**
+ * The rise of one pass. The border of the grid is where the water leaves, so
+ * it stays where it is: raised with the rest, an edge cell with no lower
+ * neighbour inside the grid would have nowhere to drain and would rise
+ * without end.
+ */
+void uplift(const float* upliftMask, const FluvialSettings& settings, float* surface) {
+    if (upliftMask == nullptr || settings.upliftMeters <= 0.0) {
+        return;
+    }
+    for (int row = 1; row + 1 < settings.size; ++row) {
+        for (int column = 1; column + 1 < settings.size; ++column) {
+            const std::size_t index = static_cast<std::size_t>(row) * settings.size + column;
+            surface[index] += static_cast<float>(std::clamp(upliftMask[index], 0.0f, 1.0f)
+                                                 * settings.upliftMeters);
+        }
+    }
+}
+
 /// The catchment as a mask: log-scaled, 0 at a single cell, 1 at the whole grid.
 void writeDrainageMask(const FlowRouting& routing, const FluvialSettings& settings,
                        float* destination) {
@@ -268,7 +297,9 @@ void writeDrainageMask(const FlowRouting& routing, const FluvialSettings& settin
 
 const TerrainPortDescriptor fluvialInputs[] = {
     {"In", "The surface to erode", TerrainPortType_Field, TerrainFieldSemantics_Heightfield, 0},
-    {"Mask", "Scales the effect per cell", TerrainPortType_Field, TerrainFieldSemantics_Mask, 1}};
+    {"Mask", "Scales the effect per cell", TerrainPortType_Field, TerrainFieldSemantics_Mask, 1},
+    {"Uplift", "Where the ground rises against the streams, and how strongly",
+     TerrainPortType_Field, TerrainFieldSemantics_Mask, 1}};
 
 const TerrainPortDescriptor fluvialOutputs[] = {
     {"Out", "The eroded surface", TerrainPortType_Field, TerrainFieldSemantics_Heightfield, 0},
@@ -288,7 +319,11 @@ const TerrainParameterDescriptor fluvialParameters[] = {
     {"creep", "Hillslope creep",
      "How far loose ground creeps down the hillslopes each pass, which rounds the divides "
      "between streams",
-     "m", TerrainParameterType_Float, 10.0, 0.0, 500.0, "", nullptr, 0}};
+     "m", TerrainParameterType_Float, 10.0, 0.0, 500.0, "", nullptr, 0},
+    {"uplift", "Uplift",
+     "How far the ground under a full uplift mask rises each pass; only used with an uplift "
+     "mask connected",
+     "m", TerrainParameterType_Float, 5.0, 0.0, 500.0, "", nullptr, 0}};
 
 FluvialSettings fluvialSettingsFor(const TerrainContextApi* api,
                                    TerrainEvaluationContext* context) {
@@ -302,6 +337,7 @@ FluvialSettings fluvialSettingsFor(const TerrainContextApi* api,
     // grows with the square root of its strength.
     const double creepMeters = api->parameterNumber(context, 3);
     settings.creepSquareMeters = creepMeters * creepMeters * 0.25;
+    settings.upliftMeters = api->parameterNumber(context, 4);
     return settings;
 }
 
@@ -317,11 +353,13 @@ void evaluateFluvialErosion(const TerrainContextApi* api, TerrainEvaluationConte
     std::vector<float> surface(input, input + count);
     std::vector<float> scratch(count);
     FlowRouting routing(count);
+    const float* upliftMask = api->inputField(context, 2);
 
     for (int pass = 0; pass < settings.passes; ++pass) {
         if (api->isCancelled(context) != 0) {
             return;
         }
+        uplift(upliftMask, settings, surface.data());
         routeFlow(api, context, surface.data(), settings, routing);
         orderDownhill(settings, routing);
         accumulateDrainage(settings, routing);
@@ -341,11 +379,11 @@ const TerrainNodeDescriptor fluvialDescriptor = {
     "Cuts a branching network of stream valleys with sharp divides between them",
     1,
     fluvialInputs,
-    2,
+    3,
     fluvialOutputs,
     2,
     fluvialParameters,
-    4,
+    5,
     &evaluateFluvialErosion};
 
 }  // namespace

@@ -2,6 +2,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numbers>
 
 #include "node_test_support.h"
 
@@ -125,4 +128,73 @@ TEST_CASE("fluvial erosion cuts the same valleys at any thread count",
 
     REQUIRE(hashField(*evaluateNode(graph, "eroded", 1))
             == hashField(*evaluateNode(graph, "eroded", 8)));
+}
+
+namespace {
+
+/// Gently rippled ground with a dome of uplift under it, so the streams have
+/// something to find their way around while the ground rises.
+terrain::GraphNode& addUpliftedRange(Graph& graph, int passes) {
+    terrain::GraphNode& ripples = graph.addNode("ripples", "Perlin");
+    ripples.parameters["featureSize"] = ParameterValue{800.0, ""};
+    ripples.parameters["amplitude"] = ParameterValue{10.0, ""};
+    terrain::GraphNode& rise = graph.addNode("rise", "RadialGradient");
+    rise.parameters["radius"] = ParameterValue{4000.0, ""};
+    rise.parameters["amplitude"] = ParameterValue{1.0, ""};
+    terrain::GraphNode& range = graph.addNode("range", "FluvialErosion");
+    range.parameters["passes"] = ParameterValue{static_cast<double>(passes), ""};
+    range.parameters["incision"] = ParameterValue{120.0, ""};
+    range.parameters["creep"] = ParameterValue{10.0, ""};
+    range.parameters["uplift"] = ParameterValue{20.0, ""};
+    graph.connect("ripples", 0, "range", 0);
+    graph.connect("rise", 0, "range", 2);
+    return range;
+}
+
+}  // namespace
+
+TEST_CASE("uplift raises a mountain the streams carve as it rises", "[nodes][fluvial]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    addUpliftedRange(graph, 150);
+    const auto range = evaluateNode(graph, "range");
+
+    const int middle = resolution / 2;
+    REQUIRE(range->at(middle, middle) > range->at(4, 4) + 500.0f);
+    // The border is where the water leaves, and it is never raised: it stays
+    // within the ripples it started as.
+    REQUIRE(std::abs(range->at(0, 0)) < 50.0f);
+    // A ring around the summit crosses ridges and the valleys between them,
+    // not the smooth flank of a dome.
+    float lowest = std::numeric_limits<float>::max();
+    float highest = std::numeric_limits<float>::lowest();
+    for (int step = 0; step < 360; ++step) {
+        const double angle = step * std::numbers::pi / 180.0;
+        const int column = middle + static_cast<int>(std::lround(20.0 * std::sin(angle)));
+        const int row = middle + static_cast<int>(std::lround(20.0 * std::cos(angle)));
+        lowest = std::min(lowest, range->at(column, row));
+        highest = std::max(highest, range->at(column, row));
+    }
+    REQUIRE(highest - lowest > (range->maximum() - range->minimum()) * 0.1f);
+}
+
+TEST_CASE("uplifted ground settles where the streams cut as fast as it rises",
+          "[nodes][fluvial]") {
+    // Rising unopposed, twice the passes would raise the summit twice as far.
+    // Against the streams it approaches a balance and grows far less.
+    Graph shortGraph = squareGraph(resolution, worldSize);
+    addUpliftedRange(shortGraph, 200);
+    Graph longGraph = squareGraph(resolution, worldSize);
+    addUpliftedRange(longGraph, 400);
+    const float shortSummit = evaluateNode(shortGraph, "range")->maximum();
+    const float longSummit = evaluateNode(longGraph, "range")->maximum();
+    CAPTURE(shortSummit, longSummit);
+    REQUIRE(longSummit < shortSummit * 1.2f);
+}
+
+TEST_CASE("an uplifted range is the same at any thread count", "[nodes][fluvial][determinism]") {
+    Graph graph = squareGraph(resolution, worldSize);
+    addUpliftedRange(graph, 60);
+
+    REQUIRE(hashField(*evaluateNode(graph, "range", 1))
+            == hashField(*evaluateNode(graph, "range", 8)));
 }
