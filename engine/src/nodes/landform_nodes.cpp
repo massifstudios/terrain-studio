@@ -213,10 +213,8 @@ constexpr noise::FractalOptions outlineOptions{2, 0.5f, 2.0f};
 /// How long the summit crest is, as a share of the reach to the foot. A summit
 /// is the high point of an arête rather than the tip of a cone, so the mass
 /// falls away from a line and the ground leaves it at an angle on every side.
-/// Long enough that the spurs leave it at points spread along its length
-/// rather than all meeting at one, which is what draws a mountain as a
-/// pinwheel; the fall along the crest is what keeps it from reading as a bar.
-constexpr double summitCrestShare = 0.34;
+/// Short, so the top reads as a peak on a ridge rather than as a bar.
+constexpr double summitCrestShare = 0.12;
 
 /* ---------------------------------------------------------------- gullies -- */
 
@@ -493,83 +491,50 @@ float gullyDepthAt(const PolarPoint& polar, const GroundPoint& ground, double st
 
 /* ----------------------------------------------------------- the massif -- */
 
-
-/// How much of the mass the floor of a gully may lose at full detail. The cut
-/// is a share of the mass standing there, so the gullies of a tall mountain
-/// are as deep as the mountain is tall, and the relief dies away with the
-/// mass into the apron at the foot.
-constexpr float gullyDepthLimit = 0.5f;
-
 /// How many streaks the coarsest octave carries around the summit at least.
 constexpr int leastStreaksAround = 4;
 
-/// How far below the crest, as a share of the reach, the main valleys come to
-/// their full depth.
-constexpr double summitHoldShare = 0.5;
+/* ------------------------------------------------------ ridge skeleton -- */
 
-/// How much of the main valleys' depth notches the summit crest where they
-/// begin, so the top of the massif is an arête with cols in it rather than a
-/// smooth cap.
-constexpr float summitColShare = 0.15f;
+/**
+ * The major ridges of the massif: a few main ridges leaving the summit and
+ * bending as they run down toward the foot, and a shorter spur branching off
+ * each of them part way down. A cone hung off the summit alone draws every
+ * valley into one point; the ridges give the massif the few great spurs and
+ * the bays between them that the gullies are then cut into.
+ *
+ * Each ridge holds the ground up as though the summit were reached along it:
+ * the distance the mass falls over is the distance run along the ridge plus
+ * a multiple of the distance off it, so a ridge stands as a spur with steeper
+ * flanks to either side, and nowhere stands higher than the cone it lies in.
+ */
+constexpr int ridgeSegmentCount = 4;
+constexpr int fewestMainRidges = 3;
+constexpr int mostMainRidges = 5;
+constexpr int mostRidges = mostMainRidges * 2;
 
-/// How far out the coarsest valleys still cut, as a share of the reach. Past
-/// the foot, so the main valleys of a massif never merge away inside it.
-constexpr double mountainMergeShare = 2.0;
+struct RidgeLine {
+    std::array<GroundPoint, ridgeSegmentCount + 1> points{};
+    /// How far along the ridges from the summit the line's first point lies.
+    double startMeters = 0.0;
+    std::uint64_t seed = 0;
+};
 
-/// The narrowest gully a massif carries, as a share of its reach. Anything
-/// finer is fur: it has no room to hold a floor and two walls, so it reads as
-/// a crinkle laid over the rock rather than as drainage cut into it.
-constexpr double finestStreakShare = 1.0 / 160.0;
+struct RidgeSkeleton {
+    std::array<RidgeLine, mostRidges> lines{};
+    int lineCount = 0;
+};
 
-/// The narrowest gully the grid can hold, in cells. A streak narrower than
-/// this is sampled below its own width and comes out as speckle.
-constexpr double finestStreakCells = 4.0;
-
-/// How many generations of gullies a massif holds. Past this a generation has
-/// merged into the network below it before its streaks were ever wide enough
-/// on the ground to cut anything.
-constexpr int mountainOctaveCount = 7;
-
-/// How steeply the ground climbs out of a mountain's gully floor onto the spur
-/// beside it. High enough that the back of a spur is a broad ramp running down
-/// the flank with a valley either side of it, not a crease between two cuts.
-constexpr float mountainGullySharpness = 1.7f;
-
-/// How much of an octave's depth the next finer one carries. A hillshade reads
-/// slope rather than relief, and a generation half the size at half the depth
-/// stands at the same angle as its parent; well under half is what leaves the
-/// main valleys reading as the shape of the mountain and the rest as texture
-/// on it.
-constexpr float mountainGullyGain = 0.45f;
-
-/// How far below the crest, as a share of the reach, the faces under the
-/// summit stay uncut. The tip of a massif is bare rock at the angle the mass
-/// stands at; the chutes and valleys begin below it.
-constexpr double summitBareShare = 0.08;
-
-/// How far a mountain's streaks wander on the ground, in streak widths, and
-/// over what distance. Enough to take the straightness out of a ridge line
-/// without folding the streak back over itself.
-constexpr float mountainWanderStreaks = 0.2f;
-constexpr float mountainWanderFeatureStreaks = 1.2f;
-
-/// How unevenly the coarsest valleys are cut around the massif, and over how
-/// many streak widths that unevenness turns. A little under two, so one major
-/// spur differs from the next rather than from the far side of the mountain.
-constexpr float mountainDepthWanderShare = 0.45f;
-constexpr float mountainDepthWanderFeatureStreaks = 1.5f;
-
-/// Everything about a mountain that is fixed before the first gully is read.
+/// Everything about a mountain that is fixed before the first cell is read.
 struct MountainLayout {
     ShapePlacement placement;
     DomainWarp warp;
     RidgeSegment summitCrest;
-    GullyField gullies;
+    RidgeSkeleton ridges;
     double radiusMeters = 3000.0;
     double outlineFeatureSizeMeters = 3000.0;
     float outlineWanderShare = 0.0f;
     float profileExponent = 1.6f;
-    float gullyDepth = 0.0f;
     float heightMeters = 1200.0f;
     float baseAltitudeMeters = 0.0f;
     std::uint64_t outlineSeed = 0;
@@ -612,54 +577,61 @@ float coneMass(double fromCrestMeters, double reachMeters, float exponent) {
 constexpr double coreReachShare = 0.93;
 constexpr float apronHeightShare = 0.14f;
 constexpr float apronExponent = 2.0f;
+constexpr double coreEaseShare = 0.3;
 
 /// A massif's profile: a steep rock core standing over a low-angle apron, 1 on
 /// the crest and 0 at the foot, tangent to the plane where each of the two
 /// comes to its own end.
 float massifMass(double fromCrestMeters, double reachMeters, float exponent) {
-    const float core = coneMass(fromCrestMeters, reachMeters * coreReachShare, exponent);
+    // The core eases onto the apron over the last stretch of its reach rather
+    // than ending at a crease in its slope, which a hillshade draws as a ring
+    // around the whole foot.
+    const double coreLeft = 1.0 - fromCrestMeters / (reachMeters * coreReachShare);
+    const float coreEase =
+        smoothStep(static_cast<float>(std::clamp(coreLeft / coreEaseShare, 0.0, 1.0)));
+    const float core =
+        coneMass(fromCrestMeters, reachMeters * coreReachShare, exponent) * coreEase;
     const float apron = coneMass(fromCrestMeters, reachMeters, apronExponent);
     return core * (1.0f - apronHeightShare) + apron * apronHeightShare;
 }
 
-/// How far the ends of the summit arête stand below the summit, as a share of
-/// the height, so the crest is a line with one high point rather than a
-/// level wall.
+/// How far the summit stands above the rest of the crest, as a share of the
+/// height, and over what distance from the summit, as a share of the reach,
+/// that fall is spent. It is read from the summit point rather than along the
+/// crest, so it falls alike on every side and lays no band across the massif.
 constexpr float crestFallShare = 0.14f;
+constexpr double crestFallReachShare = 0.5;
 
 /// How deep the cols along the crest are cut below the line from the summit to
 /// its ends, how many of them it carries, and how far out from the crest they
 /// still shape the ground, in crest half lengths.
 ///
-/// The profile depends on where a point stands along the crest and on nothing
-/// else, so anything drawn into it runs right across the massif on a line: the
-/// cols have to be smooth, and they have to die out within a crest length of
-/// the crest, or the summit's own relief creases both flanks to the foot.
+/// The cols depend on where a point stands along the crest, so anything drawn
+/// into them runs right across the massif on a line: they have to be smooth,
+/// and they have to die out within a crest length of the crest, or the
+/// summit's own relief creases both flanks to the foot.
 constexpr float crestColShare = 0.08f;
 constexpr float crestColsPerLength = 2.2f;
 constexpr double crestColReachShare = 1.0;
 
-/// 1 at the summit in the middle of the crest, falling to `1 - crestFallShare`
-/// at either end and beyond it, so the mass is highest at one point and the
-/// massif runs longer along the crest than across it.
+/// 1 at the summit in the middle of the crest, falling away from it on every
+/// side, with shallow cols notched into the crest either side of the summit.
 float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, double fromCrestMeters,
-                   std::uint64_t seed) {
+                   double fallReachMeters, std::uint64_t seed) {
     const Heading along = headingFrom(crest.first, crest.second);
     const double halfLengthMeters =
         std::hypot(crest.second.eastingMeters - crest.first.eastingMeters,
                    crest.second.northingMeters - crest.first.northingMeters)
         * 0.5;
-    const double middleEast = (crest.first.eastingMeters + crest.second.eastingMeters) * 0.5;
-    const double middleNorth = (crest.first.northingMeters + crest.second.northingMeters) * 0.5;
-    const double alongShare = ((ground.eastingMeters - middleEast) * along.east
-                               + (ground.northingMeters - middleNorth) * along.north)
-                              / halfLengthMeters;
+    const double fromMiddleEast =
+        ground.eastingMeters - (crest.first.eastingMeters + crest.second.eastingMeters) * 0.5;
+    const double fromMiddleNorth =
+        ground.northingMeters - (crest.first.northingMeters + crest.second.northingMeters) * 0.5;
+    const float fall = smoothStep(static_cast<float>(
+        std::clamp(std::hypot(fromMiddleEast, fromMiddleNorth) / fallReachMeters, 0.0, 1.0)));
+    const double alongShare =
+        (fromMiddleEast * along.east + fromMiddleNorth * along.north) / halfLengthMeters;
     const float clamped = static_cast<float>(std::clamp(alongShare, -1.0, 1.0));
-    const float squared = clamped * clamped;
-    // The fall levels off at the ends of the crest, since a fall still going
-    // where the profile stops changing would fold a crease across the whole
-    // mass on a line through each end.
-    const float fall = 1.0f - (1.0f - squared) * (1.0f - squared);
     // The cols close to nothing at the summit, so the summit is the one point
     // on the crest that keeps the whole height and nothing stands above it,
     // and to nothing a crest length out, so they stay a feature of the crest.
@@ -667,33 +639,496 @@ float crestProfile(const RidgeSegment& crest, const GroundPoint& ground, double 
                                        fromCrestMeters / (halfLengthMeters * crestColReachShare),
                                        0.0, 1.0)));
     const float cols = (0.5f + 0.5f * noise::perlin(clamped * crestColsPerLength + 0.5f, 0.5f, seed))
-                       * squared * nearCrest;
+                       * clamped * clamped * nearCrest;
     return 1.0f - crestFallShare * fall - crestColShare * cols;
 }
 
-/// The mass, 1 on the summit crest and 0 at the foot.
-float massAt(const MountainLayout& layout, const GroundPoint& ground, double fromCrestMeters,
-             double reachMeters) {
-    return massifMass(fromCrestMeters, reachMeters, layout.profileExponent)
-           * crestProfile(layout.summitCrest, ground, fromCrestMeters, layout.crestSeed);
+/// How far a main ridge runs, as a share of the reach, before its length is
+/// varied, and how far its branch runs.
+constexpr double mainRidgeReachShare = 0.85;
+constexpr double branchRidgeReachShare = 0.45;
+
+/// How far a ridge may turn at each of its bends.
+constexpr double ridgeBendRadians = 0.55;
+
+/// How far off a main ridge's line its branch leaves, either side.
+constexpr double branchLeastAngleRadians = 0.55;
+constexpr double branchMostAngleRadians = 1.0;
+
+/// How much faster the ground falls off a ridge sideways than along it.
+constexpr double ridgeFlankSteepness = 2.5;
+
+/// How wide a ridge's crest is rounded, as a share of the radius. A knife-edge
+/// crest turns the fall over within a cell, and every gully octave that fades
+/// out against it leaves its own line along the crest.
+constexpr double ridgeCrestRoundingShare = 0.04;
+
+/// How much of the cone's height the ground between the ridges keeps.
+constexpr float betweenRidgesShare = 0.8f;
+
+/// How far shoulders stand above and cols sink below a ridge's even fall, as
+/// a share of the mass there, how far apart they come along the ridge as a
+/// share of the reach, and how far below the summit they begin.
+constexpr float shoulderShare = 0.07f;
+constexpr double shoulderSpacingShare = 0.3;
+constexpr double shoulderOnsetShare = 0.15;
+
+/// How far the rounding reaches where two ridges, or a ridge and the ground
+/// between them, meet, in shares of the height. A hard meeting creases the
+/// massif and turns its fall over at once along the crease.
+constexpr float ridgeMeetingRounding = 0.05f;
+
+RidgeLine ridgeLineFrom(const GroundPoint& start, double startMeters, double bearingRadians,
+                        double lengthMeters, std::uint64_t seed) {
+    std::uint64_t state = seed;
+    RidgeLine line;
+    line.startMeters = startMeters;
+    line.seed = terrainSeedForLane(seed, 1);
+    line.points[0] = start;
+    Heading heading{std::sin(bearingRadians), std::cos(bearingRadians)};
+    const double stepMeters = lengthMeters / ridgeSegmentCount;
+    for (int point = 1; point <= ridgeSegmentCount; ++point) {
+        heading = heading.turned(spreadFrom(&state, ridgeBendRadians));
+        line.points[point] = stepFrom(line.points[point - 1], heading, stepMeters);
+    }
+    return line;
 }
 
-float mountainHeightAt(const MountainLayout& layout, double eastingMeters, double northingMeters) {
+/// The branch of a main ridge: leaving it at one of its inner bends, to one
+/// side, on a bearing turned off the main ridge's own.
+RidgeLine branchRidgeFrom(const RidgeLine& main, double radiusMeters, std::uint64_t seed) {
+    std::uint64_t state = seed;
+    const int fork = 1 + static_cast<int>(terrainRandomUnitFloat(&state) * 2.0f);
+    const Heading along = headingFrom(main.points[fork], main.points[fork + 1]);
+    double turnRadians = branchLeastAngleRadians
+                         + terrainRandomUnitFloat(&state)
+                               * (branchMostAngleRadians - branchLeastAngleRadians);
+    if (terrainRandomUnitFloat(&state) < 0.5f) {
+        turnRadians = -turnRadians;
+    }
+    const Heading branch = along.turned(turnRadians);
+    const double stepMeters = std::hypot(main.points[1].eastingMeters - main.points[0].eastingMeters,
+                                         main.points[1].northingMeters - main.points[0].northingMeters);
+    const double lengthMeters =
+        radiusMeters * branchRidgeReachShare * (0.75 + 0.5 * terrainRandomUnitFloat(&state));
+    return ridgeLineFrom(main.points[fork], main.startMeters + stepMeters * fork,
+                         std::atan2(branch.east, branch.north), lengthMeters,
+                         terrainSeedForLane(seed, 2));
+}
+
+RidgeSkeleton ridgeSkeletonFor(const ShapePlacement& placement, double radiusMeters,
+                               std::uint64_t seed) {
+    std::uint64_t state = seed;
+    const int mainCount =
+        fewestMainRidges
+        + static_cast<int>(terrainRandomUnitFloat(&state) * (mostMainRidges - fewestMainRidges + 1));
+    const double spacingRadians = 2.0 * std::numbers::pi / mainCount;
+    const double firstBearingRadians = terrainRandomUnitFloat(&state) * spacingRadians;
+    const GroundPoint summit{placement.centreEastingMeters, placement.centreNorthingMeters};
+    RidgeSkeleton skeleton;
+    for (int ridge = 0; ridge < std::min(mainCount, mostMainRidges); ++ridge) {
+        const double bearingRadians = firstBearingRadians + ridge * spacingRadians
+                                      + spreadFrom(&state, spacingRadians * 0.3);
+        const double lengthMeters =
+            radiusMeters * mainRidgeReachShare * (0.8 + 0.4 * terrainRandomUnitFloat(&state));
+        const std::uint64_t ridgeSeed = terrainSeedForLane(seed, static_cast<std::uint64_t>(ridge) + 1);
+        const RidgeLine main = ridgeLineFrom(summit, 0.0, bearingRadians, lengthMeters, ridgeSeed);
+        skeleton.lines[skeleton.lineCount++] = main;
+        skeleton.lines[skeleton.lineCount++] =
+            branchRidgeFrom(main, radiusMeters, terrainSeedForLane(ridgeSeed, 3));
+    }
+    return skeleton;
+}
+
+/// The larger of two heights, rounded over `rounding` where they meet.
+float smoothMaximum(float first, float second, float rounding) {
+    const float blend = std::clamp(0.5f + 0.5f * (first - second) / rounding, 0.0f, 1.0f);
+    return second + (first - second) * blend + rounding * blend * (1.0f - blend);
+}
+
+/// How far a ridge stands above or below its even fall where a point lies
+/// along it: shoulders and cols, none close under the summit.
+float shoulderAt(const RidgeLine& line, double alongMeters, double radiusMeters) {
+    const float onset = smoothStep(static_cast<float>(
+        std::clamp(alongMeters / (radiusMeters * shoulderOnsetShare), 0.0, 1.0)));
+    const float bumps = noise::perlin(
+        static_cast<float>(alongMeters / (radiusMeters * shoulderSpacingShare)), 0.5f, line.seed);
+    return 1.0f + shoulderShare * bumps * onset;
+}
+
+/**
+ * How high a ridge holds the ground at a point: the highest of what each of
+ * its segments holds, each falling from the summit along the ridge to where
+ * the point leaves the segment and then off it, steeper to the side. Taking
+ * the highest over every segment, rather than reading the nearest segment,
+ * keeps the height continuous on the inside of a bend, where the nearest
+ * segment changes from one point to the next.
+ */
+float ridgeHeightAt(const RidgeLine& line, const GroundPoint& ground, double reachMeters,
+                    float exponent, double radiusMeters) {
+    float highest = 0.0f;
+    double runMeters = line.startMeters;
+    const double roundingMeters = radiusMeters * ridgeCrestRoundingShare;
+    for (int segment = 0; segment < ridgeSegmentCount; ++segment) {
+        const GroundPoint& first = line.points[segment];
+        const GroundPoint& second = line.points[segment + 1];
+        const double east = second.eastingMeters - first.eastingMeters;
+        const double north = second.northingMeters - first.northingMeters;
+        const double lengthMeters = std::max(std::hypot(east, north), 1.0e-9);
+        const double along = std::clamp(((ground.eastingMeters - first.eastingMeters) * east
+                                         + (ground.northingMeters - first.northingMeters) * north)
+                                            / (lengthMeters * lengthMeters),
+                                        0.0, 1.0);
+        const double offMeters =
+            std::hypot(ground.eastingMeters - first.eastingMeters - east * along,
+                       ground.northingMeters - first.northingMeters - north * along);
+        const double alongMeters = runMeters + along * lengthMeters;
+        const double roundedOffMeters =
+            std::hypot(offMeters, roundingMeters) - roundingMeters;
+        const float held =
+            massifMass(alongMeters + roundedOffMeters * ridgeFlankSteepness, reachMeters, exponent)
+            * shoulderAt(line, alongMeters, radiusMeters);
+        highest = std::max(highest, held);
+        runMeters += lengthMeters;
+    }
+    return highest;
+}
+
+double fromCrestAt(const MountainLayout& layout, const GroundPoint& ground) {
+    return segmentDistance(ground.eastingMeters, ground.northingMeters,
+                           layout.summitCrest.first.eastingMeters,
+                           layout.summitCrest.first.northingMeters,
+                           layout.summitCrest.second.eastingMeters,
+                           layout.summitCrest.second.northingMeters);
+}
+
+/// The smooth massif before any gully is cut, 1 on the summit and 0 at the
+/// foot.
+float massifAt(const MountainLayout& layout, double eastingMeters, double northingMeters) {
     const GroundPoint ground = warpedBy(layout.warp, eastingMeters, northingMeters);
-    const double fromCrestMeters = segmentDistance(
-        ground.eastingMeters, ground.northingMeters, layout.summitCrest.first.eastingMeters,
-        layout.summitCrest.first.northingMeters, layout.summitCrest.second.eastingMeters,
-        layout.summitCrest.second.northingMeters);
+    const double fromCrestMeters = fromCrestAt(layout, ground);
     const double reachMeters = reachAt(layout, ground);
-    const float mass = massAt(layout, ground, fromCrestMeters, reachMeters);
-    const PolarPoint polar = polarAboutCrest(layout.summitCrest, ground);
-    const double streakWidthMeters =
-        2.0 * std::numbers::pi * layout.radiusMeters / layout.gullies.countAround;
-    const float gullies = gullyDepthAt(polar, ground, streakWidthMeters, layout.gullies);
-    const float belowSummit = smoothStep(static_cast<float>(
-        std::clamp(fromCrestMeters / (layout.radiusMeters * summitBareShare), 0.0, 1.0)));
-    return mass * (1.0f - layout.gullyDepth * gullies * belowSummit) * layout.heightMeters
-           + layout.baseAltitudeMeters;
+    const float cone = massifMass(fromCrestMeters, reachMeters, layout.profileExponent)
+                       * crestProfile(layout.summitCrest, ground, fromCrestMeters,
+                                      layout.radiusMeters * crestFallReachShare, layout.crestSeed);
+    float height = cone * betweenRidgesShare;
+    for (int line = 0; line < layout.ridges.lineCount; ++line) {
+        const float ridge = ridgeHeightAt(layout.ridges.lines[line], ground, reachMeters,
+                                          layout.profileExponent, layout.radiusMeters);
+        height = smoothMaximum(height, ridge, ridgeMeetingRounding);
+    }
+    // The ridges meet the summit under the crest's own profile, so nothing
+    // stands above the summit.
+    return std::min(height, cone);
+}
+
+/// The massif's slope where a point stands, read across a given distance, in
+/// shares of the mountain's height per share of its radius, so a flank of the
+/// mountain's own mean steepness has a slope of about one whatever its size.
+/// Also how fast the direction of the fall turns there, in radians per metre:
+/// slowly down an open flank, fast across a crest or about the summit.
+struct SlopeReading {
+    float slopeEast = 0.0f;
+    float slopeNorth = 0.0f;
+    float turnPerMeter = 0.0f;
+};
+
+/// The fall of the massif from a nine-point stencil: its gradient, and the
+/// rate the gradient's direction turns, the curvature across the fall over the
+/// square of the slope.
+SlopeReading massifSlopeAt(const MountainLayout& layout, double eastingMeters,
+                           double northingMeters, float centre, double stepMeters) {
+    const auto at = [&](double eastSteps, double northSteps) {
+        return static_cast<double>(massifAt(layout, eastingMeters + eastSteps * stepMeters,
+                                            northingMeters + northSteps * stepMeters));
+    };
+    const double east = at(1.0, 0.0);
+    const double west = at(-1.0, 0.0);
+    const double north = at(0.0, 1.0);
+    const double south = at(0.0, -1.0);
+    const double twist =
+        (at(1.0, 1.0) - at(-1.0, 1.0) - at(1.0, -1.0) + at(-1.0, -1.0)) / (4.0 * stepMeters * stepMeters);
+    const double gradientEast = (east - west) / (2.0 * stepMeters);
+    const double gradientNorth = (north - south) / (2.0 * stepMeters);
+    const double curvatureEast = (east - 2.0 * centre + west) / (stepMeters * stepMeters);
+    const double curvatureNorth = (north - 2.0 * centre + south) / (stepMeters * stepMeters);
+    const double turnEast = -curvatureEast * gradientNorth + twist * gradientEast;
+    const double turnNorth = -twist * gradientNorth + curvatureNorth * gradientEast;
+    const double slopeSquared =
+        std::max(gradientEast * gradientEast + gradientNorth * gradientNorth, 1.0e-18);
+    return SlopeReading{static_cast<float>(gradientEast * layout.radiusMeters),
+                        static_cast<float>(gradientNorth * layout.radiusMeters),
+                        static_cast<float>(std::hypot(turnEast, turnNorth) / slopeSquared)};
+}
+
+/* ------------------------------------------------------- erosion filter -- */
+
+/**
+ * Gullies cut into the massif, after Rune Skovbo Johansen's erosion filter.
+ *
+ * Each octave lays stripes along the slope as it stands once the octaves
+ * above it are cut, so the gullies of one octave run down the walls of the
+ * last and leave them at an angle, which is what makes a drainage network
+ * branch. Every octave fades toward a target height rather than adding to
+ * the last: where the slope is gentle, and on the crests and floors the
+ * octave above left behind, the finer octaves give way to that target, so a
+ * spur keeps a clean crest, a gully keeps a clean V floor, and only the walls
+ * between carry the finer gullies. The target starts at the massif's own
+ * altitude, -1 at the foot and 1 on the summit, which is what keeps the
+ * summit a peak and the foot a plain.
+ *
+ * All of it is read in shares of the height and the radius, so a mountain
+ * twice as tall is cut exactly twice as deep.
+ */
+struct ErosionFilter {
+    /// The spacing of the coarsest gullies on the ground.
+    double coarsestSpacingMeters = 1400.0;
+    /// The narrowest spacing an octave may have before it fades out.
+    double finestSpacingMeters = 10.0;
+    double radiusMeters = 1900.0;
+    int octaveCount = 1;
+    float detailRetention = 1.0f;
+    /// How steep the coarsest walls are taken to be when they steer the
+    /// octave below, in the massif's slope units.
+    float wallSlope = 1.0f;
+    /// How steep the massif is taken to be when steering the stripes. Against
+    /// a steeper massif the walls of the octave above turn the next octave
+    /// less, so the gullies run straighter down the flank.
+    float steeringSlope = 2.0f;
+    std::uint64_t seed = 0;
+};
+
+constexpr int mostGullyOctaves = 10;
+
+/// The massif as the filter reads it: its height, the slope the gullies come
+/// in on, and its slope read across each octave's own width.
+struct MassifReading {
+    float height = 0.0f;
+    float slope = 0.0f;
+    std::array<SlopeReading, mostGullyOctaves> octaves{};
+};
+
+/// How far a gully's own walls turn the octave below it, as a share of the
+/// wall slope. Against the steering slope this sets the angle a tributary
+/// leaves its parent at; too little and the tributaries run alongside their
+/// parents as parallel streaks instead of branching.
+constexpr float gullySteeringShare = 1.0f;
+
+/// The massif slope at which the gullies come in fully. Gentler ground keeps
+/// to its fade target, so the plain and the apron stay uncut.
+constexpr float gullyOnsetSlope = 0.35f;
+
+/// How far up a gully wall the next octave comes in fully, in the wall's own
+/// climb from 0 on crest and floor to 1 halfway up.
+constexpr float wallOnsetClimb = 0.6f;
+
+/// How much of an octave's amplitude the next finer one keeps. At one half a
+/// finer gully, half the width, would stand as steep as its parent, and the
+/// walls of every octave would stack into a surface steeper than rock holds;
+/// a little under keeps each generation gentler than the last.
+constexpr float gullyOctaveGain = 0.4f;
+
+/// How strongly the octaves above hold back the ones below. Above one, a
+/// finer octave needs the walls of every coarser one to make room for it.
+constexpr float detailHoldBack = 1.5f;
+
+float easeOut(float share) {
+    const float clamped = std::clamp(share, 0.0f, 1.0f);
+    return 1.0f - (1.0f - clamped) * (1.0f - clamped);
+}
+
+/// The running state of the filter from one octave to the next.
+struct GullyCut {
+    float fadeTarget = 0.0f;
+    float mask = 0.0f;
+    /// The turn the walls cut so far give the octaves below.
+    float wallEast = 0.0f;
+    float wallNorth = 0.0f;
+    float cut = 0.0f;
+    float magnitude = 0.0f;
+    /// What the magnitude would be with every octave fully present, so a
+    /// place only the finer octaves reach is cut only as deep as they are.
+    float fullMagnitude = 0.0f;
+    /// The amplitude and wall slope of the octave about to be cut.
+    float amplitude = 0.0f;
+    float wallSlope = 0.0f;
+};
+
+GullyCut startingCut(const ErosionFilter& filter, const MassifReading& massif) {
+    GullyCut start;
+    start.fadeTarget = std::clamp(massif.height * 2.0f - 1.0f, -1.0f, 1.0f);
+    start.mask = easeOut(massif.slope / gullyOnsetSlope);
+    start.amplitude = 1.0f;
+    start.wallSlope = filter.wallSlope;
+    return start;
+}
+
+/// How far from a cell's centre its stripes are read, in stripe spacings. A
+/// fall that turns by an angle across a spacing shifts the stripes' phase by
+/// up to this many turns of that angle.
+constexpr float stripeReachSpacings = 1.25f;
+
+/// Where the fall turns fast against an octave's width, its stripes can no
+/// longer follow it: across a crest of the massif or close about the summit
+/// they would scramble into speckle. Between these two shares of a stripe's
+/// own phase advance per spacing, the octave fades out.
+constexpr float turnFadeStart = 0.6f;
+constexpr float turnFadeEnd = 1.5f;
+
+/// How much of an octave is drawn: none once its spacing is under the finest
+/// the massif carries, all of it at twice that, only as many octaves as the
+/// retained detail allows, and none where the fall turns faster than its
+/// stripes can follow.
+float octavePresence(const ErosionFilter& filter, int octave, double spacingMeters,
+                     const SlopeReading& slope) {
+    const float keptOctaves =
+        std::max(filter.detailRetention * static_cast<float>(filter.octaveCount), 1.0f);
+    const float kept = std::clamp(keptOctaves - static_cast<float>(octave), 0.0f, 1.0f);
+    const float widened = static_cast<float>(
+        std::clamp(spacingMeters / filter.finestSpacingMeters - 1.0, 0.0, 1.0));
+    const float turning =
+        slope.turnPerMeter * static_cast<float>(spacingMeters) * stripeReachSpacings;
+    const float followed =
+        1.0f - std::clamp((turning - turnFadeStart) / (turnFadeEnd - turnFadeStart), 0.0f, 1.0f);
+    return kept * smoothStep(widened) * smoothStep(followed);
+}
+
+/// The direction an octave's stripes run: down the massif as read across its
+/// own width, at the steering slope, turned by the walls cut above it.
+Heading octaveSteering(const ErosionFilter& filter, const GullyCut& cut,
+                       const SlopeReading& slope) {
+    const float slopeLength = std::max(std::hypot(slope.slopeEast, slope.slopeNorth), 1.0e-6f);
+    const float east = slope.slopeEast / slopeLength * filter.steeringSlope + cut.wallEast;
+    const float north = slope.slopeNorth / slopeLength * filter.steeringSlope + cut.wallNorth;
+    const float length = std::max(std::hypot(east, north), 1.0e-6f);
+    return Heading{east / length, north / length};
+}
+
+/// An octave that is absent where a point stands keeps to its fade target
+/// there, which is where a present octave faded all the way out would leave
+/// it, so the depth does not jump where an octave fades in.
+void keepToTarget(GullyCut& cut) {
+    cut.cut += cut.fadeTarget * cut.amplitude;
+    cut.magnitude += cut.amplitude;
+}
+
+void cutOctave(GullyCut& cut, const ErosionFilter& filter, const GroundPoint& ground, int octave,
+               double spacingMeters, const SlopeReading& slope, float presence) {
+    const Heading steering = octaveSteering(filter, cut, slope);
+    const noise::StripeSample stripes = noise::stripes(
+        static_cast<float>(ground.eastingMeters / spacingMeters),
+        static_cast<float>(ground.northingMeters / spacingMeters),
+        static_cast<float>(steering.east), static_cast<float>(steering.north), 1.0f,
+        terrainSeedForLane(filter.seed, static_cast<std::uint64_t>(octave)));
+    const float faded = cut.fadeTarget + (stripes.wave - cut.fadeTarget) * cut.mask * presence;
+    cut.cut += faded * cut.amplitude;
+    cut.magnitude += cut.amplitude;
+    cut.fadeTarget = faded;
+    // The next octave is steered by these walls as though each were straight,
+    // so the tributaries run straight off them rather than curling. An octave
+    // only partly present steers and holds back the ones below it only partly,
+    // or the place it fades in would draw a seam through every finer octave.
+    const float wallSide =
+        std::copysign(gullySteeringShare * cut.wallSlope * presence, stripes.climb);
+    const float acrossLength = std::max(
+        std::hypot(stripes.phaseGradientX, stripes.phaseGradientY), 1.0e-6f);
+    cut.wallEast -= wallSide * stripes.phaseGradientX / acrossLength;
+    cut.wallNorth -= wallSide * stripes.phaseGradientY / acrossLength;
+    const float wallMask = easeOut(std::abs(stripes.climb) / wallOnsetClimb);
+    const float heldMask = (1.0f - std::pow(1.0f - cut.mask, detailHoldBack)) * wallMask;
+    cut.mask += (heldMask - cut.mask) * presence;
+}
+
+/// How deep the gullies cut at a point, 0 where every octave stands at the
+/// top of its wave, as the summit does, and 1 on the floor of the deepest.
+float gullyCutAt(const ErosionFilter& filter, const GroundPoint& ground,
+                 const MassifReading& massif) {
+    GullyCut cut = startingCut(filter, massif);
+    double spacingMeters = filter.coarsestSpacingMeters;
+    for (int octave = 0; octave < filter.octaveCount; ++octave) {
+        const SlopeReading& slope = massif.octaves[octave];
+        const float presence = octavePresence(filter, octave, spacingMeters, slope);
+        if (presence > 0.0f) {
+            cutOctave(cut, filter, ground, octave, spacingMeters, slope, presence);
+        } else {
+            keepToTarget(cut);
+        }
+        spacingMeters *= 0.5;
+        cut.fullMagnitude += cut.amplitude;
+        cut.amplitude *= gullyOctaveGain;
+        cut.wallSlope *= gullyOctaveGain * 2.0f;
+    }
+    return (cut.magnitude - cut.cut) / (2.0f * cut.fullMagnitude);
+}
+
+/* ------------------------------------------------------------- mountain -- */
+
+/// How steep the coarsest gully walls are taken to be when they steer the
+/// octave below, in the massif's slope units, where a flank of the mountain's
+/// mean steepness is one.
+constexpr float steeringWallSlope = 1.0f;
+
+/// How steep the massif is taken to be when steering the gullies, at no spur
+/// length and at full spur length.
+constexpr float shortSpurSteeringSlope = 0.4f;
+constexpr float longSpurSteeringSlope = 1.6f;
+
+/// The narrowest gully a massif carries, as a share of its reach. Anything
+/// finer has no room to hold a floor and two walls, so it reads as a crinkle
+/// laid over the rock rather than as drainage cut into it.
+constexpr double finestGullyShare = 1.0 / 400.0;
+
+/// The narrowest gully the grid can hold, in cells. A gully narrower than this
+/// is sampled below its own width and comes out as speckle.
+constexpr double finestGullyCells = 4.0;
+
+
+/// How much of the massif the floor of the deepest gully loses at full
+/// detail. A share of the mass standing there rather than a depth, so the
+/// valleys shallow out into the apron with the mass and never reach the plain
+/// inside the footprint.
+constexpr float gullyDepthLimit = 0.45f;
+
+struct Mountain {
+    MountainLayout layout;
+    ErosionFilter erosion;
+    float gullyDepth = 0.0f;
+};
+
+/// How far across, as a share of an octave's spacing, the massif is read for
+/// that octave, and the least distance it is ever read across, as a share of
+/// the radius. Read across a quarter of the stripes' width, the slope an
+/// octave steers by carries no turn finer than the octave can follow.
+constexpr double octaveStencilShare = 0.25;
+constexpr double finestStencilShare = 0.01;
+
+MassifReading readMassif(const Mountain& mountain, double eastingMeters, double northingMeters) {
+    const MountainLayout& layout = mountain.layout;
+    MassifReading reading;
+    reading.height = massifAt(layout, eastingMeters, northingMeters);
+    const double finestStepMeters = layout.radiusMeters * finestStencilShare;
+    const SlopeReading finest =
+        massifSlopeAt(layout, eastingMeters, northingMeters, reading.height, finestStepMeters);
+    reading.slope = std::hypot(finest.slopeEast, finest.slopeNorth);
+    double spacingMeters = mountain.erosion.coarsestSpacingMeters;
+    for (int octave = 0; octave < mountain.erosion.octaveCount; ++octave) {
+        const double stepMeters = spacingMeters * octaveStencilShare;
+        reading.octaves[octave] = finest;
+        if (stepMeters > finestStepMeters) {
+            reading.octaves[octave] =
+                massifSlopeAt(layout, eastingMeters, northingMeters, reading.height, stepMeters);
+        }
+        spacingMeters *= 0.5;
+    }
+    return reading;
+}
+
+float mountainHeightAt(const Mountain& mountain, double eastingMeters, double northingMeters) {
+    const MassifReading massif = readMassif(mountain, eastingMeters, northingMeters);
+    const float cut =
+        gullyCutAt(mountain.erosion, GroundPoint{eastingMeters, northingMeters}, massif);
+    const float height = massif.height * (1.0f - mountain.gullyDepth * cut);
+    return height * mountain.layout.heightMeters + mountain.layout.baseAltitudeMeters;
 }
 
 /// The slow bend that takes the straightness out of the ridge lines.
@@ -727,25 +1162,9 @@ double streakStretchFor(const GullyField& gullies, double elongation) {
     return std::max(elongation * gullies.outwardSpan / streakWidth, 1.0);
 }
 
-/// How many streaks a walk from the crest to the foot crosses at full spur
-/// length. Well under one: a spur that gives way to the next part way down the
-/// flank is a chain of knolls, where a mountain's spur holds its line from the
-/// summit all the way out.
-constexpr double mountainStreaksDownFlank = 0.35;
-
-/// A mountain's stretch, set so the outward span of its frame is crossed by
-/// however many streaks the spur length allows.
-double mountainStreakStretch(const GullyField& gullies, double elongation) {
-    const double streakWidth = 2.0 * std::numbers::pi / gullies.countAround;
-    const double crossings = 1.0 - elongation * (1.0 - mountainStreaksDownFlank);
-    return std::max(gullies.outwardSpan / (streakWidth * crossings), 1.0);
-}
-
 MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
-                                  const WorldFrame& frame) {
+                                  const WorldFrame& frame, std::uint64_t seed) {
     const double scale = api->parameterNumber(context, 0);
-    const std::uint64_t seed = terrainSeedForLane(
-        api->randomSeed(context), static_cast<std::uint64_t>(api->parameterNumber(context, 5)));
     const int bulk = static_cast<int>(api->parameterNumber(context, 3));
     const float irregularity = static_cast<float>(api->parameterNumber(context, 11));
 
@@ -755,50 +1174,53 @@ MountainLayout mountainLayoutFrom(const TerrainContextApi* api, TerrainEvaluatio
     layout.radiusMeters = api->parameterNumber(context, 8) * scale;
     layout.summitCrest =
         summitCrestFor(layout.placement, layout.radiusMeters, terrainSeedForLane(seed, 5));
+    layout.ridges =
+        ridgeSkeletonFor(layout.placement, layout.radiusMeters, terrainSeedForLane(seed, 6));
     layout.profileExponent =
         static_cast<float>(api->parameterNumber(context, 10)) * bulkExponentScale(bulk);
-    const double spacingMeters = api->parameterNumber(context, 13) * scale * gulliesPerStreak;
-    layout.gullies.countAround = std::max(
-        static_cast<int>(std::round(2.0 * std::numbers::pi * layout.radiusMeters / spacingMeters)),
-        leastStreaksAround);
-    layout.gullies.outwardSpan =
-        std::log(2.0 * layout.radiusMeters / (layout.radiusMeters * summitCrestShare));
-    layout.gullies.stretch =
-        mountainStreakStretch(layout.gullies, api->parameterNumber(context, 14));
-    layout.gullies.holdMeters = layout.radiusMeters * summitHoldShare;
-    layout.gullies.octaveCount = mountainOctaveCount;
-    layout.gullies.crestCut = summitColShare;
-    layout.gullies.gullySharpness = mountainGullySharpness;
-    layout.gullies.gain = mountainGullyGain;
-    layout.gullies.coarsestMergeMeters = layout.radiusMeters * mountainMergeShare;
-    layout.gullies.finestStreakMeters = std::max(layout.radiusMeters * finestStreakShare,
-                                                 frame.cellSizeMeters * finestStreakCells);
-    layout.gullies.wanderStreaks = mountainWanderStreaks;
-    layout.gullies.wanderFeatureStreaks = mountainWanderFeatureStreaks;
-    layout.gullies.depthWanderShare = mountainDepthWanderShare;
-    layout.gullies.depthWanderFeatureStreaks = mountainDepthWanderFeatureStreaks;
-    layout.gullies.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
-    layout.gullies.seed = terrainSeedForLane(seed, 3);
     layout.outlineFeatureSizeMeters = layout.radiusMeters * std::numbers::pi / outlineLobeCount;
     layout.outlineWanderShare = irregularity * outlineWanderLimit;
     layout.heightMeters = static_cast<float>(api->parameterNumber(context, 1));
     layout.baseAltitudeMeters = static_cast<float>(api->parameterNumber(context, 9));
-    layout.gullyDepth = static_cast<float>(api->parameterNumber(context, 12)) * gullyDepthLimit;
     layout.warp = mountainWarpFor(layout.radiusMeters, irregularity, seed);
     layout.outlineSeed = terrainSeedForLane(seed, 4);
     layout.crestSeed = terrainSeedForLane(seed, 7);
     return layout;
 }
 
+ErosionFilter mountainErosionFrom(const TerrainContextApi* api, TerrainEvaluationContext* context,
+                                  const WorldFrame& frame, const MountainLayout& layout,
+                                  std::uint64_t seed) {
+    const double scale = api->parameterNumber(context, 0);
+    const float spurLength = static_cast<float>(api->parameterNumber(context, 14));
+    ErosionFilter erosion;
+    erosion.coarsestSpacingMeters = api->parameterNumber(context, 13) * scale;
+    erosion.finestSpacingMeters = std::max(layout.radiusMeters * finestGullyShare,
+                                           frame.cellSizeMeters * finestGullyCells);
+    erosion.radiusMeters = layout.radiusMeters;
+    erosion.octaveCount = mostGullyOctaves;
+    erosion.detailRetention = 1.0f - static_cast<float>(api->parameterNumber(context, 4));
+    erosion.wallSlope = steeringWallSlope;
+    erosion.steeringSlope =
+        shortSpurSteeringSlope + (longSpurSteeringSlope - shortSpurSteeringSlope) * spurLength;
+    erosion.seed = terrainSeedForLane(seed, 3);
+    return erosion;
+}
+
 void evaluateMountain(const TerrainContextApi* api, TerrainEvaluationContext* context) {
     const WorldFrame frame = worldFrameFor(api, context);
-    const MountainLayout layout = mountainLayoutFrom(api, context, frame);
+    const std::uint64_t seed = terrainSeedForLane(
+        api->randomSeed(context), static_cast<std::uint64_t>(api->parameterNumber(context, 5)));
+    Mountain mountain;
+    mountain.layout = mountainLayoutFrom(api, context, frame, seed);
+    mountain.erosion = mountainErosionFrom(api, context, frame, mountain.layout, seed);
+    mountain.gullyDepth = static_cast<float>(api->parameterNumber(context, 12)) * gullyDepthLimit;
     float* output = api->outputField(context, 0);
 
     forEachRowRange(api, context, frame.size, [&](int firstRow, int lastRow) {
         writeLandformRows(frame, firstRow, lastRow, output,
                           [&](double eastingMeters, double northingMeters) {
-                              return mountainHeightAt(layout, eastingMeters, northingMeters);
+                              return mountainHeightAt(mountain, eastingMeters, northingMeters);
                           });
     });
 }

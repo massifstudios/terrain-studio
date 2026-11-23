@@ -63,6 +63,35 @@ struct VoronoiSample {
     float cellValue = 0.0f;
 };
 
+/// One reading of `stripes`: where a point stands in the stripe's cycle, and
+/// how fast that cycle advances across the ground.
+struct StripeSample {
+    /// 1 on the crest of a stripe, -1 in its trough.
+    float wave = 0.0f;
+    /// Where the climb from trough to crest stands: 0 on crest and trough,
+    /// ±1 halfway up either wall.
+    float climb = 0.0f;
+    /// How fast the cycle advances per noise unit, in radians, along x and y.
+    /// The wave's own gradient is `-climb` times this.
+    float phaseGradientX = 0.0f;
+    float phaseGradientY = 0.0f;
+};
+
+/**
+ * Stripes running along a direction, `stripesPerUnit` of them across each
+ * noise unit, which is the shape a slope's gullies have.
+ *
+ * Each cell of a jittered grid draws its own stripes with its own phase, and
+ * neighbouring cells blend over a compact kernel. The direction may change from
+ * one sample to the next, so a caller can steer the stripes along a slope that
+ * itself varies, and the blend keeps the stripes continuous where it does. A
+ * blend of misaligned waves comes out weaker than either, so the result is
+ * scaled back toward full strength wherever it has kept at least half of it.
+ * After Rune Skovbo Johansen's Phacelle noise.
+ */
+StripeSample stripes(float x, float y, float alongX, float alongY, float stripesPerUnit,
+                     std::uint64_t seed);
+
 /// Jittered-grid cellular noise. `jitter` of 0 leaves the points on the grid.
 VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter);
 

@@ -203,6 +203,64 @@ VoronoiSample voronoiWithPeriod(float x, float y, std::uint64_t seed, float jitt
 
 }  // namespace
 
+namespace {
+
+/// How far a cell's stripes reach, in cells. With every cell's centre kept in
+/// the middle half of the cell, any point lies within this of some centre, and
+/// no cell further than one away from the point's own can reach it.
+constexpr float stripeReachCells = 1.25f;
+
+/// Below this share of full strength a blend of waves is left weak rather than
+/// scaled back up, because the direction of a near-zero blend is noise.
+constexpr float stripeRestoredShare = 0.5f;
+
+struct StripeBlend {
+    float wave = 0.0f;
+    float climb = 0.0f;
+    float weight = 0.0f;
+};
+
+void addCellStripes(StripeBlend& blend, float x, float y, std::int64_t cellX, std::int64_t cellY,
+                    float acrossX, float acrossY, std::uint64_t seed) {
+    std::uint64_t state = hashLattice(seed, cellX, cellY);
+    const float centreX = static_cast<float>(cellX) + 0.25f + terrainRandomUnitFloat(&state) * 0.5f;
+    const float centreY = static_cast<float>(cellY) + 0.25f + terrainRandomUnitFloat(&state) * 0.5f;
+    const float offsetX = x - centreX;
+    const float offsetY = y - centreY;
+    const float reached =
+        1.0f - (offsetX * offsetX + offsetY * offsetY) / (stripeReachCells * stripeReachCells);
+    if (reached <= 0.0f) {
+        return;
+    }
+    const float weight = reached * reached;
+    const float phase = offsetX * acrossX + offsetY * acrossY;
+    blend.wave += std::cos(phase) * weight;
+    blend.climb += std::sin(phase) * weight;
+    blend.weight += weight;
+}
+
+}  // namespace
+
+StripeSample stripes(float x, float y, float alongX, float alongY, float stripesPerUnit,
+                     std::uint64_t seed) {
+    constexpr float twoPi = 6.283185307179586f;
+    const float acrossX = -alongY * stripesPerUnit * twoPi;
+    const float acrossY = alongX * stripesPerUnit * twoPi;
+    const std::int64_t baseX = static_cast<std::int64_t>(std::floor(x));
+    const std::int64_t baseY = static_cast<std::int64_t>(std::floor(y));
+
+    StripeBlend blend;
+    for (std::int64_t offsetY = -1; offsetY <= 1; ++offsetY) {
+        for (std::int64_t offsetX = -1; offsetX <= 1; ++offsetX) {
+            addCellStripes(blend, x, y, baseX + offsetX, baseY + offsetY, acrossX, acrossY, seed);
+        }
+    }
+    const float wave = blend.wave / std::max(blend.weight, 1.0e-12f);
+    const float climb = blend.climb / std::max(blend.weight, 1.0e-12f);
+    const float strength = std::max(std::sqrt(wave * wave + climb * climb), stripeRestoredShare);
+    return StripeSample{wave / strength, climb / strength, acrossX, acrossY};
+}
+
 VoronoiSample voronoi(float x, float y, std::uint64_t seed, float jitter) {
     return voronoiWithPeriod(x, y, seed, jitter, 0);
 }
